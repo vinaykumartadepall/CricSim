@@ -13,13 +13,13 @@ Factors by format
   F5 quota pacing    yes        yes        —
 
 F5 quota pacing (T20/ODI only):
-  Replaces F3. Each bowler has a historical average overs/phase/match from the DB.
+  Pure urgency signal — phase preference is already handled by F1.
   At each over we compute:
-    phase_deficit  = max(0, avg_phase_overs − overs_already_in_phase)
-    future_risk    = max(0, avg_future_phase_overs − quota_remaining_after_this_over)
-    F5 = phase_deficit × 2.0 − future_risk × 2.0
-  Positive → bowl now to meet phase obligation.
-  Negative → save quota for preferred later phases.
+    expected_remaining = sum of blended over-frequencies for all future overs
+    future_risk        = max(0, expected_remaining − (quota_remaining − 1))
+    F5 = −future_risk × 2.0
+  Negative → bowler has more expected future overs than slots; no urgency to bowl now.
+  Zero     → bowler fits comfortably within remaining quota.
 
 F3 spell mgmt (Test only):
   continuity_weight=12.0  workload_harshness=12.0

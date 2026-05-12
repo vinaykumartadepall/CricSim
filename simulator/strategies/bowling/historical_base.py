@@ -414,25 +414,17 @@ class HistoricalBowlingBase(BowlingStrategy):
             return -1000.0
 
         current_over = match.current_over
-        # ODI cache is keyed by 5-over bin (over // 5); T20 by individual over number.
-        over_key = current_over // 5 if self._fmt == 'ODI' else current_over
-        g_freq = g_entry.get(over_key, 0.0)
-        if c_entry:
-            c_freq = c_entry.get(over_key, 0.0)
-            freq = _COUNTRY_WEIGHT * c_freq + _GLOBAL_WEIGHT * g_freq
-        else:
-            freq = g_freq
-
         overs_per_innings = match.overs_per_innings or (20 if self._fmt == 'T20' else 50)
-        baseline_freq = quota / overs_per_innings
-        freq_score = math.log(max(freq, 0.005) / baseline_freq) * 3.0
 
+        # F5 is purely a quota-urgency signal: how many overs does this bowler still
+        # "expect" to bowl in future overs vs how many quota slots remain?
+        # Phase preference (which over to bowl) is already handled by F1.
         expected_remaining = self._expected_remaining_overs(
             ip, current_over, overs_per_innings - 1, inning_num=inning_num,
         )
         future_risk = max(0.0, expected_remaining - (remaining - 1))
 
-        return freq_score - future_risk * 2.0
+        return -future_risk * 2.0
 
     def _expected_remaining_overs(self, ip: InningPlayer, current_over: int, max_over: int,
                                   inning_num: Optional[int] = None) -> float:

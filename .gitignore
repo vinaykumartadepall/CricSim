@@ -3,6 +3,7 @@
 
 # Data files
 data/
+db/*.db
 
 # Logs and output
 simulation.log
