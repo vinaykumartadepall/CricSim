@@ -1,0 +1,30 @@
+# Environment
+.env
+
+# Data files
+data/
+
+# Logs and output
+simulation.log
+match_logs/
+
+# Images / charts
+*.png
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.agents/
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/

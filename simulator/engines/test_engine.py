@@ -1,0 +1,189 @@
+from simulator.engines.base_engine import BaseEngine
+from simulator.engines.innings_simulator import InningsSimulator
+from simulator.entities.match import MatchStatus
+from simulator.entities.team import MatchTeam
+
+_FOLLOW_ON_THRESHOLD = 200
+
+
+class TestMatchEngine(BaseEngine):
+    """
+    Drives Test matches: four innings with a 450-over global cap, session breaks,
+    follow-on, and innings-victory logic. All ball-by-ball mechanics are in InningsSimulator.
+    """
+
+    def __init__(self, match, ball_outcome_strategy, bowling_strategy=None):
+        super().__init__(match, ball_outcome_strategy, bowling_strategy)
+        self.match_overs_total = 0
+
+    def simulate(self):
+        self._prepare_match_logs()
+        team1, team2 = self._execute_toss()
+
+        self._run_inning(1, team1, team2)
+        if self._check_match_completed():
+            return self._finalize_match()
+
+        self._run_inning(2, team2, team1)
+        if self._check_match_completed():
+            return self._finalize_match()
+
+        inn1 = self.match.innings[0]
+        inn2 = self.match.innings[1]
+        lead = inn1.batting_team.total_runs - inn2.batting_team.total_runs
+
+        if lead >= _FOLLOW_ON_THRESHOLD:
+            self.match.follow_on_enforced = True
+            self.logger.headline(
+                f"\n--- Follow-on enforced. {team2.name} require {lead} more runs "
+                f"to avoid the follow-on. {team2.name} batting again. ---\n"
+            )
+
+            self._run_inning(3, team2, team1)
+            if self._check_match_completed():
+                return self._finalize_match()
+
+            inn3 = self.match.innings[2]
+            team1_total = inn1.batting_team.total_runs
+            team2_total = inn2.batting_team.total_runs + inn3.batting_team.total_runs
+
+            if team1_total > team2_total:
+                # team1 wins by an innings
+                return self._finalize_match()
+
+            self.match.target_score = team2_total - team1_total + 1
+            self.logger.headline(
+                f"\n--- {team1.name} need {self.match.target_score} runs to win ---\n"
+            )
+            self._run_inning(4, team1, team2)
+        else:
+            self._run_inning(3, team1, team2)
+            if self._check_match_completed():
+                return self._finalize_match()
+
+            inn3 = self.match.innings[2]
+            # Team2 wins by innings if their single innings exceeds team1's combined total
+            if inn2.batting_team.total_runs > inn1.batting_team.total_runs + inn3.batting_team.total_runs:
+                return self._finalize_match()
+
+            self.match.target_score = (
+                inn1.batting_team.total_runs + inn3.batting_team.total_runs
+                - inn2.batting_team.total_runs + 1
+            )
+            self.logger.headline(
+                f"\n--- {team2.name} need {self.match.target_score} runs to win ---\n"
+            )
+            self._run_inning(4, team2, team1)
+
+        return self._finalize_match()
+
+    def _run_inning(self, inning_num: int, batting_team: MatchTeam, bowling_team: MatchTeam):
+        inning = self._create_inning(inning_num, batting_team, bowling_team)
+        self._set_initial_players()
+
+        remaining_global_overs = 450 - self.match_overs_total
+        sim = InningsSimulator(self.match, self.ball_outcomes, self.logger, self.bowling_strategy)
+        overs_played = sim.run(
+            max_overs=remaining_global_overs,
+            should_terminate=self._target_reached if inning_num == 4 else None,
+            on_over_complete=self._on_over_complete,
+        )
+        self.match_overs_total += overs_played
+
+        self._print_innings_summary(inning)
+        # Show lead/trail after innings 1 and 2; target announcement handles innings 3.
+        if inning_num <= 2:
+            self.logger.headline(self._lead_trail_message())
+        self.logger.headline(f"\n--- End of Inning {inning_num} ---\n")
+
+    def _target_reached(self) -> bool:
+        return (
+            self.match.target_score is not None
+            and self.match.current_batting_team.total_runs >= self.match.target_score
+        )
+
+    def _on_over_complete(self, innings_overs: int, over_runs: int, over_wickets: int):
+        """Triggers session breaks (Lunch/Tea/Stumps) every 30 overs of global match time."""
+        global_overs = self.match_overs_total + innings_overs
+        if global_overs % 30 != 0:
+            return
+
+        session_id = (global_overs // 30) % 3
+        day = ((global_overs - 1) // 90) + 1
+        label = {1: "Lunch", 2: "Tea"}.get(session_id, "Stumps")
+
+        self.logger.headline(f"\n=== Day {day}: {label} ===\n")
+        self._print_innings_summary(self.match.innings[-1])
+
+        situation = self._match_situation_message()
+        if situation:
+            self.logger.headline(situation)
+
+    def _lead_trail_message(self) -> str:
+        """Returns a 'X lead/trail by N runs' string based on all innings scored so far."""
+        innings = self.match.innings
+        if not innings:
+            return ""
+
+        first_team = innings[0].batting_team.name
+        second_team = innings[0].bowling_team.name
+
+        first_runs  = sum(inn.batting_team.total_runs for inn in innings if inn.batting_team.name == first_team)
+        second_runs = sum(inn.batting_team.total_runs for inn in innings if inn.batting_team.name == second_team)
+
+        diff = first_runs - second_runs
+        if diff > 0:
+            return f"{first_team} lead by {diff} run{'s' if diff != 1 else ''}"
+        if diff < 0:
+            return f"{second_team} lead by {abs(diff)} run{'s' if abs(diff) != 1 else ''}"
+        return "Scores are level"
+
+    def _match_situation_message(self) -> str:
+        """
+        Returns the context line shown at session breaks:
+        lead/trail for innings 1-3, runs needed for innings 4.
+        """
+        if self.match.current_inning == 4 and self.match.target_score:
+            runs_needed = self.match.target_score - self.match.current_batting_team.total_runs
+            return f"{self.match.current_batting_team.name} need {runs_needed} more runs to win"
+        return self._lead_trail_message()
+
+    def _check_match_completed(self) -> bool:
+        return self.match_overs_total >= 450
+
+    def _finalize_match(self):
+        self.logger.headline("\n=== Match Complete ===")
+
+        innings = self.match.innings
+        team_names = list(dict.fromkeys(inn.batting_team.name for inn in innings))
+        team_totals = {n: 0 for n in team_names}
+        for inn in innings:
+            team_totals[inn.batting_team.name] += inn.batting_team.total_runs
+
+        if self.match_overs_total >= 450:
+            res = "*** Match Drawn! ***"
+        elif len(innings) <= 3:
+            # Innings victory: one team batted once, the other twice
+            innings_count = {n: 0 for n in team_names}
+            for inn in innings:
+                innings_count[inn.batting_team.name] += 1
+            winner = next(n for n, c in innings_count.items() if c == 1)
+            loser  = next(n for n, c in innings_count.items() if c == 2)
+            margin = team_totals[winner] - team_totals[loser]
+            res = f"*** {winner} won by an innings and {margin} run{'s' if margin != 1 else ''}! ***"
+        elif len(innings) == 4:
+            batting_4th = innings[3].batting_team
+            if self.match.target_score and batting_4th.total_runs >= self.match.target_score:
+                res = f"*** {batting_4th.name} won by {10 - batting_4th.total_wickets} wicket{'s' if 10 - batting_4th.total_wickets != 1 else ''}! ***"
+            elif team_totals[team_names[0]] == team_totals[team_names[1]]:
+                res = "*** Match Tied! ***"
+            else:
+                winner = max(team_totals, key=team_totals.get)
+                margin = team_totals[team_names[0]] - team_totals[team_names[1]]
+                res = f"*** {winner} won by {abs(margin)} run{'s' if abs(margin) != 1 else ''}! ***"
+        else:
+            res = "*** Match Drawn! ***"
+
+        self.logger.headline(res)
+        self.match.status = MatchStatus.COMPLETED
+        return self.match
