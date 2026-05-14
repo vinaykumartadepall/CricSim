@@ -13,13 +13,17 @@ Factors by format
   F5 quota pacing    yes        yes        —
 
 F5 quota pacing (T20/ODI only):
-  Pure urgency signal — phase preference is already handled by F1.
-  At each over we compute:
-    expected_remaining = sum of blended over-frequencies for all future overs
-    future_risk        = max(0, expected_remaining − (quota_remaining − 1))
-    F5 = −future_risk × 2.0
-  Negative → bowler has more expected future overs than slots; no urgency to bowl now.
-  Zero     → bowler fits comfortably within remaining quota.
+  Quota-pace deviation — no phase boundaries.
+    natural_fraction = expected_remaining / avg_overs_per_innings
+    actual_fraction  = quota_remaining    / quota
+    deviation        = natural_fraction − actual_fraction
+    F5 = −deviation × avg_overs_per_innings × 2.0
+  deviation > 0 → more expected future work than quota pace → save slots → negative F5
+  deviation < 0 → ahead of pace, spare quota → bowl now → positive F5
+  Scaled by avg_overs_per_innings: specialists (avg ≈ 3–4) drive strong signals;
+  part-timers (avg ≈ 0.5–1) stay near-zero and cannot override F1.
+  T20: per-over resolution (DB keys 0-indexed: over N → key N-1).
+  ODI: per-5-over-bin resolution (key = over_number // 5, 0-indexed).
 
 F3 spell mgmt (Test only):
   continuity_weight=12.0  workload_harshness=12.0
@@ -44,10 +48,12 @@ class T20HistoricalBowlingStrategy(HistoricalBowlingBase):
     def _quota(self) -> int:
         return 4
 
-    # Minimum avg overs/innings (from historical data) to be considered a genuine
-    # bowling option. Filters part-timers like V Kohli (~0.7 avg) while keeping
-    # all-rounders like Pandya (~3.0 avg) and specialists (~4.0 avg).
-    _MIN_AVG_OVERS = 1.5
+    # Minimum avg_overs_per_match to be a genuine bowling option.
+    # Uses per-match-appearance avg (not per-bowling-occasion) so part-timers who
+    # bowl ~2 overs in 10% of matches correctly score ~0.2, not 2.0.
+    # 1.0 keeps Maxwell (1.44, bowls in ~66% of T20Is) and excludes SPD Smith (0.74),
+    # V Kohli (0.22), RG Sharma (0.07).
+    _MIN_AVG_OVERS = 1.0
 
     def _eligible(self, team, current_bowler, match: SimulationMatch):
         quota = self._quota()
@@ -57,11 +63,9 @@ class T20HistoricalBowlingStrategy(HistoricalBowlingBase):
         ]
         bowlers = [
             ip for ip in under_quota
-            if self.workload_cache.get(ip.id, {}).get('avg_overs_per_innings', 0.0) >= self._MIN_AVG_OVERS
+            if self.workload_cache.get(ip.id, {}).get('avg_overs_per_match', 0.0) >= self._MIN_AVG_OVERS
         ]
         return bowlers if bowlers else under_quota
-
-    _T20_PHASE_ORDER = ['pp', 'mid', 'death']
 
     def _score_and_breakdown(self, ip: InningPlayer, match: SimulationMatch) -> Tuple[float, dict]:
         if self._hard_cap(ip):
@@ -69,17 +73,14 @@ class T20HistoricalBowlingStrategy(HistoricalBowlingBase):
 
         over       = match.current_over
         inning_num = match.current_inning
-        f1   = self._f_over_affinity(ip, over, phase_weight=20.0, inning_num=inning_num)
-        f2   = self._f_match_form(ip) * 0.45
-        f4   = self._f_matchup(ip, match) * 0.35
+        f1 = self._f_over_affinity(ip, over, phase_weight=20.0, inning_num=inning_num)
+        f2 = self._f_match_form(ip) * 0.45
+        f4 = self._f_matchup(ip, match) * 0.35
+        f5 = self._f_phase_pacing(ip, quota=4, match=match)
+        f6 = self._f_death_reservation(ip, quota=4, match=match)
 
-        overs_in_phase = self._overs_in_phases(ip.id, match, self._t20_phase)
-        f5 = self._f_phase_pacing(ip, overs_in_phase, quota=4,
-                                  current_phase=self._t20_phase(over),
-                                  phase_order=self._T20_PHASE_ORDER, match=match)
-
-        return f1 + f2 + f4 + f5, {
-            "F1_over": f1, "F2_form": f2, "F4_matchup": f4, "F5_pacing": f5,
+        return f1 + f2 + f4 + f5 + f6, {
+            "F1_over": f1, "F2_form": f2, "F4_matchup": f4, "F5_pacing": f5, "F6_reserve": f6,
         }
 
 
@@ -100,11 +101,9 @@ class ODIHistoricalBowlingStrategy(HistoricalBowlingBase):
         ]
         bowlers = [
             ip for ip in under_quota
-            if self.workload_cache.get(ip.id, {}).get('avg_overs_per_innings', 0.0) >= self._MIN_AVG_OVERS
+            if self.workload_cache.get(ip.id, {}).get('avg_overs_per_match', 0.0) >= self._MIN_AVG_OVERS
         ]
         return bowlers if bowlers else under_quota
-
-    _ODI_PHASE_ORDER = ['pp', 'mid', 'death']
 
     def _score_and_breakdown(self, ip: InningPlayer, match: SimulationMatch) -> Tuple[float, dict]:
         if self._hard_cap(ip):
@@ -114,21 +113,17 @@ class ODIHistoricalBowlingStrategy(HistoricalBowlingBase):
         overs_per_inns = match.overs_per_innings or 50
         inning_num     = match.current_inning
 
-        # ODI uses 5-over bins (0-indexed: 0–9 for 50-over).
-        # over is 0-indexed → bin = over // 5.
+        # ODI F1 uses 5-over bins (0-indexed: over 1–5 → bin 0, over 46–50 → bin 9).
         bin_idx = over // 5
+        quota   = overs_per_inns // 5
         f1 = self._f_over_affinity(ip, bin_idx, phase_weight=20.0, inning_num=inning_num)
         f2 = self._f_match_form(ip) * 0.4
         f4 = self._f_matchup(ip, match) * 0.25
+        f5 = self._f_phase_pacing(ip, quota=quota, match=match)
+        f6 = self._f_death_reservation(ip, quota=quota, match=match)
 
-        odi_phase_fn   = lambda ov: self._odi_phase(ov, overs_per_inns)
-        overs_in_phase = self._overs_in_phases(ip.id, match, odi_phase_fn)
-        f5 = self._f_phase_pacing(ip, overs_in_phase, quota=overs_per_inns // 5,
-                                  current_phase=odi_phase_fn(over),
-                                  phase_order=self._ODI_PHASE_ORDER, match=match)
-
-        return f1 + f2 + f4 + f5, {
-            "F1_bin": f1, "F2_form": f2, "F4_matchup": f4, "F5_pacing": f5,
+        return f1 + f2 + f4 + f5 + f6, {
+            "F1_bin": f1, "F2_form": f2, "F4_matchup": f4, "F5_pacing": f5, "F6_reserve": f6,
         }
 
 

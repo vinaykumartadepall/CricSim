@@ -83,10 +83,10 @@ _RATIO_MAX        = 10.0
 #   k = 1.0  →  original behaviour (ratio^weight)
 #   k = 2.0  →  mild sharpening  (ratio 4.6× gives 1.22→1.50 multiplier)
 #   k = 3.0  →  strong sharpening (ratio 4.6× gives 1.22→1.74 multiplier)
-_SHARPNESS_K: float = 4.0
+_SHARPNESS_K: float = 2.5
 # Sharpening exponent applied specifically to the milestone context.
 # k=1.0 → same as original; k>1 amplifies set vs new batter differences more strongly.
-_MILESTONE_K: float = 4.0
+_MILESTONE_K: float = 3.0
 
 # ── Minimum balls before a context is considered reliable (linear ramp) ────────
 _RELIABILITY_THRESHOLDS: Dict[str, Dict[str, int]] = {
@@ -130,29 +130,35 @@ def _get_milestone(runs_scored: int) -> str:
 # magnitude conservative until data-backed calibration is run.
 _CATEGORY_RELEVANCE: Dict[str, Dict[str, float]] = {
     'boundary': {   # runs_batter >= 4
-        'batter': 1.30, 'bowler': 0.80, 'matchup': 1.25,
-        'phase':  0.90, 'venue':  1.20, 'tournament': 0.90,
-        'innings': 0.85, 'milestone': 1.20,
+        # Higher batter weight differentiates good batters (high bdy rate)
+        # from tailenders (low bdy rate) — phase/matchup/venue reduced to
+        # avoid multiplicative compounding that inflates T20 boundary rate.
+        'batter': 1.30, 'bowler': 1.00, 'matchup': 1.30,
+        'phase':  1.20, 'venue':  1.00, 'tournament': 0.90,
+        'innings': 0.85, 'milestone': 1.30,
     },
     'wicket': {
-        'batter': 0.80, 'bowler': 1.30, 'matchup': 1.25,
-        'phase':  1.10, 'venue':  0.90, 'tournament': 0.95,
-        'innings': 1.10, 'milestone': 0.85,
+        # Higher batter weight: tailenders (high historical wicket rate) get
+        # dismissed more; good batters (low rate) survive more — the batter's
+        # own tendency is the strongest predictor of their dismissal.
+        'batter': 1.10, 'bowler': 1.30, 'matchup': 1.30,
+        'phase':  1.20, 'venue':  0.80, 'tournament': 0.85,
+        'innings': 1.10, 'milestone': 1.30,
     },
     'extra': {      # wides and no-balls are almost entirely bowler-driven
-        'batter': 0.40, 'bowler': 1.60, 'matchup': 0.75,
-        'phase':  1.00, 'venue':  0.85, 'tournament': 0.85,
-        'innings': 0.85, 'milestone': 0.40,
+        'batter': 0.40, 'bowler': 1.60, 'matchup': 1.00,
+        'phase':  1.20, 'venue':  0.55, 'tournament': 0.55,
+        'innings': 0.85, 'milestone': 0.80,
     },
     'dot': {
-        'batter': 0.90, 'bowler': 1.20, 'matchup': 1.15,
-        'phase':  1.15, 'venue':  1.00, 'tournament': 0.95,
-        'innings': 1.00, 'milestone': 0.85,
+        'batter': 1.00, 'bowler': 1.30, 'matchup': 1.35,
+        'phase':  1.25, 'venue':  1.10, 'tournament': 0.85,
+        'innings': 1.00, 'milestone': 1.30,
     },
     'default': {    # singles, 2s, 3s
-        'batter': 1.00, 'bowler': 1.00, 'matchup': 1.00,
-        'phase':  1.00, 'venue':  1.00, 'tournament': 1.00,
-        'innings': 1.00, 'milestone': 1.00,
+        'batter': 1.30, 'bowler': 1.00, 'matchup': 1.00,
+        'phase':  1.10, 'venue':  1.00, 'tournament': 1.00,
+        'innings': 1.00, 'milestone': 1.30,
     },
 }
 
@@ -180,6 +186,8 @@ class PressureContext:
     wicket_p: float       # [0, +1]: wickets/over rate — batting conservation pressure
     partnership_p: float  # [0, +1]: current partnership length — bowling looseness pressure
     match_format: str     # 'T20', 'ODI', 'Test' — for format-specific scaling
+    batter_runs: int = 0  # current batter's runs this innings — for new-batter settling signal
+    current_over: int = 0 # 0-indexed current over — for phase-specific scaling
 
     @property
     def is_significant(self) -> bool:
@@ -516,6 +524,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             wicket_p      = wicket_p,
             partnership_p = partnership_p,
             match_format  = fmt,
+            current_over  = match.current_over,
         )
 
     @staticmethod
@@ -525,15 +534,44 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         if not ctx.is_significant:
             return weights
 
+        # ── Phase-aware pressure scaling ───────────────────────────────────────
+        # current_over is 0-indexed; _get_phase expects 1-indexed.
+        phase    = _get_phase(ctx.current_over + 1, ctx.match_format)
+        is_death = phase in ('death1', 'death2')
+        fmt      = ctx.match_format
+
+        # How strongly wicket-fall conservation bleeds into net_attack.
+        # Death overs: teams MUST attack even after a collapse — near-zero conservation.
+        # Test: already amplified via test_mult below.
+        if is_death:
+            conservation_weight = 0.10
+        elif fmt == 'ODI' and phase in ('pp1', 'pp2'):
+            conservation_weight = 0.50   # powerplay: some conservatism but not extreme
+        elif fmt == 'T20' and phase in ('pp1', 'pp2'):
+            conservation_weight = 0.45
+        else:
+            conservation_weight = 0.70   # middle overs / Test: full conservation weight
+
+        # How many batter runs needed before the settle-in effect fully fades.
+        # 0 → disabled (death overs — must attack regardless).
+        if is_death:
+            settle_threshold = 0
+        elif fmt == 'T20':
+            settle_threshold = 10 if phase in ('pp1', 'pp2') else 15   # shorter window in T20
+        elif fmt == 'ODI':
+            settle_threshold = 15 if phase in ('pp1', 'pp2') else 30   # longer in ODI middle
+        else:  # Test
+            settle_threshold = 50   # deep settling required
+
+        # Extra scale on the settle-in magnitudes (Test needs stronger signal).
+        settle_scale = 0.0 if is_death else (1.3 if fmt == 'Test' else 1.0)
+
+        # ── Standard pressure signals ──────────────────────────────────────────
         # Tests get amplified wicket/partnership effects; limited-overs get score effects.
-        test_mult = 1.5 if ctx.match_format == 'Test' else 1.0
+        test_mult = 1.5 if fmt == 'Test' else 1.0
 
-        # Wicket conservation is dampened when the team is forced to score anyway.
-        # e.g., tail chasing hard must attack despite wickets; comfortable team conserves.
         wicket_conservation = ctx.wicket_p * test_mult * max(0.0, 1.0 - abs(ctx.score_p))
-
-        # Net batting aggression: +ve = attack, -ve = conserve/accumulate
-        net_attack = ctx.score_p - wicket_conservation * 0.4 + ctx.dot_p * 0.2
+        net_attack = ctx.score_p - wicket_conservation * conservation_weight + ctx.dot_p * 0.2
 
         # Long partnership puts bowling under pressure → slightly more scoring outcomes
         bowl_loose = ctx.partnership_p * test_mult * 0.12
@@ -545,14 +583,14 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
 
             # ── Score/wicket-driven aggression or conservation ──────────────
             if net_attack > 0:
-                if runs_batter >= 6:            modifier = 1.0 + net_attack * 0.40
-                elif runs_batter == 4:          modifier = 1.0 + net_attack * 0.25
+                if runs_batter >= 6:            modifier = 1.0 + net_attack * 0.28
+                elif runs_batter == 4:          modifier = 1.0 + net_attack * 0.18
                 elif runs_batter in (2, 3):     modifier = 1.0 + net_attack * 0.10
                 elif outcome_type == 'Dot':     modifier = max(0.1, 1.0 - net_attack * 0.30)
-                elif outcome_type == 'Wicket':  modifier = 1.0 + net_attack * 0.08
+                elif outcome_type == 'Wicket':  modifier = 1.0 + net_attack * 0.25
             elif net_attack < 0:
-                if runs_batter >= 4:            modifier = 1.0 + net_attack * 0.15
-                elif outcome_type == 'Dot':     modifier = 1.0 - net_attack * 0.12
+                if runs_batter >= 4:            modifier = 1.0 + net_attack * 0.30
+                elif outcome_type == 'Dot':     modifier = 1.0 - net_attack * 0.20
 
             # ── Dot-ball desperation: extra push toward boundaries ──────────
             if ctx.dot_p > 0.15:
@@ -564,6 +602,19 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             if bowl_loose > 0.01:
                 if runs_batter >= 1:            modifier += bowl_loose
                 elif outcome_type == 'Wicket':  modifier += bowl_loose * 0.5
+
+            # ── New-batter settling: suppress big shots during/after a collapse ─
+            # Fades linearly from 0 runs to settle_threshold; disabled in death overs.
+            # Only fires when wickets have been falling (wicket_p > 0.2) so a batter
+            # walking in to a fresh/stable innings is unaffected.
+            if settle_scale > 0 and ctx.wicket_p > 0.2 and ctx.batter_runs < settle_threshold:
+                settle_p = ctx.wicket_p * settle_scale * (1.0 - ctx.batter_runs / settle_threshold)
+                if runs_batter >= 6:
+                    modifier *= max(0.25, 1.0 - settle_p * 0.45)
+                elif runs_batter == 4:
+                    modifier *= max(0.40, 1.0 - settle_p * 0.25)
+                elif outcome_type == 'Dot':
+                    modifier *= 1.0 + settle_p * 0.18
 
             adjusted.append(weights[i] * max(0.0, modifier))
 
@@ -826,6 +877,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
 
         # Apply multi-dimensional pressure modifier
         pressure = self._compute_pressure(match)
+        pressure.batter_runs = batter_runs  # inject for new-batter settling signal
         weights  = self._apply_pressure_modifier(weights, ordered_keys, pressure)
 
         total = sum(weights)

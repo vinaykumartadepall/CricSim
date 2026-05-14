@@ -195,7 +195,8 @@ class StatsRepository:
         return _FORMAT_ALIASES.get(unified_format, [unified_format])
 
     def get_bowler_workload_stats(
-        self, bowler_ids: List[int], unified_format: str, gender: str = 'male'
+        self, bowler_ids: List[int], unified_format: str, gender: str = 'male',
+        match_type: Optional[str] = None,
     ) -> Dict[int, Dict[str, float]]:
         """
         Per-bowler workload profile derived from historical data.
@@ -206,11 +207,13 @@ class StatsRepository:
         Spell detection uses over_number/2 - ROW_NUMBER() so that alternating-end
         overs (1,3,5,… or 2,4,6,…) are correctly grouped into one spell.
         Includes all raw format aliases (e.g. MDM counts as Test).
+        match_type: when provided (e.g. 'international'), restricts to that match_type only.
         """
         if not bowler_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(unified_format)
-        query = """
+        match_type_filter = "AND m.match_type = %s" if match_type else ""
+        query = f"""
         WITH distinct_overs AS (
             SELECT DISTINCT del.bowler_id, del.match_id, del.inning_number, del.over_number
             FROM history.deliveries del
@@ -218,6 +221,7 @@ class StatsRepository:
             WHERE del.bowler_id = ANY(%s)
               AND m.match_format = ANY(%s)
               AND m.gender = %s
+              {match_type_filter}
         ),
         ranked AS (
             SELECT bowler_id, match_id, inning_number, over_number,
@@ -242,7 +246,8 @@ class StatsRepository:
             SELECT bowler_id,
                    AVG(total_overs)    AS avg_overs,
                    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY total_overs) AS p75_overs,
-                   COUNT(*)            AS innings_count
+                   COUNT(*)            AS innings_count,
+                   SUM(total_overs)    AS career_overs
             FROM innings_totals
             GROUP BY bowler_id
         ),
@@ -251,19 +256,46 @@ class StatsRepository:
                    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY spell_overs) AS p75_spell
             FROM spells
             GROUP BY bowler_id
+        ),
+        -- Total match appearances: denominator for avg_overs_per_match.
+        -- Dividing career overs by appearances (not bowling occasions) correctly
+        -- deflates part-timers who bowl rarely (e.g. Kohli 2ov in 3 of 100 T20Is → 0.06).
+        total_appearances AS (
+            SELECT mp.player_id AS bowler_id, COUNT(DISTINCT mp.match_id) AS total_matches
+            FROM history.match_players mp
+            JOIN history.matches m ON mp.match_id = m.match_id
+            WHERE mp.player_id = ANY(%s)
+              AND m.match_format = ANY(%s)
+              AND m.gender = %s
+              {match_type_filter}
+            GROUP BY mp.player_id
         )
-        SELECT pbo.bowler_id, pbo.avg_overs, pbo.p75_overs, pbs.p75_spell, pbo.innings_count
+        SELECT pbo.bowler_id,
+               pbo.avg_overs,
+               pbo.p75_overs,
+               pbs.p75_spell,
+               pbo.innings_count,
+               pbo.career_overs::float / NULLIF(ta.total_matches, 0) AS avg_overs_per_match
         FROM per_bowler_overs pbo
-        JOIN per_bowler_spells pbs USING (bowler_id)
+        JOIN per_bowler_spells pbs   USING (bowler_id)
+        LEFT JOIN total_appearances ta ON ta.bowler_id = pbo.bowler_id
         WHERE pbo.innings_count >= 3
         """
-        rows = self._run_query(query, (bowler_ids, raw_fmts, gender))
+        params: list = [bowler_ids, raw_fmts, gender]
+        if match_type:
+            params.append(match_type)
+        # total_appearances block repeats the same three positional params
+        params += [bowler_ids, raw_fmts, gender]
+        if match_type:
+            params.append(match_type)
+        rows = self._run_query(query, params)
         return {
             r[0]: {
-                'avg_overs_per_innings': float(r[1] or 5.0),
+                'avg_overs_per_innings': float(r[1] or 5.0),   # per bowling occasion (hard cap, spell mgmt)
                 'p75_overs_per_innings': float(r[2] or 6.0),
                 'p75_spell':             float(r[3] or 4.0),
                 'innings_count':         int(r[4]),
+                'avg_overs_per_match':   float(r[5] or 0.0),   # per appearance (eligibility, F5)
             }
             for r in rows
         }

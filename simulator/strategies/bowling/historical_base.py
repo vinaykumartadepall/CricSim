@@ -63,8 +63,19 @@ def _eco_score(eco: float) -> float:
         return _ECO_BASE + diff * _ECO_BONUS_RATE
     return max(_ECO_FLOOR, _ECO_BASE + diff * _ECO_PENALTY_RATE)
 
-_COUNTRY_WEIGHT = 0.70   # weight given to country-specific phase frequency
-_GLOBAL_WEIGHT  = 0.30   # weight given to global phase frequency
+_COUNTRY_WEIGHT  = 0.70   # weight given to country-specific phase frequency
+_GLOBAL_WEIGHT   = 0.30   # weight given to global phase frequency
+
+# Death-reservation penalty scales.
+# Hard block: when pre_death_budget==0, penalty = -death_reserved * _RESERVE_SCALE.
+# At 10.0 × 2 reserved = -20, beats F1 (max ~16) in any middle-over scenario.
+_RESERVE_SCALE      = 10.0
+# Soft gradient: when budget < slots (idle overs will be wasted), apply a mild
+# proportional penalty to conserve overs.  (1-slack) × reserved × _SOFT_SCALE.
+# 3.0 → budget=1 of 3 slots → -2.0; budget=1 of 2 → -1.0; budget=1 of 1 → 0.
+_SOFT_RESERVE_SCALE = 3.0
+# Minimum death_target (avg death overs) before reservation kicks in.
+_DEATH_THRESHOLD    = 0.5
 
 # Phase-transition half-width for Test ball-age phases only.
 # T20/ODI no longer use soft transitions — per-over data is fine-grained enough.
@@ -128,7 +139,10 @@ class HistoricalBowlingBase(BowlingStrategy):
         self.career_cache  = _timed("career_stats",  self.repo.get_bowler_career_stats,   all_ids, self._fmt, self._gender)
         self.phase_cache   = _timed("phase_stats",   self.repo.get_bowler_phase_stats,    all_ids, self._fmt, self._gender)
         self.matchup_cache = _timed("batter_matchups", self.repo.get_batter_bowler_matchups, all_ids, all_ids, self._fmt, self._gender)
-        self.workload_cache = _timed("workload_stats", self.repo.get_bowler_workload_stats, all_ids, self._fmt, self._gender)
+        # T20: international-only workload keeps domestic part-timers (IPL/BBL appearances)
+        # from inflating avg_overs_per_innings and F5 scores for batters who rarely bowl.
+        _wl_match_type = 'international' if self._fmt == 'T20' else None
+        self.workload_cache = _timed("workload_stats", self.repo.get_bowler_workload_stats, all_ids, self._fmt, self._gender, match_type=_wl_match_type)
         self.form_cache     = _timed("recent_form",    self.repo.get_bowler_recent_form,    all_ids, self._fmt, self._gender)
 
         if self._fmt == "Test":
@@ -368,34 +382,34 @@ class HistoricalBowlingBase(BowlingStrategy):
 
         return _freq(phase_idx) * phase_weight
 
-    # ── Factor 5: Phase quota pacing (T20 / ODI only) ────────────────────────
+    _PACE_SCALE = 3.0
 
-    def _overs_in_phases(self, bowler_id: int, match: SimulationMatch,
-                         phase_fn) -> Dict[str, int]:
-        """Count distinct overs delivered by bowler in each phase this innings.
-        d.over_number is 0-indexed, consistent with match.current_over and phase_fn."""
-        sets: Dict[str, set] = {}
-        for d in match.innings[-1].deliveries:
-            if d.bowler and d.bowler.id == bowler_id:
-                phase = phase_fn(d.over_number)
-                sets.setdefault(phase, set()).add(d.over_number)
-        return {p: len(s) for p, s in sets.items()}
+    # ── Factor 5: Projected-total deviation (T20 / ODI only) ─────────────────
 
-    @staticmethod
-    def _t20_phase(over_0: int) -> str:
-        if over_0 < 6:  return 'pp'
-        if over_0 < 15: return 'mid'
-        return 'death'
+    def _f_phase_pacing(self, ip: InningPlayer, quota: int, match: SimulationMatch) -> float:
+        """
+        Projected-total deviation.
 
-    @staticmethod
-    def _odi_phase(over_0: int, overs_per_inns: int = 50) -> str:
-        if over_0 < 10:               return 'pp'
-        if over_0 < overs_per_inns - 11: return 'mid'
-        return 'death'
+        projected_total = overs_bowled + expected_remaining_scaled
+        F5 = -(projected_total - avg_overs_per_match) * _PACE_SCALE
 
-    def _f_phase_pacing(self, ip: InningPlayer, overs_in_phase: Dict[str, int],
-                        quota: int, current_phase: str,
-                        phase_order: list, match: SimulationMatch) -> float:
+          projected > avg  →  on track to over-bowl historically  →  save  →  negative F5
+          projected < avg  →  under-bowling historically           →  bowl  →  positive F5
+
+        expected_remaining is the blended (country/global) sum of per-over (T20) or
+        per-5-over-bin (ODI) frequencies for all future slots.
+
+        ODI bin correction: the freq cache stores binary "appeared in bin" fractions,
+        so their sum (~4–5) underestimates avg_overs_per_match (~8–9). A scale factor
+        (avg_overs_per_match / total_freq_sum) corrects this so expected_remaining is
+        expressed in actual overs, matching the avg_overs_per_match reference point.
+        For T20 (per-over keys) the correction is ~1.0 and has no meaningful effect.
+
+        Signal strength scales with avg_overs_per_match:
+          ODI specialists (avg ≈ 8–9): moderate signals, enforces phase distribution
+          T20 specialists  (avg ≈ 3–4): strong signals relative to quota
+          Part-timers      (avg ≈ 1–2): near-zero signals, F1 drives selection
+        """
         inning_num = getattr(match, 'current_inning', None)
 
         if inning_num == 1 and self.over_freq_cache_inn1:
@@ -409,47 +423,115 @@ class HistoricalBowlingBase(BowlingStrategy):
         if not c_entry and not g_entry:
             return 0.0
 
-        remaining = quota - ip.balls_bowled // 6
-        if remaining <= 0:
+        if (quota - ip.balls_bowled // 6) <= 0:
             return -1000.0
 
-        current_over = match.current_over
+        expected_avg = self.workload_cache.get(ip.id, {}).get('avg_overs_per_match', 0.0)
+        if expected_avg == 0.0:
+            return 0.0
+
+        current_over      = match.current_over   # 0-indexed
         overs_per_innings = match.overs_per_innings or (20 if self._fmt == 'T20' else 50)
 
-        # F5 is purely a quota-urgency signal: how many overs does this bowler still
-        # "expect" to bowl in future overs vs how many quota slots remain?
-        # Phase preference (which over to bowl) is already handled by F1.
-        expected_remaining = self._expected_remaining_overs(
-            ip, current_over, overs_per_innings - 1, inning_num=inning_num,
-        )
-        future_risk = max(0.0, expected_remaining - (remaining - 1))
+        def _blended(key: int) -> float:
+            g = g_entry.get(key, 0.0)
+            return (_COUNTRY_WEIGHT * c_entry.get(key, 0.0) + _GLOBAL_WEIGHT * g
+                    if c_entry else g)
 
-        return -future_risk * 2.0
-
-    def _expected_remaining_overs(self, ip: InningPlayer, current_over: int, max_over: int,
-                                  inning_num: Optional[int] = None) -> float:
-        if inning_num == 1 and self.over_freq_cache_inn1:
-            c_entry = self.over_freq_cache_inn1.get(ip.id, {})
-        elif inning_num == 2 and self.over_freq_cache_inn2:
-            c_entry = self.over_freq_cache_inn2.get(ip.id, {})
-        else:
-            c_entry = self.over_freq_cache.get(ip.id, {})
-        g_entry = self.global_over_freq_cache.get(ip.id, {})
-        total = 0.0
-        seen: set = set()
-        for k in range(current_over + 1, max_over + 1):
+        # Sum blended freq for all bins (for scale correction) and future bins.
+        total_freq = 0.0
+        expected_remaining = 0.0
+        seen_all: set = set()
+        seen_future: set = set()
+        for k in range(overs_per_innings):
             key = k // 5 if self._fmt == 'ODI' else k
-            if key in seen:
-                continue
-            seen.add(key)
-            g_freq = g_entry.get(key, 0.0)
-            if c_entry:
-                c_freq = c_entry.get(key, 0.0)
-                freq = _COUNTRY_WEIGHT * c_freq + _GLOBAL_WEIGHT * g_freq
-            else:
-                freq = g_freq
-            total += freq
-        return total
+            if key not in seen_all:
+                seen_all.add(key)
+                total_freq += _blended(key)
+            if k > current_over and key not in seen_future:
+                seen_future.add(key)
+                expected_remaining += _blended(key)
+
+        # Scale expected_remaining so its units match avg_overs_per_match.
+        # For T20 (per-over freq) scale ≈ 1.0; for ODI (per-5-over-bin) scale ≈ 1.7–1.9.
+        if total_freq > 0:
+            expected_remaining *= expected_avg / total_freq
+
+        projected_total = ip.balls_bowled // 6 + expected_remaining
+        return -(projected_total - expected_avg) * self._PACE_SCALE
+
+    # ── Factor 6: Death-phase reservation (T20 / ODI only) ───────────────────
+
+    def _f_death_reservation(self, ip: InningPlayer, quota: int,
+                             match: SimulationMatch) -> float:
+        """
+        Reserve overs for the death phase.
+
+        Uses phase_dist_cache (avg overs per phase from DB) to learn how many
+        overs the bowler historically bowls in death.  Before the death phase
+        begins, those overs are "locked" — bowling any of them pre-death incurs
+        a penalty proportional to how many must be saved.
+
+        Penalty = -ceil(death_target) * _RESERVE_SCALE   when pre_death_budget == 0
+        Neutral  = 0.0                                    when the bowler has budget
+                                                          or is not a death specialist
+
+        This means:
+          • Top death specialists (death_target ≈ 3) face a hard pre-death block
+            once their remaining overs equal death_target.
+          • A lighter death bowler (death_target ≈ 1) gets blocked only in the
+            final 1–2 pre-death overs, finishing quota earlier.
+          • Part-timers (death_target < _DEATH_THRESHOLD) are unrestricted.
+        """
+        current_over = match.current_over  # 0-indexed
+
+        # Phase boundaries (0-indexed)
+        death_start = 15 if self._fmt == 'T20' else 39
+
+        if current_over >= death_start:
+            return 0.0  # in death phase — no reservation needed
+
+        overs_bowled     = ip.balls_bowled // 6
+        overs_remaining  = quota - overs_bowled
+        if overs_remaining <= 0:
+            return -1000.0
+
+        # Pick inning-specific phase distribution if available
+        inning_num = getattr(match, 'current_inning', None)
+        if inning_num == 1 and self.phase_dist_cache_inn1:
+            phase_dist = self.phase_dist_cache_inn1.get(ip.id)
+        elif inning_num == 2 and self.phase_dist_cache_inn2:
+            phase_dist = self.phase_dist_cache_inn2.get(ip.id)
+        else:
+            phase_dist = self.phase_dist_cache.get(ip.id)
+
+        if not phase_dist:
+            return 0.0
+
+        death_target = phase_dist.get('death', 0.0)
+        if death_target < _DEATH_THRESHOLD:
+            return 0.0  # not a death bowler
+
+        # Integer overs to reserve (ceiling → conservative)
+        death_reserved = min(math.ceil(death_target), overs_remaining)
+
+        # Overs available to bowl before death
+        pre_death_budget = overs_remaining - death_reserved
+        pre_death_slots  = death_start - current_over  # remaining overs before death phase
+
+        if pre_death_budget <= 0:
+            # No budget left for pre-death — must save everything for death
+            return -death_reserved * _RESERVE_SCALE
+
+        if pre_death_slots <= 0 or pre_death_budget >= pre_death_slots:
+            # More budget than remaining pre-death slots → use them now, no penalty
+            return 0.0
+
+        # Urgency = how close we are to death (0 at start of innings → 1 just before death).
+        # Penalty grows as death approaches so the bowler is nudged to bowl pre-death overs
+        # in mid-overs rather than being blocked in the powerplay when there's no rush.
+        urgency = 1.0 - pre_death_slots / max(1, death_start)
+        return -urgency * death_reserved * _SOFT_RESERVE_SCALE
 
     # ── Factor 2: Match form ──────────────────────────────────────────────────
 

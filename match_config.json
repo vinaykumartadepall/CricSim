@@ -1,38 +1,38 @@
 {
   "match_id": 1,
-  "format": "T20",
+  "format": "Test",
   "bowling_strategy": "historical",
   "ball_outcome_strategy": "enhanced",
-  "venue": "M Chinnaswamy Stadium, Bengaluru",
+  "venue": "Lord's, London",
   "team_a": {
     "name": "India",
     "players": [
       "RG Sharma",
       "Shubman Gill",
+      "CA Pujara",
       "V Kohli",
-      "SS Iyer",
       "KL Rahul",
+      "RR Pant",
       "RA Jadeja",
-      "HH Pandya",
+      "R Ashwin",
       "B Kumar",
       "JJ Bumrah",
-      "Mohammed Siraj",
-      "YS Chahal"
+      "Mohammed Siraj"
     ]
   },
   "team_b": {
     "name": "Australia",
     "players": [
       "DA Warner",
+      "UT Khawaja",
+      "M Labuschagne",
+      "SPD Smith",
       "TM Head",
       "MR Marsh",
-      "SPD Smith",
-      "M Labuschagne",
-      "GJ Maxwell",
-      "JP Inglis",
+      "AT Carey",
       "PJ Cummins",
       "MA Starc",
-      "A Zampa",
+      "NM Lyon",
       "JR Hazlewood"
     ]
   }
