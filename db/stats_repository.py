@@ -138,6 +138,59 @@ class StatsRepository:
         rows = self._run_query(query, (country, raw_fmts, gender))
         return self._parse_rows_to_probs(rows) or {}
 
+    def get_player_venue_distribution(
+        self, player_ids: List[int], venue_id: int, match_format: str, gender: str = 'male'
+    ) -> Dict[int, Tuple[Dict[Tuple, float], int]]:
+        """Per-batter outcome distributions at a specific venue. Returns {player_id: (probs, ball_count)}."""
+        if not player_ids or not self.conn:
+            return {}
+        raw_fmts = self._raw_formats(match_format)
+        query = """
+        SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        FROM history.deliveries d
+        JOIN history.matches m ON d.match_id = m.match_id
+        WHERE d.batter_id = ANY(%s) AND m.venue_id = %s
+          AND m.match_format = ANY(%s) AND m.gender = %s
+        GROUP BY d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
+        """
+        rows = self._run_query(query, (player_ids, venue_id, raw_fmts, gender))
+        grouped = defaultdict(list)
+        for row in rows:
+            grouped[row[0]].append((row[1], row[2], row[3], row[4], row[5]))
+        result = {}
+        for pid, metrics in grouped.items():
+            probs, count = self._parse_rows_to_probs_with_count(metrics)
+            if probs:
+                result[pid] = (probs, count)
+        return result
+
+    def get_player_country_distribution(
+        self, player_ids: List[int], country: str, match_format: str, gender: str = 'male'
+    ) -> Dict[int, Tuple[Dict[Tuple, float], int]]:
+        """Per-batter distributions at venues in a country. Fallback when venue has no data."""
+        if not player_ids or not self.conn:
+            return {}
+        raw_fmts = self._raw_formats(match_format)
+        query = """
+        SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        FROM history.deliveries d
+        JOIN history.matches m ON d.match_id = m.match_id
+        JOIN history.venues  v ON m.venue_id = v.venue_id
+        WHERE d.batter_id = ANY(%s) AND v.country = %s
+          AND m.match_format = ANY(%s) AND m.gender = %s
+        GROUP BY d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
+        """
+        rows = self._run_query(query, (player_ids, country, raw_fmts, gender))
+        grouped = defaultdict(list)
+        for row in rows:
+            grouped[row[0]].append((row[1], row[2], row[3], row[4], row[5]))
+        result = {}
+        for pid, metrics in grouped.items():
+            probs, count = self._parse_rows_to_probs_with_count(metrics)
+            if probs:
+                result[pid] = (probs, count)
+        return result
+
     def get_innings_distribution(self, match_format: str, gender: str = 'male') -> Dict[int, Dict[Tuple, float]]:
         if not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)

@@ -60,6 +60,7 @@ from simulator.entities.rules import MatchRules
 from simulator.strategies.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
 from simulator.strategies.ball_outcome_prediction.common.utils import (
     BASELINE_FALLBACK,
+    apply_free_hit_modifier,
     collect_player_ids,
     load_venue_distribution,
     load_tournament_distribution,
@@ -191,6 +192,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         self.bowler_cache     = {}
         self.matchup_cache    = {}
         self.venue_cache      = {}
+        self.player_venue_cache: dict = {}  # {player_id: (probs, ball_count)}
         self.tournament_cache = {}
         self.innings_cache    = {}
         self.phase_cache      = {}
@@ -253,6 +255,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
 
         self.venue_cache      = load_venue_distribution(self.repo, match, match_format, gender, _timed, log)
         self.tournament_cache = load_tournament_distribution(self.repo, match, _timed)
+        self.player_venue_cache = self._load_player_venue_cache(match, all_player_ids, match_format, gender, _timed)
 
         self.baseline_outcome_probs = _timed("full_aggregate_baseline", self.repo.get_full_aggregate_distribution, match_format, gender)
         if not self.baseline_outcome_probs:
@@ -287,6 +290,53 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             list(self.phase_cache.keys()), list(self.milestone_cache.keys()),
             len(self.baseline_outcome_probs),
         )
+
+    def _load_player_venue_cache(self, match, player_ids, match_format, gender, _timed) -> dict:
+        """
+        Loads per-player outcome distributions at this match's venue (or country fallback).
+        Only called when a venue is already known; returns empty dict otherwise.
+        """
+        venue = getattr(match, 'venue', None)
+        if not venue:
+            return {}
+        if venue.id:
+            data = _timed("player_venue_distribution",
+                          self.repo.get_player_venue_distribution,
+                          player_ids, venue.id, match_format, gender)
+            if data:
+                return data
+        if getattr(venue, 'country', None):
+            return _timed("player_country_distribution",
+                          self.repo.get_player_country_distribution,
+                          player_ids, venue.country, match_format, gender)
+        return {}
+
+    def _get_player_venue_probs(self, batter_id: Optional[int]) -> dict:
+        """
+        Returns venue probability distribution for a specific batter.
+
+        Blends the player's own venue stats with the general venue distribution.
+        The player's weight ramps from 0 (no data) to 0.65 (≥60 balls at venue),
+        so sparse data has little effect while a well-documented player's venue
+        record meaningfully adjusts the distribution.
+        """
+        if not self.venue_cache:
+            return self.baseline_outcome_probs
+        if not batter_id or batter_id not in self.player_venue_cache:
+            return self.venue_cache
+
+        player_probs, ball_count = self.player_venue_cache[batter_id]
+        alpha = min(0.65, ball_count / 60 * 0.65)
+        if alpha < 0.01:
+            return self.venue_cache
+
+        all_keys = set(player_probs) | set(self.venue_cache)
+        blended  = {
+            k: alpha * player_probs.get(k, 0.0) + (1 - alpha) * self.venue_cache.get(k, 0.0)
+            for k in all_keys
+        }
+        total = sum(blended.values())
+        return {k: v / total for k, v in blended.items()} if total > 0 else self.venue_cache
 
     # ── Weight computation ─────────────────────────────────────────────────────
 
@@ -681,7 +731,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         batter_runs = batter.runs_scored if batter else 0
         matchup_key = (batter_id, bowler_id) if batter_id and bowler_id else None
 
-        venue_probs = self.venue_cache      if self.venue_cache      else self.baseline_outcome_probs
+        venue_probs = self._get_player_venue_probs(batter_id)
         tourn_probs = self.tournament_cache if self.tournament_cache else self.baseline_outcome_probs
 
         eff_w = self._compute_effective_weights(batter_id, bowler_id, matchup_key)
@@ -703,6 +753,9 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         pressure = self._compute_pressure(match)
         pressure.batter_runs = batter_runs
         weights  = self._apply_pressure_modifier(weights, ordered_keys, pressure)
+
+        if getattr(match, 'is_free_hit', False):
+            weights = apply_free_hit_modifier(weights, ordered_keys)
 
         total = sum(weights)
         normalised = [w / total for w in weights] if total > 0 else [1.0 / len(weights)] * len(weights)

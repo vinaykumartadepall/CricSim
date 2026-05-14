@@ -27,6 +27,7 @@ from simulator.entities.ball_outcome import BallOutcome
 from simulator.strategies.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
 from simulator.strategies.ball_outcome_prediction.common.utils import (
     BASELINE_FALLBACK,
+    apply_free_hit_modifier,
     collect_player_ids,
     load_venue_distribution,
     load_tournament_distribution,
@@ -243,6 +244,9 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
                 f"{venue_prob:>7.4f} {over_prob:>7.4f} {innings_prob:>7.4f} {tournament_prob:>7.4f}  "
                 f"{multiplier_batter:>6.3f} {multiplier_bowler:>6.3f} {multiplier_over:>6.3f}   {final_weight:>8.5f}"
             )
+
+        if getattr(match, 'is_free_hit', False):
+            combined_weights = apply_free_hit_modifier(combined_weights, ordered_keys)
 
         total_weight = sum(combined_weights)
         if total_weight > 0:

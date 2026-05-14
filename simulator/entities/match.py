@@ -47,6 +47,7 @@ class SimulationMatch:
     target_score: Optional[int] = None
     follow_on_enforced: bool = False
     is_super_over: bool = False
+    is_free_hit: bool = False
     status: MatchStatus = MatchStatus.SCHEDULED
 
     match_format: str = "T20"

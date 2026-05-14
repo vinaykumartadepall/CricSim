@@ -114,6 +114,7 @@ class InningsSimulator:
             ):
                 break
 
+            self.match.is_free_hit = is_free_hit
             outcome = self.ball_outcomes.predict_next_ball(self.match)
             this_ball_is_free_hit = is_free_hit
 
@@ -171,7 +172,9 @@ class InningsSimulator:
         elif MatchRules.is_legal_delivery(outcome.extras_type):
             next_free_hit = False
         else:
-            next_free_hit = is_free_hit  # wide during free hit carries the state over
+            # Wide during a free hit carries the state; but if free hits aren't supported
+            # there is never a legitimate free-hit state, so always reset to False.
+            next_free_hit = is_free_hit if free_hit_supported else False
 
         return outcome, next_free_hit
 
