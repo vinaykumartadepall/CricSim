@@ -159,7 +159,8 @@ class CricketRepository:
                     match.id, d.inning_number, d.over_number, d.ball_number,
                     d.batter.id, d.bowler.id, d.non_striker.id,
                     d.batting_team.id, d.bowling_team.id,
-                    d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, d.outcome_player
+                    d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+                    d.outcome_player.id if d.outcome_player else None
                 ))
             
             psycopg2.extras.execute_batch(self.cur, """

@@ -357,18 +357,15 @@ class StatsRepository:
         """Returns player_ids who have taken stumping dismissals — i.e., are wicket-keepers."""
         if not player_ids or not self.conn:
             return set()
-        # outcome_player_id stores player names (varchar), not integer IDs.
-        # Resolve IDs → names, filter by name, then return integer IDs.
         query = """
-        SELECT p.player_id
-        FROM history.players p
-        JOIN history.deliveries d ON d.outcome_player_id = p.name
+        SELECT d.outcome_player_id
+        FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
-        WHERE p.player_id = ANY(%s)
+        WHERE d.outcome_player_id = ANY(%s)
           AND m.gender = %s
           AND d.outcome_type = 'Wicket'
           AND d.outcome_kind = 'stumped'
-        GROUP BY p.player_id
+        GROUP BY d.outcome_player_id
         HAVING COUNT(*) >= 3
         """
         rows = self._run_query(query, (player_ids, gender))

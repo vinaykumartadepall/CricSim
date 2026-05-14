@@ -17,7 +17,7 @@ class Delivery:
     runs_extras: int
     outcome_type: str # 'Wicket', 'Runs', 'Extras', 'Dot'
     outcome_kind: Optional[str] = None # 'Caught', 'Wide', etc.
-    outcome_player: Optional[str] = None # Name of fielder/player involved
+    outcome_player: Optional[Player] = None # Fielder/player involved (Player object with integer id)
     delivery_id: Optional[int] = None
 
     @classmethod
@@ -38,7 +38,7 @@ class Delivery:
             self._runs_extras: Optional[int] = None
             self._outcome_type: Optional[str] = None
             self._outcome_kind: Optional[str] = None
-            self._outcome_player: Optional[str] = None
+            self._outcome_player: Optional[Player] = None
             self._delivery_id: Optional[int] = None
 
         def with_inning_number(self, inning_number: int):
@@ -89,7 +89,7 @@ class Delivery:
             self._outcome_kind = outcome_kind
             return self
 
-        def with_outcome_player(self, outcome_player: Optional[str]):
+        def with_outcome_player(self, outcome_player: Optional[Player]):
             self._outcome_player = outcome_player
             return self
 

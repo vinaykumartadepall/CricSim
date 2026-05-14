@@ -205,7 +205,8 @@ class CricsheetParser:
                         w = wickets[0]
                         outcome_kind = w.get('kind')
                         if w.get('fielders'):
-                            outcome_player = w['fielders'][0].get('name')
+                            fielder_name = w['fielders'][0].get('name')
+                            outcome_player = saved_players.get(fielder_name)
                     elif runs.get('extras', 0) > 0:
                         outcome_type = 'Extras'
                     elif runs.get('batter', 0) > 0:
