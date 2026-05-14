@@ -14,7 +14,7 @@ from simulator.strategies.ball_outcome_prediction.historical_stats.strategy impo
     ODIHistoricalStatsStrategy,
     TestHistoricalStatsStrategy,
 )
-from simulator.strategies.ball_outcome_prediction.historical_stats.enhanced_strategy import (
+from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats import (
     T20EnhancedHistoricalStatsStrategy,
     ODIEnhancedHistoricalStatsStrategy,
     TestEnhancedHistoricalStatsStrategy,

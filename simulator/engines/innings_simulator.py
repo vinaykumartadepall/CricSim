@@ -115,70 +115,32 @@ class InningsSimulator:
                 break
 
             outcome = self.ball_outcomes.predict_next_ball(self.match)
+            this_ball_is_free_hit = is_free_hit
 
-            this_ball_is_free_hit = is_free_hit  # capture before updating state
-
-            if free_hit_supported and is_free_hit and outcome.is_wicket and outcome.wicket_kind != "run out":
-                outcome = replace(outcome, is_wicket=False, wicket_kind=None, outcome_player=None)
+            outcome, is_free_hit = self._apply_free_hit_rules(
+                outcome, is_free_hit, free_hit_supported
+            )
 
             is_legal = MatchRules.is_legal_delivery(outcome.extras_type)
             if is_legal:
                 self.match.current_ball += 1
-                is_free_hit = False
-
-            if free_hit_supported and MatchRules.is_free_hit_awarded(outcome.extras_type):
-                is_free_hit = True
 
             display_ball = self.match.current_ball if is_legal else self.match.current_ball + 1
-            outcome_was_free_hit = this_ball_is_free_hit
             over_runs += outcome.runs_batter + outcome.runs_extras
 
-            delivery = SimulationDelivery(
-                inning_number=self.match.current_inning,
-                over_number=self.match.current_over,
-                ball_number=display_ball,
-                batter=self.match.striker,
-                bowler=self.match.current_bowler,
-                runs_batter=outcome.runs_batter,
-                runs_extras=outcome.runs_extras,
-                is_wicket=outcome.is_wicket,
-                wicket_kind=outcome.wicket_kind,
-                extras_type=outcome.extras_type,
-                outcome_player=outcome.outcome_player,
-            )
+            delivery = self._build_delivery(outcome, display_ball)
             current_inning.deliveries.append(delivery)
 
-            self.match.event_bus.publish(MatchEvent(
-                type=EventType.BALL_BOWLED,
-                data={
-                    "match": self.match,
-                    "inning": self.match.current_inning,
-                    "batting_team": self.match.current_batting_team,
-                    "bowling_team": self.match.current_bowling_team,
-                    "batter": self.match.striker,
-                    "bowler": self.match.current_bowler,
-                    "outcome": outcome,
-                },
-            ))
+            self._publish_ball_event(outcome)
 
-            prefix = "(Free Hit) " if outcome_was_free_hit else ""
+            prefix = "(Free Hit) " if this_ball_is_free_hit else ""
             self.logger.ball(prefix + format_ball_commentary(
                 delivery, is_super_over=getattr(self.match, 'is_super_over', False)
             ))
 
             if outcome.is_wicket:
                 over_wickets += 1
-                if self.match.current_batting_team.total_wickets < max_wickets:
-                    next_batter = self.match.current_batting_team.get_next_batter(
-                        self.match.striker, self.match.non_striker
-                    )
-                    if next_batter:
-                        self.match.striker = next_batter
-                    else:
-                        self.logger.warn(
-                            f"[InningsSimulator] No next batter available after wicket "
-                            f"in inning {self.match.current_inning} — innings may end prematurely."
-                        )
+                self._advance_batter_after_wicket(max_wickets)
             elif outcome.runs_batter % 2 != 0:
                 self.match.striker, self.match.non_striker = (
                     self.match.non_striker, self.match.striker
@@ -188,3 +150,69 @@ class InningsSimulator:
                 break
 
         return over_runs, over_wickets
+
+    # ── Delivery helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _apply_free_hit_rules(outcome, is_free_hit: bool, free_hit_supported: bool):
+        """
+        Cancels wickets on a free-hit (except run-outs) and returns the updated free-hit state.
+
+        State transitions:
+          no-ball              → next ball is a free hit
+          legal delivery       → free-hit state ends
+          wide (illegal, no NB)→ free-hit state carries over (wide doesn't consume it)
+        """
+        if free_hit_supported and is_free_hit and outcome.is_wicket and outcome.wicket_kind != "run out":
+            outcome = replace(outcome, is_wicket=False, wicket_kind=None, outcome_player=None)
+
+        if free_hit_supported and MatchRules.is_free_hit_awarded(outcome.extras_type):
+            next_free_hit = True
+        elif MatchRules.is_legal_delivery(outcome.extras_type):
+            next_free_hit = False
+        else:
+            next_free_hit = is_free_hit  # wide during free hit carries the state over
+
+        return outcome, next_free_hit
+
+    def _build_delivery(self, outcome, display_ball: int) -> SimulationDelivery:
+        return SimulationDelivery(
+            inning_number  = self.match.current_inning,
+            over_number    = self.match.current_over,
+            ball_number    = display_ball,
+            batter         = self.match.striker,
+            bowler         = self.match.current_bowler,
+            runs_batter    = outcome.runs_batter,
+            runs_extras    = outcome.runs_extras,
+            is_wicket      = outcome.is_wicket,
+            wicket_kind    = outcome.wicket_kind,
+            extras_type    = outcome.extras_type,
+            outcome_player = outcome.outcome_player,
+        )
+
+    def _publish_ball_event(self, outcome) -> None:
+        self.match.event_bus.publish(MatchEvent(
+            type=EventType.BALL_BOWLED,
+            data={
+                "match":        self.match,
+                "inning":       self.match.current_inning,
+                "batting_team": self.match.current_batting_team,
+                "bowling_team": self.match.current_bowling_team,
+                "batter":       self.match.striker,
+                "bowler":       self.match.current_bowler,
+                "outcome":      outcome,
+            },
+        ))
+
+    def _advance_batter_after_wicket(self, max_wickets: int) -> None:
+        if self.match.current_batting_team.total_wickets < max_wickets:
+            next_batter = self.match.current_batting_team.get_next_batter(
+                self.match.striker, self.match.non_striker
+            )
+            if next_batter:
+                self.match.striker = next_batter
+            else:
+                self.logger.warn(
+                    f"[InningsSimulator] No next batter available after wicket "
+                    f"in inning {self.match.current_inning} — innings may end prematurely."
+                )

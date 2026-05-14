@@ -25,34 +25,22 @@ from db.stats_repository import StatsRepository
 from simulator.entities.match import SimulationMatch
 from simulator.entities.ball_outcome import BallOutcome
 from simulator.strategies.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
+from simulator.strategies.ball_outcome_prediction.common.utils import (
+    BASELINE_FALLBACK,
+    collect_player_ids,
+    load_venue_distribution,
+    load_tournament_distribution,
+)
 from simulator.logger import get_logger
 
 log = get_logger()
 
 # Bounds for compute_context_multiplier
-_BASELINE_EPSILON   = 1e-6   # treat probabilities below this as "unseen"
-_RATIO_MIN          = 0.1    # no context can suppress an outcome by more than 10x
-_RATIO_MAX          = 10.0   # no context can amplify an outcome by more than 10x
-_AGGRESSION_HIGH    = 1.2    # extra push when context ratio is above baseline
-_AGGRESSION_LOW     = 0.8    # extra pull when context ratio is below baseline
-
-# Approximate empirical cricket delivery distribution used when no historical DB data is available.
-# Probabilities sum to 1.0. Derived from typical first-class / List-A aggregates.
-_BASELINE_FALLBACK: dict = {
-    (0, 0, 'Dot',    None):      0.320,
-    (1, 0, 'Runs',   None):      0.250,
-    (2, 0, 'Runs',   None):      0.072,
-    (4, 0, 'Runs',   None):      0.100,
-    (6, 0, 'Runs',   None):      0.050,
-    (0, 1, 'Extras', 'Wide'):    0.060,
-    (0, 1, 'Extras', 'Noball'):  0.020,
-    (0, 1, 'Extras', 'Legbyes'): 0.010,
-    (0, 1, 'Extras', 'Byes'):    0.010,
-    (0, 0, 'Wicket', 'caught'):  0.050,
-    (0, 0, 'Wicket', 'bowled'):  0.020,
-    (0, 0, 'Wicket', 'lbw'):     0.023,
-    (0, 0, 'Wicket', 'run out'): 0.015,
-}
+_BASELINE_EPSILON   = 1e-6
+_RATIO_MIN          = 0.1
+_RATIO_MAX          = 10.0
+_AGGRESSION_HIGH    = 1.2
+_AGGRESSION_LOW     = 0.8
 
 
 def compute_context_multiplier(context_probability: float, baseline_probability: float, weight: float) -> float:
@@ -72,7 +60,6 @@ def compute_context_multiplier(context_probability: float, baseline_probability:
     A multiplier < 1.0 means the outcome is less likely in this context.
     """
     if baseline_probability < _BASELINE_EPSILON:
-        # Outcome is globally unseen — cannot draw a meaningful ratio. No effect.
         return 1.0
 
     raw_ratio    = context_probability / baseline_probability
@@ -90,21 +77,18 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
     predict_next_ball() is called once per delivery during the match simulation.
     """
 
-    def __init__(self):
-        self.repo = StatsRepository()
+    def __init__(self, repo=None):
+        if repo is None:
+            repo = StatsRepository()
+        self.repo = repo
 
-        # Probability distribution caches — loaded once per match in init_model().
-        # Each maps an entity identifier → {outcome_key: probability}.
-        self.batter_cache     = {}   # player_id → outcome distribution
-        self.bowler_cache     = {}   # player_id → outcome distribution
-        self.venue_cache      = {}   # outcome_key → probability (one venue per match)
-        self.innings_cache    = {}   # innings_number → outcome distribution
-        self.overs_cache      = {}   # over_number → outcome distribution (1-indexed)
-        self.tournament_cache = {}   # outcome_key → probability (one tournament per match)
-        self.fielding_cache   = {}   # player_id → raw count of dismissal involvements
-
-        # The global baseline: average probability for every outcome key
-        # across all historical data, used as the anchor for all multiplier calculations.
+        self.batter_cache     = {}
+        self.bowler_cache     = {}
+        self.venue_cache      = {}
+        self.innings_cache    = {}
+        self.overs_cache      = {}
+        self.tournament_cache = {}
+        self.fielding_cache   = {}
         self.baseline_outcome_probs = {}
 
     @property
@@ -122,11 +106,7 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         gender = getattr(match, 'gender', 'male').lower()
         log.info(f"[Strategy] Initializing probability matrices — format: {match_format} ({gender})")
 
-        all_player_ids = []
-        if match.home_team:
-            all_player_ids.extend([player.id for player in match.home_team.players])
-        if match.away_team:
-            all_player_ids.extend([player.id for player in match.away_team.players])
+        all_player_ids = collect_player_ids(match)
 
         def _timed(label, fn, *args, **kwargs):
             t = time.perf_counter()
@@ -134,18 +114,11 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
             log.info("[OutcomeModel]   %-38s  %.2fs", label, time.perf_counter() - t)
             return result
 
-        self.batter_cache = _timed("batters_distribution",   self.repo.get_batters_distribution,  all_player_ids, match_format, gender)
-        self.bowler_cache = _timed("bowlers_distribution",   self.repo.get_bowlers_distribution,  all_player_ids, match_format, gender)
+        self.batter_cache = _timed("batters_distribution", self.repo.get_batters_distribution,  all_player_ids, match_format, gender)
+        self.bowler_cache = _timed("bowlers_distribution", self.repo.get_bowlers_distribution,  all_player_ids, match_format, gender)
 
-        if getattr(match, 'venue', None) and match.venue.id:
-            self.venue_cache = _timed("venue_distribution",  self.repo.get_venue_distribution,    match.venue.id, match_format, gender)
-            # Fall back to country distribution when the specific venue has no recorded data
-            if not self.venue_cache and getattr(match.venue, 'country', None):
-                self.venue_cache = _timed("country_distribution", self.repo.get_country_distribution, match.venue.country, match_format, gender)
-                log.info("[OutcomeModel] Venue data absent — using country distribution (%s)", match.venue.country)
-
-        if getattr(match, 'tournament', None) and match.tournament.id:
-            self.tournament_cache = _timed("tournament_distribution", self.repo.get_tournament_distribution, match.tournament.id)
+        self.venue_cache      = load_venue_distribution(self.repo, match, match_format, gender, _timed, log)
+        self.tournament_cache = load_tournament_distribution(self.repo, match, _timed)
 
         self.innings_cache  = _timed("innings_distribution", self.repo.get_innings_distribution,  match_format, gender)
         self.overs_cache    = _timed("overs_distribution",   self.repo.get_overs_distribution,    match_format, gender)
@@ -178,9 +151,8 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         if total > 0:
             return {key: probability / total for key, probability in combined.items()}
 
-        # No innings data in DB — use the empirical prior so the simulation is meaningful.
         log.warning("[Strategy] innings_cache is empty; falling back to empirical baseline distribution.")
-        return _BASELINE_FALLBACK
+        return BASELINE_FALLBACK
 
     def predict_next_ball(self, match: SimulationMatch) -> BallOutcome:
         """
@@ -192,18 +164,14 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
           3. Normalise the combined weights and randomly sample one outcome
           4. Assign a fielder if the outcome is a catch or run-out
         """
-        batter           = match.striker
-        bowler           = match.current_bowler
-        current_inning   = match.current_inning
-        current_over     = match.current_over + 1   # Stored as 0-indexed; display/lookup as 1-indexed
+        batter         = match.striker
+        bowler         = match.current_bowler
+        current_inning = match.current_inning
+        current_over   = match.current_over + 1   # 0-indexed → 1-indexed for lookup
 
         batter_name = batter.name if batter else "unknown batter"
         bowler_name = bowler.name if bowler else "unknown bowler"
         ball_label  = f"Inn{current_inning} Ov{current_over}"
-
-        # ── Step 1: Resolve the probability vector for each context ─────────
-        # If no historical data exists for a specific player/venue/over,
-        # fall back to the baseline so that the multiplier evaluates to 1.0.
 
         batter_outcome_probs  = self.batter_cache.get(batter.id, self.baseline_outcome_probs) if batter else self.baseline_outcome_probs
         bowler_outcome_probs  = self.bowler_cache.get(bowler.id, self.baseline_outcome_probs) if bowler else self.baseline_outcome_probs
@@ -222,8 +190,6 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         log.debug(f"  [Venue cache hit?   {'YES' if self.venue_cache else 'NO — using baseline'}]")
         log.debug(f"  [Over  cache hit?   {'YES' if current_over in self.overs_cache else 'NO — using baseline'}]")
 
-        # ── Step 2: Compute the combined weight for each outcome key ─────────
-        # Take the union of all keys seen across every context.
         all_outcome_keys = set(self.baseline_outcome_probs.keys())
         all_outcome_keys.update(
             batter_outcome_probs.keys(),
@@ -245,10 +211,8 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         log.debug(f"  {'-'*140}")
 
         for outcome_key in ordered_keys:
-            baseline_prob  = self.baseline_outcome_probs.get(outcome_key, 0.0001)
+            baseline_prob = self.baseline_outcome_probs.get(outcome_key, 0.0001)
 
-            # If a context has no record for this key, default to baseline_prob
-            # so that context contributes a 1.0 multiplier (neutral — no effect).
             batter_prob    = batter_outcome_probs.get(outcome_key, baseline_prob)
             bowler_prob    = bowler_outcome_probs.get(outcome_key, baseline_prob)
             venue_prob     = venue_outcome_probs.get(outcome_key, baseline_prob)
@@ -280,7 +244,6 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
                 f"{multiplier_batter:>6.3f} {multiplier_bowler:>6.3f} {multiplier_over:>6.3f}   {final_weight:>8.5f}"
             )
 
-        # ── Step 3: Normalise and sample ─────────────────────────────────────
         total_weight = sum(combined_weights)
         if total_weight > 0:
             normalised_weights = [weight / total_weight for weight in combined_weights]
@@ -297,35 +260,8 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
             f"norm_prob = {selected_prob:.5f}  ({selected_prob*100:.2f}%)"
         )
 
-        # ── Step 4: Assign fielder for catches and run-outs ──────────────────
-        # Fielder is chosen AFTER the dismissal type is known, weighted by
-        # each player's historical involvement count from fielding_cache.
-        outcome_player = None
+        outcome_player = self._assign_fielder(outcome_type, outcome_kind, bowler, bowler_name, match)
 
-        is_fielded_dismissal = (
-            outcome_type == 'Wicket'
-            and outcome_kind in ['caught', 'run out', 'stumped', 'c and b', 'caught and bowled']
-        )
-
-        if is_fielded_dismissal:
-            if outcome_kind in ['c and b', 'caught and bowled']:
-                outcome_player = bowler
-                log.debug(f"  ▶ Fielder: {bowler_name} (caught and bowled)")
-
-            elif match.current_bowling_team and match.current_bowling_team.inning_players:
-                eligible_fielders = [
-                    ip for ip in match.current_bowling_team.inning_players
-                    if ip != bowler
-                ]
-                if eligible_fielders:
-                    fielder_weights = [self.fielding_cache.get(fielder.id, 1) for fielder in eligible_fielders]
-                    outcome_player  = random.choices(eligible_fielders, weights=fielder_weights, k=1)[0]
-                    log.debug(f"  ▶ Fielder: {outcome_player.name}  (weighted by fielding history)")
-                else:
-                    outcome_player = bowler
-                    log.debug(f"  ▶ Fielder: {bowler_name} (only fielder available)")
-
-        # ── Log one-line outcome summary ─────────────────────────────────────
         if outcome_type == 'Wicket':
             result_description = f"WICKET({outcome_kind})"
         elif outcome_type == 'Extras':
@@ -343,6 +279,33 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
             extras_type=outcome_kind if outcome_type == 'Extras' else None,
             outcome_player=outcome_player
         )
+
+    def _assign_fielder(self, outcome_type, outcome_kind, bowler, bowler_name, match):
+        """Assigns a fielder for caught/run-out/stumped dismissals."""
+        is_fielded_dismissal = (
+            outcome_type == 'Wicket'
+            and outcome_kind in ['caught', 'run out', 'stumped', 'c and b', 'caught and bowled']
+        )
+        if not is_fielded_dismissal:
+            return None
+
+        if outcome_kind in ['c and b', 'caught and bowled']:
+            log.debug(f"  ▶ Fielder: {bowler_name} (caught and bowled)")
+            return bowler
+
+        if match.current_bowling_team and match.current_bowling_team.inning_players:
+            eligible_fielders = [
+                ip for ip in match.current_bowling_team.inning_players if ip != bowler
+            ]
+            if eligible_fielders:
+                fielder_weights = [self.fielding_cache.get(fielder.id, 1) for fielder in eligible_fielders]
+                outcome_player  = random.choices(eligible_fielders, weights=fielder_weights, k=1)[0]
+                log.debug(f"  ▶ Fielder: {outcome_player.name}  (weighted by fielding history)")
+                return outcome_player
+            log.debug(f"  ▶ Fielder: {bowler_name} (only fielder available)")
+            return bowler
+
+        return None
 
 
 class T20HistoricalStatsStrategy(BaseHistoricalStatsStrategy):
@@ -376,7 +339,7 @@ class TestHistoricalStatsStrategy(BaseHistoricalStatsStrategy):
     def WEIGHTS(self):
         return {
             'batter': 0.270,
-            'bowler': 0.358, 
+            'bowler': 0.358,
             'over': 0.084,
             'venue': 0.098,
             'tournament': 0.124,

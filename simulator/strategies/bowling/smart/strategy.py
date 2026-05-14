@@ -29,7 +29,7 @@ _QUOTA: dict[str, Optional[int]] = {"T20": 4, "ODI": 10, "Test": None}
 
 # Test spell management
 _SPELL_LIMIT = 7   # consecutive overs before mandatory rest
-_SPELL_REST   = 4  # overs of rest required after a long spell
+_SPELL_REST  = 4   # overs of rest required after a long spell
 
 
 class SmartBowlingStrategy(BowlingStrategy):
@@ -52,7 +52,7 @@ class SmartBowlingStrategy(BowlingStrategy):
             ]
 
         if not eligible:
-            return match.current_bowler  # only one bowler — no choice
+            return match.current_bowler
 
         return max(eligible, key=lambda ip: self._score(ip, match, fmt))
 
@@ -116,49 +116,28 @@ class SmartBowlingStrategy(BowlingStrategy):
     def _score(self, ip: InningPlayer, match: SimulationMatch, fmt: str) -> float:
         score = 0.0
 
-        # Economy: reward tight bowling, penalise expensive spells
         if ip.balls_bowled >= 6:
             economy = ip.runs_conceded / (ip.balls_bowled / 6)
             score += max(0.0, 10.0 - economy)
         else:
             score += 5.0  # untested this innings — neutral benefit of the doubt
 
-        # Wickets: bring back the bowler who is taking wickets
         score += ip.wickets_taken * 8.0
-
-        # Workload: gently spread overs across the bowling unit
         score -= (ip.balls_bowled // 6) * 0.5
 
-        # Phase adjustments
-        phase = self._phase(match.current_over, fmt, match.overs_per_innings)
+        phase = MatchRules.get_phase(match.current_over, fmt, match.overs_per_innings)
         if phase == "powerplay":
             if ip.balls_bowled == 0:
-                score += 6.0   # fresh arm preferred in powerplay
+                score += 6.0
         elif phase == "death":
-            score += ip.wickets_taken * 4.0   # death specialist bonus
+            score += ip.wickets_taken * 4.0
             if ip.balls_bowled >= 6:
                 economy = ip.runs_conceded / (ip.balls_bowled / 6)
-                score += max(0.0, 8.0 - economy) * 2.0  # tight at death = very valuable
+                score += max(0.0, 8.0 - economy) * 2.0
 
-        # Test: reward a well-rested bowler returning for a new spell
         if fmt == "Test":
             rested = self._overs_since_bowled(ip.id, match)
             if _SPELL_REST <= rested <= _SPELL_REST * 2:
                 score += 4.0
 
         return score
-
-    def _phase(self, current_over: int, fmt: str, overs_per_innings: Optional[int]) -> str:
-        if fmt == "T20":
-            if current_over < 6:
-                return "powerplay"
-            if current_over >= 16:
-                return "death"
-            return "middle"
-        if fmt == "ODI":
-            if current_over < 10:
-                return "powerplay"
-            if overs_per_innings and current_over >= overs_per_innings - 10:
-                return "death"
-            return "middle"
-        return "none"  # Test — no distinct phases

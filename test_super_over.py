@@ -24,7 +24,7 @@ from simulator.entities.player import Player
 from simulator.entities.team import MatchTeam
 from simulator.entities.match import SimulationMatch
 from simulator.engines.engine_factory import EngineFactory
-from simulator.strategies.ball_outcome_prediction.historical_stats.enhanced_strategy import (
+from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats import (
     T20EnhancedHistoricalStatsStrategy,
     ODIEnhancedHistoricalStatsStrategy,
 )

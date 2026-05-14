@@ -15,8 +15,8 @@ import textwrap
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-import simulator.strategies.ball_outcome_prediction.historical_stats.enhanced_strategy as _mod
-from simulator.strategies.ball_outcome_prediction.historical_stats.enhanced_strategy import (
+import simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy as _mod
+from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats import (
     EnhancedBaseHistoricalStatsStrategy,
 )
 from simulator.strategies.ball_outcome_prediction.historical_stats.validate import ModelValidator

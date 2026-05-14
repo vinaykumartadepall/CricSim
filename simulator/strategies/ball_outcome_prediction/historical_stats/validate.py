@@ -8,7 +8,7 @@ Usage (command-line):
 
 Usage (programmatic):
     from db.stats_repository import StatsRepository
-    from simulator.strategies.ball_outcome_prediction.historical_stats.enhanced_strategy import (
+    from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats import (
         T20EnhancedHistoricalStatsStrategy,
     )
     from simulator.strategies.ball_outcome_prediction.historical_stats.validate import ModelValidator
@@ -51,7 +51,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from db.stats_repository import StatsRepository
-from simulator.strategies.ball_outcome_prediction.historical_stats.enhanced_strategy import (
+from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats import (
     EnhancedBaseHistoricalStatsStrategy,
 )
 
@@ -261,10 +261,10 @@ class ModelValidator:
 
         strategy.baseline_outcome_probs = _timed("full_aggregate_baseline", self.repo.get_full_aggregate_distribution, unified, gender)
         if not strategy.baseline_outcome_probs:
-            from simulator.strategies.ball_outcome_prediction.historical_stats.enhanced_strategy import _BASELINE_FALLBACK
-            strategy.baseline_outcome_probs = _BASELINE_FALLBACK
+            from simulator.strategies.ball_outcome_prediction.common.utils import BASELINE_FALLBACK
+            strategy.baseline_outcome_probs = BASELINE_FALLBACK
 
-        from simulator.strategies.ball_outcome_prediction.historical_stats.enhanced_strategy import _compute_distinctiveness
+        from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import _compute_distinctiveness
         strategy.batter_distinctiveness  = {
             pid: _compute_distinctiveness(dist, strategy.baseline_outcome_probs)
             for pid, dist in strategy.batter_cache.items() if dist
@@ -304,7 +304,7 @@ def _cli():
     parser.add_argument('--samples', default=5000,    type=int)
     args = parser.parse_args()
 
-    from simulator.strategies.ball_outcome_prediction.historical_stats.enhanced_strategy import (
+    from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats import (
         T20EnhancedHistoricalStatsStrategy,
         ODIEnhancedHistoricalStatsStrategy,
         TestEnhancedHistoricalStatsStrategy,

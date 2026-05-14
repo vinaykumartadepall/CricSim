@@ -23,6 +23,7 @@ Format-specific weights live entirely in each subclass's _score_and_breakdown() 
 import logging
 import math
 import time
+from abc import abstractmethod
 from typing import Dict, Optional, Tuple
 
 from simulator.entities.inning_player import InningPlayer
@@ -40,7 +41,6 @@ _DEFAULT_WORKLOAD = {
 }
 
 # avg spell is typically ~65 % of the p75 spell limit (empirical estimate).
-# Used to derive fatigue_weight so |fatigue| == continuity exactly at avg spell.
 _AVG_SPELL_RATIO   = 0.85
 # Fatigue decays at 1/8 the rate it accumulates (recovery is 8x slower).
 _RECOVERY_RATE     = 0.13
@@ -49,12 +49,11 @@ _MIN_CAREER_BALLS = 6
 _MIN_H2H_BALLS    = 6
 
 # Asymmetric eco scoring: reward for bowling below neutral is 3x the penalty
-# for bowling above it, so any career bowler organically outscores a non-bowler.
-_ECO_NEUTRAL      = 8.0   # reference economy (T20-ish average; format weights scale the rest)
-_ECO_BASE         = 2.5   # score at exactly the neutral economy
-_ECO_BONUS_RATE   = 0.6   # points gained per run/over below neutral
-_ECO_PENALTY_RATE = 0.2   # points lost per run/over above neutral (3x smaller → asymmetric)
-_ECO_FLOOR        = 0.5   # minimum for any bowler with career data
+_ECO_NEUTRAL      = 8.0
+_ECO_BASE         = 2.5
+_ECO_BONUS_RATE   = 0.6
+_ECO_PENALTY_RATE = 0.2
+_ECO_FLOOR        = 0.5
 
 
 def _eco_score(eco: float) -> float:
@@ -63,49 +62,41 @@ def _eco_score(eco: float) -> float:
         return _ECO_BASE + diff * _ECO_BONUS_RATE
     return max(_ECO_FLOOR, _ECO_BASE + diff * _ECO_PENALTY_RATE)
 
-_COUNTRY_WEIGHT  = 0.70   # weight given to country-specific phase frequency
-_GLOBAL_WEIGHT   = 0.30   # weight given to global phase frequency
 
-# Death-reservation penalty scales.
-# Hard block: when pre_death_budget==0, penalty = -death_reserved * _RESERVE_SCALE.
-# At 10.0 × 2 reserved = -20, beats F1 (max ~16) in any middle-over scenario.
+_COUNTRY_WEIGHT  = 0.70
+_GLOBAL_WEIGHT   = 0.30
+
 _RESERVE_SCALE      = 10.0
-# Soft gradient: when budget < slots (idle overs will be wasted), apply a mild
-# proportional penalty to conserve overs.  (1-slack) × reserved × _SOFT_SCALE.
-# 3.0 → budget=1 of 3 slots → -2.0; budget=1 of 2 → -1.0; budget=1 of 1 → 0.
 _SOFT_RESERVE_SCALE = 3.0
-# Minimum death_target (avg death overs) before reservation kicks in.
 _DEATH_THRESHOLD    = 0.5
 
 # Phase-transition half-width for Test ball-age phases only.
-# T20/ODI no longer use soft transitions — per-over data is fine-grained enough.
-_TEST_TRANSITION_W = 3.0   # 6-over blend zone per boundary (out of 10-over phases)
+_TEST_TRANSITION_W = 3.0
 
 
 class HistoricalBowlingBase(BowlingStrategy):
     """
     Loads per-bowler caches from DB and exposes four scoring factors.
-    Subclasses implement _quota(), _eligible(), and _score_and_breakdown().
+    Subclasses must implement _quota(), _eligible(), and _score_and_breakdown().
     """
 
-    def __init__(self):
-        from db.stats_repository import StatsRepository
-        self.repo = StatsRepository()
+    def __init__(self, repo=None):
+        if repo is None:
+            from db.stats_repository import StatsRepository
+            repo = StatsRepository()
+        self.repo = repo
 
         self.career_cache:          Dict[int, Dict]              = {}
         self.phase_cache:           Dict[int, Dict[str, Dict]]   = {}
-        # T20/ODI: per-over (T20) or per-5-over-bin (ODI) frequency, keyed by int
-        self.over_freq_cache:         Dict[int, Dict[int, float]] = {}  # country/intl, all innings
-        self.over_freq_cache_inn1:    Dict[int, Dict[int, float]] = {}  # country/intl, inning 1
-        self.over_freq_cache_inn2:    Dict[int, Dict[int, float]] = {}  # country/intl, inning 2
-        self.global_over_freq_cache:  Dict[int, Dict[int, float]] = {}  # worldwide prior, all innings
-        # T20/ODI: 3-phase avg-overs distribution for quota pacing (F5)
-        self.phase_dist_cache:        Dict[int, Dict[str, float]] = {}  # all innings
-        self.phase_dist_cache_inn1:   Dict[int, Dict[str, float]] = {}  # inning 1
-        self.phase_dist_cache_inn2:   Dict[int, Dict[str, float]] = {}  # inning 2
-        # Test: ball-age phase frequency, keyed by {innings_bucket: {phase_idx: float}}
-        self.test_phase_freq_cache:        Dict[int, Dict] = {}  # country-specific
-        self.global_test_phase_freq_cache: Dict[int, Dict] = {}  # worldwide prior
+        self.over_freq_cache:         Dict[int, Dict[int, float]] = {}
+        self.over_freq_cache_inn1:    Dict[int, Dict[int, float]] = {}
+        self.over_freq_cache_inn2:    Dict[int, Dict[int, float]] = {}
+        self.global_over_freq_cache:  Dict[int, Dict[int, float]] = {}
+        self.phase_dist_cache:        Dict[int, Dict[str, float]] = {}
+        self.phase_dist_cache_inn1:   Dict[int, Dict[str, float]] = {}
+        self.phase_dist_cache_inn2:   Dict[int, Dict[str, float]] = {}
+        self.test_phase_freq_cache:        Dict[int, Dict] = {}
+        self.global_test_phase_freq_cache: Dict[int, Dict] = {}
         self.matchup_cache:         Dict[Tuple[int,int], Dict]   = {}
         self.workload_cache:        Dict[int, Dict]              = {}
         self.form_cache:            Dict[int, Dict]              = {}
@@ -139,8 +130,6 @@ class HistoricalBowlingBase(BowlingStrategy):
         self.career_cache  = _timed("career_stats",  self.repo.get_bowler_career_stats,   all_ids, self._fmt, self._gender)
         self.phase_cache   = _timed("phase_stats",   self.repo.get_bowler_phase_stats,    all_ids, self._fmt, self._gender)
         self.matchup_cache = _timed("batter_matchups", self.repo.get_batter_bowler_matchups, all_ids, all_ids, self._fmt, self._gender)
-        # T20: international-only workload keeps domestic part-timers (IPL/BBL appearances)
-        # from inflating avg_overs_per_innings and F5 scores for batters who rarely bowl.
         _wl_match_type = 'international' if self._fmt == 'T20' else None
         self.workload_cache = _timed("workload_stats", self.repo.get_bowler_workload_stats, all_ids, self._fmt, self._gender, match_type=_wl_match_type)
         self.form_cache     = _timed("recent_form",    self.repo.get_bowler_recent_form,    all_ids, self._fmt, self._gender)
@@ -155,7 +144,6 @@ class HistoricalBowlingBase(BowlingStrategy):
                 self.repo.get_bowler_test_phase_frequency, all_ids, self._gender, country=country,
             ) if country else {}
         elif self._fmt == "T20":
-            # global = all T20 (domestic + international); primary = international only
             self.global_over_freq_cache = _timed(
                 "over_freq_global",
                 self.repo.get_bowler_over_frequency, all_ids, self._fmt, self._gender,
@@ -266,7 +254,7 @@ class HistoricalBowlingBase(BowlingStrategy):
     def _log_selection(self, match: SimulationMatch, scored: list, breakdown: dict) -> None:
         scores = [s for _, s in scored]
         max_s  = max(scores)
-        exps   = [math.exp(min(s - max_s, 0)) for s in scores]  # clamp to avoid overflow on -1000
+        exps   = [math.exp(min(s - max_s, 0)) for s in scores]
         total  = sum(exps)
         probs  = [e / total * 100 for e in exps]
 
@@ -274,9 +262,7 @@ class HistoricalBowlingBase(BowlingStrategy):
         for (ip, s), prob in zip(scored, probs):
             overs = ip.balls_bowled // 6
             bd    = breakdown.get(ip.id, {})
-            f_str = "  ".join(
-                f"{k}={v:+.2f}" for k, v in bd.items()
-            ) if bd else ""
+            f_str = "  ".join(f"{k}={v:+.2f}" for k, v in bd.items()) if bd else ""
             lines.append(
                 f"    {ip.name:25s}  score={s:6.2f}  prob={prob:5.1f}%"
                 f"  ({overs}ov)  {f_str}"
@@ -291,19 +277,21 @@ class HistoricalBowlingBase(BowlingStrategy):
 
     # ── Subclass contracts ────────────────────────────────────────────────────
 
+    @abstractmethod
     def _quota(self) -> Optional[int]:
-        raise NotImplementedError
+        """Overs cap per bowler per innings. Return None for unlimited (Test)."""
 
+    @abstractmethod
     def _eligible(self, team, current_bowler, match: SimulationMatch):
-        raise NotImplementedError
+        """Returns the list of InningPlayers eligible to bowl the next over."""
 
+    @abstractmethod
     def _score_and_breakdown(self, ip: InningPlayer, match: SimulationMatch) -> Tuple[float, dict]:
         """
         Returns (total_score, factor_breakdown).
         factor_breakdown is a dict with keys F1, F2, F3, F4 and their contributions.
         Hard-capped bowlers return (-1000, {}).
         """
-        raise NotImplementedError
 
     # ── Hard cap ─────────────────────────────────────────────────────────────
 
@@ -316,20 +304,10 @@ class HistoricalBowlingBase(BowlingStrategy):
 
     @staticmethod
     def _phase_rw(over: float, boundary: float, width: float) -> float:
-        """
-        Right-phase weight for a linear soft boundary centred at `boundary`.
-        Returns 0 at (boundary - width), 0.5 at boundary, 1 at (boundary + width).
-        Clamped to [0, 1] outside the transition window.
-        """
         return max(0.0, min(1.0, (over - (boundary - width)) / (2.0 * width)))
 
     def _f_over_affinity(self, ip: InningPlayer, key: int, phase_weight: float,
                          inning_num: Optional[int] = None) -> float:
-        """
-        Fraction of innings appearances where the bowler bowled in over `key` (T20) or
-        5-over bin `key` (ODI), blended 70/30 country/global.
-        inning_num: 1 or 2 — uses inning-specific cache when available; falls back to combined.
-        """
         if inning_num == 1 and self.over_freq_cache_inn1:
             c_entry = self.over_freq_cache_inn1.get(ip.id)
         elif inning_num == 2 and self.over_freq_cache_inn2:
@@ -346,19 +324,10 @@ class HistoricalBowlingBase(BowlingStrategy):
 
     def _f_test_phase_affinity(self, ip: InningPlayer, ball_age: int,
                                innings_bucket: int, phase_weight: float) -> float:
-        """
-        Soft Test phase affinity with gradual transitions at phase boundaries.
-
-        Phases are 10-over windows (0-7) within the 80-over new-ball cycle.
-        Within _TEST_TRANSITION_W overs of a boundary the two adjacent phases
-        are linearly blended; the midpoint of the transition is 50/50.
-        Each phase frequency is itself a 70/30 country/global blend (falls back
-        to pure global when no country data exists for the bowler).
-        """
         W         = _TEST_TRANSITION_W
         phase_idx = ball_age // 10
-        dist_prev = ball_age - phase_idx * 10          # overs past previous boundary (0-9)
-        dist_next = (phase_idx + 1) * 10 - ball_age    # overs to next boundary (1-10)
+        dist_prev = ball_age - phase_idx * 10
+        dist_next = (phase_idx + 1) * 10 - ball_age
 
         def _freq(ph: int) -> float:
             ph = max(0, min(7, ph))
@@ -369,13 +338,11 @@ class HistoricalBowlingBase(BowlingStrategy):
             return (_COUNTRY_WEIGHT * cf + _GLOBAL_WEIGHT * gf) if c.get('n', 0) > 0 else gf
 
         if dist_prev < W and phase_idx > 0:
-            # Within W overs after the previous boundary: blend phase_idx-1 → phase_idx
             B  = phase_idx * 10
             rw = self._phase_rw(ball_age, B, W)
             return ((1 - rw) * _freq(phase_idx - 1) + rw * _freq(phase_idx)) * phase_weight
 
         if dist_next <= W and phase_idx < 7:
-            # Within W overs before the next boundary: blend phase_idx → phase_idx+1
             B  = (phase_idx + 1) * 10
             rw = self._phase_rw(ball_age, B, W)
             return ((1 - rw) * _freq(phase_idx) + rw * _freq(phase_idx + 1)) * phase_weight
@@ -387,29 +354,6 @@ class HistoricalBowlingBase(BowlingStrategy):
     # ── Factor 5: Projected-total deviation (T20 / ODI only) ─────────────────
 
     def _f_phase_pacing(self, ip: InningPlayer, quota: int, match: SimulationMatch) -> float:
-        """
-        Projected-total deviation.
-
-        projected_total = overs_bowled + expected_remaining_scaled
-        F5 = -(projected_total - avg_overs_per_match) * _PACE_SCALE
-
-          projected > avg  →  on track to over-bowl historically  →  save  →  negative F5
-          projected < avg  →  under-bowling historically           →  bowl  →  positive F5
-
-        expected_remaining is the blended (country/global) sum of per-over (T20) or
-        per-5-over-bin (ODI) frequencies for all future slots.
-
-        ODI bin correction: the freq cache stores binary "appeared in bin" fractions,
-        so their sum (~4–5) underestimates avg_overs_per_match (~8–9). A scale factor
-        (avg_overs_per_match / total_freq_sum) corrects this so expected_remaining is
-        expressed in actual overs, matching the avg_overs_per_match reference point.
-        For T20 (per-over keys) the correction is ~1.0 and has no meaningful effect.
-
-        Signal strength scales with avg_overs_per_match:
-          ODI specialists (avg ≈ 8–9): moderate signals, enforces phase distribution
-          T20 specialists  (avg ≈ 3–4): strong signals relative to quota
-          Part-timers      (avg ≈ 1–2): near-zero signals, F1 drives selection
-        """
         inning_num = getattr(match, 'current_inning', None)
 
         if inning_num == 1 and self.over_freq_cache_inn1:
@@ -430,7 +374,7 @@ class HistoricalBowlingBase(BowlingStrategy):
         if expected_avg == 0.0:
             return 0.0
 
-        current_over      = match.current_over   # 0-indexed
+        current_over      = match.current_over
         overs_per_innings = match.overs_per_innings or (20 if self._fmt == 'T20' else 50)
 
         def _blended(key: int) -> float:
@@ -438,7 +382,6 @@ class HistoricalBowlingBase(BowlingStrategy):
             return (_COUNTRY_WEIGHT * c_entry.get(key, 0.0) + _GLOBAL_WEIGHT * g
                     if c_entry else g)
 
-        # Sum blended freq for all bins (for scale correction) and future bins.
         total_freq = 0.0
         expected_remaining = 0.0
         seen_all: set = set()
@@ -452,8 +395,6 @@ class HistoricalBowlingBase(BowlingStrategy):
                 seen_future.add(key)
                 expected_remaining += _blended(key)
 
-        # Scale expected_remaining so its units match avg_overs_per_match.
-        # For T20 (per-over freq) scale ≈ 1.0; for ODI (per-5-over-bin) scale ≈ 1.7–1.9.
         if total_freq > 0:
             expected_remaining *= expected_avg / total_freq
 
@@ -464,39 +405,19 @@ class HistoricalBowlingBase(BowlingStrategy):
 
     def _f_death_reservation(self, ip: InningPlayer, quota: int,
                              match: SimulationMatch) -> float:
-        """
-        Reserve overs for the death phase.
+        current_over = match.current_over
 
-        Uses phase_dist_cache (avg overs per phase from DB) to learn how many
-        overs the bowler historically bowls in death.  Before the death phase
-        begins, those overs are "locked" — bowling any of them pre-death incurs
-        a penalty proportional to how many must be saved.
-
-        Penalty = -ceil(death_target) * _RESERVE_SCALE   when pre_death_budget == 0
-        Neutral  = 0.0                                    when the bowler has budget
-                                                          or is not a death specialist
-
-        This means:
-          • Top death specialists (death_target ≈ 3) face a hard pre-death block
-            once their remaining overs equal death_target.
-          • A lighter death bowler (death_target ≈ 1) gets blocked only in the
-            final 1–2 pre-death overs, finishing quota earlier.
-          • Part-timers (death_target < _DEATH_THRESHOLD) are unrestricted.
-        """
-        current_over = match.current_over  # 0-indexed
-
-        # Phase boundaries (0-indexed)
+        # 0-indexed over where the death phase begins
         death_start = 15 if self._fmt == 'T20' else 39
 
         if current_over >= death_start:
-            return 0.0  # in death phase — no reservation needed
+            return 0.0
 
         overs_bowled     = ip.balls_bowled // 6
         overs_remaining  = quota - overs_bowled
         if overs_remaining <= 0:
             return -1000.0
 
-        # Pick inning-specific phase distribution if available
         inning_num = getattr(match, 'current_inning', None)
         if inning_num == 1 and self.phase_dist_cache_inn1:
             phase_dist = self.phase_dist_cache_inn1.get(ip.id)
@@ -510,41 +431,24 @@ class HistoricalBowlingBase(BowlingStrategy):
 
         death_target = phase_dist.get('death', 0.0)
         if death_target < _DEATH_THRESHOLD:
-            return 0.0  # not a death bowler
+            return 0.0
 
-        # Integer overs to reserve (ceiling → conservative)
-        death_reserved = min(math.ceil(death_target), overs_remaining)
-
-        # Overs available to bowl before death
+        death_reserved   = min(math.ceil(death_target), overs_remaining)
         pre_death_budget = overs_remaining - death_reserved
-        pre_death_slots  = death_start - current_over  # remaining overs before death phase
+        pre_death_slots  = death_start - current_over
 
         if pre_death_budget <= 0:
-            # No budget left for pre-death — must save everything for death
             return -death_reserved * _RESERVE_SCALE
 
         if pre_death_slots <= 0 or pre_death_budget >= pre_death_slots:
-            # More budget than remaining pre-death slots → use them now, no penalty
             return 0.0
 
-        # Urgency = how close we are to death (0 at start of innings → 1 just before death).
-        # Penalty grows as death approaches so the bowler is nudged to bowl pre-death overs
-        # in mid-overs rather than being blocked in the powerplay when there's no rush.
         urgency = 1.0 - pre_death_slots / max(1, death_start)
         return -urgency * death_reserved * _SOFT_RESERVE_SCALE
 
     # ── Factor 2: Match form ──────────────────────────────────────────────────
 
     def _f_match_form(self, ip: InningPlayer) -> float:
-        """
-        Economy + wickets this match (blended with career as sample grows).
-        Cold-start: career economy when fewer than 6 balls bowled.
-
-        Eco scoring is asymmetric: reward for bowling below the neutral line is
-        3x the penalty for bowling above it, so even an expensive career bowler
-        scores well above a non-bowler (who gets 0).
-        Returns roughly 0–15.
-        """
         career       = self.career_cache.get(ip.id, {})
         career_balls = career.get("balls", 0)
         career_eco   = career.get("economy")        if career_balls >= _MIN_CAREER_BALLS else None
@@ -558,7 +462,7 @@ class HistoricalBowlingBase(BowlingStrategy):
         elif career_eco is not None:
             eco_score = _eco_score(career_eco)
         else:
-            eco_score = 0.0  # no career data → non-bowler, no reward
+            eco_score = 0.0
 
         wicket_score  = ip.wickets_taken * 2.0
         if career_balls >= 30:
@@ -571,32 +475,6 @@ class HistoricalBowlingBase(BowlingStrategy):
     def _f_spell_breakdown(self, ip: InningPlayer, match: SimulationMatch,
                            continuity_weight: float,
                            workload_harshness: float) -> Tuple[float, float, float]:
-        """
-        Returns (continuity, fatigue, workload) individually.
-        Single source of truth — _f_spell delegates here.
-
-        Continuity:
-          cw x max(0, 2 - spell/limit)  while in active spell (overs_since ≤ 2).
-          Reaches zero at 2xlimit, still equals cw at the spell limit — "still high".
-
-        Fatigue:
-          -(eff_spell / limit) x fw  where fw is derived from continuity_weight so that
-          |fatigue| == continuity at avg_spell (≈ _AVG_SPELL_RATIO x spell_limit).
-          Accumulates 1 over/over during spell; recovers at _RECOVERY_RATE (4x slower).
-          Persists after the spell ends — continuity snaps to 0 but fatigue lingers.
-
-        Workload:
-          Permanent linear ramp after avg_overs_per_innings, reaching -workload_harshness
-          at p75_overs.
-
-        Derivation of fatigue_weight (fw):
-          At spell = r x sl  (r = _AVG_SPELL_RATIO):
-            continuity = cw x (2 - r)
-            fatigue    = -r x fw
-          Setting |fatigue| = continuity:
-            r x fw = cw x (2 - r)
-            fw     = cw x (2 - r) / r
-        """
         wl          = self.workload_cache.get(ip.id, _DEFAULT_WORKLOAD)
         spell_limit = max(3, int(round(wl['p75_spell'])))
         avg_overs   = max(1.0, wl['avg_overs_per_innings'])
@@ -631,10 +509,6 @@ class HistoricalBowlingBase(BowlingStrategy):
     # ── Factor 4: Matchup ─────────────────────────────────────────────────────
 
     def _f_matchup(self, ip: InningPlayer, match: SimulationMatch) -> float:
-        """
-        H2H vs striker (full) + non-striker (0.5x — faces ~40% of balls).
-        Returns roughly 0–12 when strong matchup data exists.
-        """
         def _h2h(batter) -> float:
             if not batter:
                 return 0.0

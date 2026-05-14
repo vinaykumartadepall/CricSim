@@ -5,14 +5,6 @@ from simulator.entities.rules import MatchRules
 from enums.constants import ExtraType
 
 
-# First 0-indexed over that is considered "death" per format.
-_DEATH_OVER_START = {'T20': 16, 'ODI': 40, 'Test': 999}
-
-
-def _is_death_over(over_0indexed: int, match_format: str) -> bool:
-    return over_0indexed >= _DEATH_OVER_START.get(match_format, 999)
-
-
 @dataclass
 class InningPlayer(MatchObserver):
     player: Player
@@ -62,7 +54,7 @@ class InningPlayer(MatchObserver):
 
             is_death = False
             if match is not None:
-                is_death = _is_death_over(match.current_over, match.match_format)
+                is_death = MatchRules.is_death_over(match.current_over, match.match_format)
 
             if batter and batter.id == self.id:
                 self.runs_scored += outcome.runs_batter
