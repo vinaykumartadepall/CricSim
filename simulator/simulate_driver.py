@@ -23,6 +23,7 @@ from simulator.strategies.bowling.smart import SmartBowlingStrategy
 from simulator.strategies.bowling.historical import create_historical_bowling_strategy
 from db.stats_repository import StatsRepository
 from db.entities.venue import Venue
+from simulator.entities.rules import MatchRules
 
 _BOWLING_STRATEGY_FACTORIES = {
     "smart":      lambda fmt: SmartBowlingStrategy(),
@@ -82,6 +83,42 @@ def _resolve_venue(repo: StatsRepository, name: str | None) -> Venue | None:
         return Venue.builder().with_id(venue_id).with_name(venue_name).with_country(country).build()
     log.warning("Venue '%s' not found in DB — proceeding without venue context", name)
     return None
+
+
+def _build_match(config: dict, repo: StatsRepository) -> SimulationMatch:
+    """
+    Constructs a SimulationMatch from a config dict and a StatsRepository.
+    Supports two config key styles:
+      - 'format' / 'team_a' / 'team_b'   (simulate_driver native)
+      - 'match_format' / 'team1' / 'team2' (validate_simulation compat)
+    """
+    fmt = config.get("format") or config.get("match_format", "T20")
+    fmt = MatchRules.get_unified_format(fmt)
+    fmt_settings = dict(_FORMAT_SETTINGS[fmt])
+
+    team_a_cfg = config.get("team_a") or config.get("team1", {})
+    team_b_cfg = config.get("team_b") or config.get("team2", {})
+
+    team_a = MatchTeam(
+        id=1,
+        name=team_a_cfg.get("name", "Team A"),
+        players=[_resolve_player(repo, name) for name in team_a_cfg.get("players", [])],
+    )
+    team_b = MatchTeam(
+        id=2,
+        name=team_b_cfg.get("name", "Team B"),
+        players=[_resolve_player(repo, name) for name in team_b_cfg.get("players", [])],
+    )
+    venue = _resolve_venue(repo, config.get("venue"))
+    return SimulationMatch(
+        id=config.get("match_id", 1),
+        home_team=team_a,
+        away_team=team_b,
+        venue=venue,
+        match_format=fmt,
+        balls_per_over=6,
+        **fmt_settings,
+    )
 
 
 def main():

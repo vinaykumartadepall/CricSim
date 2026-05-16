@@ -63,15 +63,48 @@ def _eco_score(eco: float) -> float:
     return max(_ECO_FLOOR, _ECO_BASE + diff * _ECO_PENALTY_RATE)
 
 
-_COUNTRY_WEIGHT  = 0.70
-_GLOBAL_WEIGHT   = 0.30
-
 _RESERVE_SCALE      = 10.0
 _SOFT_RESERVE_SCALE = 3.0
 _DEATH_THRESHOLD    = 0.5
 
 # Phase-transition half-width for Test ball-age phases only.
 _TEST_TRANSITION_W = 3.0
+
+# ── Three-level adaptive blending: venue → country → global ──────────────────
+# Match counts at which each level saturates its maximum weight.
+_VENUE_SAT   =  8   # saturates at 8 venue matches
+_COUNTRY_SAT = 15   # saturates at 15 country/region matches
+# Maximum weights when the level has sufficient data.
+_VENUE_MAX_W   = 0.55
+_COUNTRY_MAX_W = 0.85
+
+# West Indies island countries that should be pooled into one regional dataset.
+_WEST_INDIES_COUNTRIES = [
+    'Antigua and Barbuda', 'Barbados', 'Dominica', 'Grenada', 'Guyana',
+    'Jamaica', 'Saint Kitts and Nevis', 'Saint Lucia',
+    'Saint Vincent and the Grenadines', 'Trinidad and Tobago',
+]
+# Maps each WI island → the full pool list so a Barbados venue gets all WI data.
+_REGION_MAP = {c: _WEST_INDIES_COUNTRIES for c in _WEST_INDIES_COUNTRIES}
+
+
+def _region_countries(country: str):
+    """Returns the country pool to use for DB queries — WI islands get grouped."""
+    return _REGION_MAP.get(country, [country])
+
+
+def _three_level_blend(vf: float, n_v: int, cf: float, n_c: int, gf: float) -> float:
+    """
+    Adaptive venue→country→global blend.
+    Weights grow with sample size up to their respective maxima.
+    Falls through cleanly: no venue data → country+global; no country data → global.
+    """
+    vw = min(_VENUE_MAX_W, _VENUE_MAX_W * n_v / _VENUE_SAT) if n_v > 0 else 0.0
+    remaining = 1.0 - vw
+    cw = min(_COUNTRY_MAX_W * remaining,
+             remaining * min(1.0, n_c / _COUNTRY_SAT)) if n_c > 0 else 0.0
+    gw = 1.0 - vw - cw
+    return vw * vf + cw * cf + gw * gf
 
 
 class HistoricalBowlingBase(BowlingStrategy):
@@ -97,16 +130,27 @@ class HistoricalBowlingBase(BowlingStrategy):
         self.phase_dist_cache_inn2:   Dict[int, Dict[str, float]] = {}
         self.test_phase_freq_cache:        Dict[int, Dict] = {}
         self.global_test_phase_freq_cache: Dict[int, Dict] = {}
+        self.venue_test_phase_freq_cache:  Dict[int, Dict] = {}
+        self.venue_over_freq_cache:       Dict[int, Dict[int, float]] = {}
+        self.venue_over_freq_cache_inn1:  Dict[int, Dict[int, float]] = {}
+        self.venue_over_freq_cache_inn2:  Dict[int, Dict[int, float]] = {}
         self.matchup_cache:         Dict[Tuple[int,int], Dict]   = {}
         self.workload_cache:        Dict[int, Dict]              = {}
         self.form_cache:            Dict[int, Dict]              = {}
 
         self._fmt    = "T20"
         self._gender = "male"
+        self._initialized = False
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def init_model(self, match: SimulationMatch) -> None:
+        if self._initialized:
+            return
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from db.stats_repository import StatsRepository
+
         self._fmt    = MatchRules.get_unified_format(match.match_format)
         self._gender = getattr(match, "gender", "male").lower()
 
@@ -114,105 +158,131 @@ class HistoricalBowlingBase(BowlingStrategy):
         away_ids = [p.id for p in match.away_team.players] if match.away_team else []
         all_ids  = home_ids + away_ids
 
-        venue   = getattr(match, "venue", None)
-        country = venue.country if venue else None
+        venue    = getattr(match, "venue", None)
+        country  = venue.country if venue else None
+        venue_id = venue.id      if venue else None
+        country_group = _region_countries(country) if country else None
 
-        log.console("[BowlingModel] Loading caches — format=%s  gender=%s  players=%d  country=%s",
-                    self._fmt, self._gender, len(all_ids), country or "global")
+        log.console("[BowlingModel] Loading caches — format=%s  gender=%s  players=%d  country=%s  venue_id=%s",
+                    self._fmt, self._gender, len(all_ids), country or "global", venue_id)
         t0 = time.perf_counter()
 
-        def _timed(label, fn, *args, **kwargs):
-            t = time.perf_counter()
-            result = fn(*args, **kwargs)
-            log.info("[BowlingModel]   %-38s  %.2fs", label, time.perf_counter() - t)
-            return result
-
-        self.career_cache  = _timed("career_stats",  self.repo.get_bowler_career_stats,   all_ids, self._fmt, self._gender)
-        self.phase_cache   = _timed("phase_stats",   self.repo.get_bowler_phase_stats,    all_ids, self._fmt, self._gender)
-        self.matchup_cache = _timed("batter_matchups", self.repo.get_batter_bowler_matchups, all_ids, all_ids, self._fmt, self._gender)
         _wl_match_type = 'international' if self._fmt == 'T20' else None
-        self.workload_cache = _timed("workload_stats", self.repo.get_bowler_workload_stats, all_ids, self._fmt, self._gender, match_type=_wl_match_type)
-        self.form_cache     = _timed("recent_form",    self.repo.get_bowler_recent_form,    all_ids, self._fmt, self._gender)
+
+        def _q(method, *args, **kw):
+            return lambda repo: getattr(repo, method)(*args, **kw)
+
+        tasks = [
+            ("career_stats",    _q("get_bowler_career_stats",      all_ids, self._fmt, self._gender)),
+            ("phase_stats",     _q("get_bowler_phase_stats",        all_ids, self._fmt, self._gender)),
+            ("batter_matchups", _q("get_batter_bowler_matchups",    all_ids, all_ids, self._fmt, self._gender)),
+            ("workload_stats",  _q("get_bowler_workload_stats",     all_ids, self._fmt, self._gender, match_type=_wl_match_type)),
+            ("recent_form",     _q("get_bowler_recent_form",        all_ids, self._fmt, self._gender)),
+        ]
 
         if self._fmt == "Test":
-            self.global_test_phase_freq_cache = _timed(
-                "test_phase_freq_global",
-                self.repo.get_bowler_test_phase_frequency, all_ids, self._gender,
-            )
-            self.test_phase_freq_cache = _timed(
-                "test_phase_freq_country",
-                self.repo.get_bowler_test_phase_frequency, all_ids, self._gender, country=country,
-            ) if country else {}
+            tasks.append(("test_phase_freq_global", _q("get_bowler_test_phase_frequency", all_ids, self._gender)))
+            if country_group:
+                tasks.append(("test_phase_freq_country", _q("get_bowler_test_phase_frequency", all_ids, self._gender, countries=country_group)))
+            if venue_id:
+                tasks.append(("test_phase_freq_venue", _q("get_bowler_test_phase_frequency", all_ids, self._gender, venue_id=venue_id)))
         elif self._fmt == "T20":
-            self.global_over_freq_cache = _timed(
-                "over_freq_global",
-                self.repo.get_bowler_over_frequency, all_ids, self._fmt, self._gender,
-            )
-            self.over_freq_cache = _timed(
-                "over_freq_intl",
-                self.repo.get_bowler_over_frequency, all_ids, self._fmt, self._gender,
-                match_type='international',
-            )
-            self.over_freq_cache_inn1 = _timed(
-                "over_freq_intl_inn1",
-                self.repo.get_bowler_over_frequency, all_ids, self._fmt, self._gender,
-                match_type='international', inning_number=1,
-            )
-            self.over_freq_cache_inn2 = _timed(
-                "over_freq_intl_inn2",
-                self.repo.get_bowler_over_frequency, all_ids, self._fmt, self._gender,
-                match_type='international', inning_number=2,
-            )
-            self.phase_dist_cache = _timed(
-                "phase_dist_intl",
-                self.repo.get_bowler_phase_overs_distribution, all_ids, self._fmt, self._gender,
-                match_type='international',
-            )
-            self.phase_dist_cache_inn1 = _timed(
-                "phase_dist_intl_inn1",
-                self.repo.get_bowler_phase_overs_distribution, all_ids, self._fmt, self._gender,
-                match_type='international', inning_number=1,
-            )
-            self.phase_dist_cache_inn2 = _timed(
-                "phase_dist_intl_inn2",
-                self.repo.get_bowler_phase_overs_distribution, all_ids, self._fmt, self._gender,
-                match_type='international', inning_number=2,
-            )
+            tasks += [
+                ("over_freq_global",     _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender)),
+                ("over_freq_intl",       _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, match_type='international')),
+                ("over_freq_intl_inn1",  _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, match_type='international', inning_number=1)),
+                ("over_freq_intl_inn2",  _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, match_type='international', inning_number=2)),
+                ("phase_dist_intl",      _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender, match_type='international')),
+                ("phase_dist_intl_inn1", _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender, match_type='international', inning_number=1)),
+                ("phase_dist_intl_inn2", _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender, match_type='international', inning_number=2)),
+            ]
+            if venue_id:
+                tasks += [
+                    ("over_freq_venue",      _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id)),
+                    ("over_freq_venue_inn1", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id, inning_number=1)),
+                    ("over_freq_venue_inn2", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id, inning_number=2)),
+                ]
         else:  # ODI
-            self.global_over_freq_cache = _timed(
-                "over_freq_global",
-                self.repo.get_bowler_over_frequency, all_ids, self._fmt, self._gender,
-            )
-            self.over_freq_cache = _timed(
-                "over_freq_country",
-                self.repo.get_bowler_over_frequency, all_ids, self._fmt, self._gender, country=country,
-            ) if country else {}
-            self.over_freq_cache_inn1 = _timed(
-                "over_freq_country_inn1",
-                self.repo.get_bowler_over_frequency, all_ids, self._fmt, self._gender,
-                country=country, inning_number=1,
-            ) if country else {}
-            self.over_freq_cache_inn2 = _timed(
-                "over_freq_country_inn2",
-                self.repo.get_bowler_over_frequency, all_ids, self._fmt, self._gender,
-                country=country, inning_number=2,
-            ) if country else {}
-            self.phase_dist_cache = _timed(
-                "phase_dist",
-                self.repo.get_bowler_phase_overs_distribution, all_ids, self._fmt, self._gender,
-            )
-            self.phase_dist_cache_inn1 = _timed(
-                "phase_dist_inn1",
-                self.repo.get_bowler_phase_overs_distribution, all_ids, self._fmt, self._gender,
-                inning_number=1,
-            )
-            self.phase_dist_cache_inn2 = _timed(
-                "phase_dist_inn2",
-                self.repo.get_bowler_phase_overs_distribution, all_ids, self._fmt, self._gender,
-                inning_number=2,
-            )
+            tasks += [
+                ("over_freq_global", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender)),
+                ("phase_dist",       _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender)),
+                ("phase_dist_inn1",  _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender, inning_number=1)),
+                ("phase_dist_inn2",  _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender, inning_number=2)),
+            ]
+            if country_group:
+                tasks += [
+                    ("over_freq_country",      _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, countries=country_group)),
+                    ("over_freq_country_inn1", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, countries=country_group, inning_number=1)),
+                    ("over_freq_country_inn2", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, countries=country_group, inning_number=2)),
+                ]
+            if venue_id:
+                tasks += [
+                    ("over_freq_venue",      _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id)),
+                    ("over_freq_venue_inn1", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id, inning_number=1)),
+                    ("over_freq_venue_inn2", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id, inning_number=2)),
+                ]
+
+        def _run(label, fn):
+            repo = StatsRepository()
+            try:
+                t = time.perf_counter()
+                result = fn(repo)
+                log.info("[BowlingModel]   %-38s  %.2fs", label, time.perf_counter() - t)
+                return label, result
+            finally:
+                if getattr(repo, 'conn', None):
+                    try:
+                        repo.conn.close()
+                    except Exception:
+                        pass
+
+        results = {}
+        with ThreadPoolExecutor(max_workers=min(len(tasks), 8)) as pool:
+            futures = {pool.submit(_run, label, fn): label for label, fn in tasks}
+            for future in as_completed(futures):
+                task_label = futures[future]
+                try:
+                    returned_label, result = future.result()
+                    results[returned_label] = result
+                except Exception as e:
+                    log.warning("[BowlingModel] Cache '%s' failed: %s", task_label, e)
+                    results[task_label] = {}
+
+        self.career_cache   = results.get("career_stats",    {})
+        self.phase_cache    = results.get("phase_stats",     {})
+        self.matchup_cache  = results.get("batter_matchups", {})
+        self.workload_cache = results.get("workload_stats",  {})
+        self.form_cache     = results.get("recent_form",     {})
+
+        if self._fmt == "Test":
+            self.global_test_phase_freq_cache = results.get("test_phase_freq_global",  {})
+            self.test_phase_freq_cache        = results.get("test_phase_freq_country", {})
+            self.venue_test_phase_freq_cache  = results.get("test_phase_freq_venue",   {})
+        elif self._fmt == "T20":
+            self.global_over_freq_cache  = results.get("over_freq_global",     {})
+            self.over_freq_cache         = results.get("over_freq_intl",       {})
+            self.over_freq_cache_inn1    = results.get("over_freq_intl_inn1",  {})
+            self.over_freq_cache_inn2    = results.get("over_freq_intl_inn2",  {})
+            self.phase_dist_cache        = results.get("phase_dist_intl",      {})
+            self.phase_dist_cache_inn1   = results.get("phase_dist_intl_inn1", {})
+            self.phase_dist_cache_inn2   = results.get("phase_dist_intl_inn2", {})
+            self.venue_over_freq_cache      = results.get("over_freq_venue",      {})
+            self.venue_over_freq_cache_inn1 = results.get("over_freq_venue_inn1", {})
+            self.venue_over_freq_cache_inn2 = results.get("over_freq_venue_inn2", {})
+        else:  # ODI
+            self.global_over_freq_cache  = results.get("over_freq_global",       {})
+            self.over_freq_cache         = results.get("over_freq_country",      {})
+            self.over_freq_cache_inn1    = results.get("over_freq_country_inn1", {})
+            self.over_freq_cache_inn2    = results.get("over_freq_country_inn2", {})
+            self.phase_dist_cache        = results.get("phase_dist",             {})
+            self.phase_dist_cache_inn1   = results.get("phase_dist_inn1",        {})
+            self.phase_dist_cache_inn2   = results.get("phase_dist_inn2",        {})
+            self.venue_over_freq_cache      = results.get("over_freq_venue",      {})
+            self.venue_over_freq_cache_inn1 = results.get("over_freq_venue_inn1", {})
+            self.venue_over_freq_cache_inn2 = results.get("over_freq_venue_inn2", {})
 
         log.console("[BowlingModel] All caches ready — total %.2fs", time.perf_counter() - t0)
+        self._initialized = True
 
     # ── Bowler selection ──────────────────────────────────────────────────────
 
@@ -308,19 +378,26 @@ class HistoricalBowlingBase(BowlingStrategy):
 
     def _f_over_affinity(self, ip: InningPlayer, key: int, phase_weight: float,
                          inning_num: Optional[int] = None) -> float:
-        if inning_num == 1 and self.over_freq_cache_inn1:
-            c_entry = self.over_freq_cache_inn1.get(ip.id)
-        elif inning_num == 2 and self.over_freq_cache_inn2:
-            c_entry = self.over_freq_cache_inn2.get(ip.id)
+        if inning_num == 1:
+            v_entry = self.venue_over_freq_cache_inn1.get(ip.id) or self.venue_over_freq_cache.get(ip.id)
+            c_entry = self.over_freq_cache_inn1.get(ip.id)       or self.over_freq_cache.get(ip.id)
+        elif inning_num == 2:
+            v_entry = self.venue_over_freq_cache_inn2.get(ip.id) or self.venue_over_freq_cache.get(ip.id)
+            c_entry = self.over_freq_cache_inn2.get(ip.id)       or self.over_freq_cache.get(ip.id)
         else:
+            v_entry = self.venue_over_freq_cache.get(ip.id)
             c_entry = self.over_freq_cache.get(ip.id)
-        g_freq  = self.global_over_freq_cache.get(ip.id, {}).get(key, 0.0)
-        if c_entry is not None:
-            c_freq = c_entry.get(key, 0.0)
-            freq   = _COUNTRY_WEIGHT * c_freq + _GLOBAL_WEIGHT * g_freq
-        else:
-            freq = g_freq
-        return freq * phase_weight
+
+        gf = self.global_over_freq_cache.get(ip.id, {}).get(key, 0.0)
+        cf = c_entry.get(key, 0.0) if c_entry is not None else 0.0
+        vf = v_entry.get(key, 0.0) if v_entry is not None else 0.0
+
+        # n counts not stored in over_freq cache — use presence as a binary signal,
+        # so venue/country weights are fixed at their saturation values when data exists.
+        n_v = _VENUE_SAT   if v_entry else 0
+        n_c = _COUNTRY_SAT if c_entry else 0
+
+        return _three_level_blend(vf, n_v, cf, n_c, gf) * phase_weight
 
     def _f_test_phase_affinity(self, ip: InningPlayer, ball_age: int,
                                innings_bucket: int, phase_weight: float) -> float:
@@ -331,11 +408,15 @@ class HistoricalBowlingBase(BowlingStrategy):
 
         def _freq(ph: int) -> float:
             ph = max(0, min(7, ph))
+            v  = self.venue_test_phase_freq_cache.get(ip.id, {})
             c  = self.test_phase_freq_cache.get(ip.id, {})
             g  = self.global_test_phase_freq_cache.get(ip.id, {})
+            n_v = v.get('n', 0)
+            n_c = c.get('n', 0)
+            vf = v.get('buckets', {}).get(innings_bucket, {}).get(ph, 0.0)
             cf = c.get('buckets', {}).get(innings_bucket, {}).get(ph, 0.0)
             gf = g.get('buckets', {}).get(innings_bucket, {}).get(ph, 0.0)
-            return (_COUNTRY_WEIGHT * cf + _GLOBAL_WEIGHT * gf) if c.get('n', 0) > 0 else gf
+            return _three_level_blend(vf, n_v, cf, n_c, gf)
 
         if dist_prev < W and phase_idx > 0:
             B  = phase_idx * 10
@@ -379,8 +460,9 @@ class HistoricalBowlingBase(BowlingStrategy):
 
         def _blended(key: int) -> float:
             g = g_entry.get(key, 0.0)
-            return (_COUNTRY_WEIGHT * c_entry.get(key, 0.0) + _GLOBAL_WEIGHT * g
-                    if c_entry else g)
+            c = c_entry.get(key, 0.0)
+            # Simple 70/30 country/global blend; venue not available in freq context
+            return (0.70 * c + 0.30 * g) if c_entry else g
 
         total_freq = 0.0
         expected_remaining = 0.0

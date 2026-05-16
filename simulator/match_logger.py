@@ -34,7 +34,12 @@ class MatchLogger:
     """
     Single I/O surface for all match commentary output.
     Instantiate once per match, call close() (or use as a context manager) when done.
+
+    Set MatchLogger.SILENT = True before a batch run (e.g. validation) to suppress
+    all console output — scorecards and headlines still go to their per-match files.
     """
+
+    SILENT: bool = False  # class-level flag; set True for batch / validation runs
 
     def __init__(self, match_id: int, log_dir: str = "match_logs"):
         os.makedirs(log_dir, exist_ok=True)
@@ -57,17 +62,19 @@ class MatchLogger:
     def headline(self, text: str) -> None:
         """
         Key match moment: match start, toss, innings break, session break, result.
-        Written to file and echoed to console.
+        Written to file and echoed to console (suppressed when SILENT=True).
         """
         self._write(text)
-        print(text)
+        if not MatchLogger.SILENT:
+            print(text)
 
     def scorecard(self, text: str) -> None:
         """
-        Full innings scorecard. Written to file and echoed to console.
+        Full innings scorecard. Written to file and echoed to console (suppressed when SILENT=True).
         """
         self._write(text)
-        print(text)
+        if not MatchLogger.SILENT:
+            print(text)
 
     # ── Tier 3: app logger (warnings / errors) ────────────────────────────────
 

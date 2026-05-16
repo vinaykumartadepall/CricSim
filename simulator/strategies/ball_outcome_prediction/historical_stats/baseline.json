@@ -1,0 +1,68 @@
+{
+  "Test": {
+    "male": {
+      "log_loss": 1.01585,
+      "boundary_rate_err": 0.01059,
+      "wicket_rate_err": 0.0062,
+      "dot_rate_err": 0.02069,
+      "extra_rate_err": 0.01164,
+      "economy_err": 0.36901
+    }
+  },
+  "ODI": {
+    "male": {
+      "log_loss": 1.3148,
+      "boundary_rate_err": 0.01293,
+      "wicket_rate_err": 0.01006,
+      "dot_rate_err": 0.02968,
+      "extra_rate_err": 0.00959,
+      "economy_err": 0.46144
+    }
+  },
+  "T20": {
+    "male": {
+      "log_loss": 1.62301,
+      "boundary_rate_err": 0.02119,
+      "wicket_rate_err": 0.00351,
+      "dot_rate_err": 0.02237,
+      "extra_rate_err": 0.00808,
+      "economy_err": 0.71225
+    }
+  },
+  "TestEnhancedHistoricalStatsStrategy": {
+    "Test": {
+      "male": {
+        "log_loss": 1.01585,
+        "boundary_rate_err": 0.01059,
+        "wicket_rate_err": 0.0062,
+        "dot_rate_err": 0.02069,
+        "extra_rate_err": 0.01164,
+        "economy_err": 0.36901
+      }
+    }
+  },
+  "ODIEnhancedHistoricalStatsStrategy": {
+    "ODI": {
+      "male": {
+        "log_loss": 1.3148,
+        "boundary_rate_err": 0.01293,
+        "wicket_rate_err": 0.01006,
+        "dot_rate_err": 0.02968,
+        "extra_rate_err": 0.00959,
+        "economy_err": 0.46144
+      }
+    }
+  },
+  "T20EnhancedHistoricalStatsStrategy": {
+    "T20": {
+      "male": {
+        "log_loss": 1.62301,
+        "boundary_rate_err": 0.02119,
+        "wicket_rate_err": 0.00351,
+        "dot_rate_err": 0.02237,
+        "extra_rate_err": 0.00808,
+        "economy_err": 0.71225
+      }
+    }
+  }
+}

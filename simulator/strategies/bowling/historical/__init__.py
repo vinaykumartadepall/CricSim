@@ -5,6 +5,7 @@ from simulator.strategies.bowling.historical.strategies import (
     TestHistoricalBowlingStrategy,
     create_historical_bowling_strategy,
 )
+from simulator.strategies.bowling.historical.replay import HistoricalBowlingOrder
 
 __all__ = [
     'HistoricalBowlingBase',
@@ -12,4 +13,5 @@ __all__ = [
     'ODIHistoricalBowlingStrategy',
     'TestHistoricalBowlingStrategy',
     'create_historical_bowling_strategy',
+    'HistoricalBowlingOrder',
 ]

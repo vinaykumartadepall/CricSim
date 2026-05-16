@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS history.teams (
 CREATE TABLE IF NOT EXISTS history.venues (
     venue_id INT PRIMARY KEY DEFAULT nextval('history.venues_id_seq'),
     name VARCHAR(256) UNIQUE,
-    city VARCHAR(128)
+    city VARCHAR(128),
+    country TEXT
 );
 CREATE TABLE IF NOT EXISTS history.tournaments (
     tournament_id INT PRIMARY KEY DEFAULT nextval('history.tournaments_id_seq'),
@@ -114,7 +115,7 @@ CREATE TABLE IF NOT EXISTS history.deliveries (
     -- Wicket, dot, runs, extras
     outcome_kind VARCHAR(32),
     -- Caught, runout, Wide, Noball
-    outcome_player_id VARCHAR(32) -- Name of fielder involved
+    outcome_player_id INT REFERENCES history.players(player_id) -- Player ID of fielder involved
 );
 -------------------------------------------------------------------------------
 -- SIMULATION SCHEMA (Identical Structure)
@@ -194,5 +195,5 @@ CREATE TABLE IF NOT EXISTS simulation.deliveries (
     runs_extras INT,
     outcome_type VARCHAR(32),
     outcome_kind VARCHAR(32),
-    outcome_player_id VARCHAR(32)
+    outcome_player_id INT REFERENCES simulation.players(player_id)
 );

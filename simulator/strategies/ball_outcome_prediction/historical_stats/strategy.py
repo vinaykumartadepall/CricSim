@@ -44,6 +44,14 @@ _AGGRESSION_HIGH    = 1.2
 _AGGRESSION_LOW     = 0.8
 
 
+def _batting_position_group(wickets_fallen: int) -> str:
+    if wickets_fallen <= 2:
+        return 'top_order'
+    elif wickets_fallen <= 5:
+        return 'middle_order'
+    return 'lower_order'
+
+
 def compute_context_multiplier(context_probability: float, baseline_probability: float, weight: float) -> float:
     """
     Returns a multiplier that represents how much a specific context (e.g. this batter,
@@ -83,13 +91,15 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
             repo = StatsRepository()
         self.repo = repo
 
-        self.batter_cache     = {}
-        self.bowler_cache     = {}
-        self.venue_cache      = {}
-        self.innings_cache    = {}
-        self.overs_cache      = {}
-        self.tournament_cache = {}
-        self.fielding_cache   = {}
+        self._initialized = False
+        self.batter_cache       = {}
+        self.bowler_cache       = {}
+        self.venue_cache        = {}
+        self.innings_cache      = {}
+        self.overs_cache        = {}
+        self.tournament_cache   = {}
+        self.fielding_cache     = {}
+        self.position_baseline  = {}
         self.baseline_outcome_probs = {}
 
     @property
@@ -102,6 +112,9 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         Loads all probability distributions from the database before the first ball.
         Also builds the dynamic global baseline from real innings data.
         """
+        if self._initialized:
+            return
+
         from simulator.entities.rules import MatchRules
         match_format = MatchRules.get_unified_format(getattr(match, 'match_format', 'T20'))
         gender = getattr(match, 'gender', 'male').lower()
@@ -121,9 +134,10 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         self.venue_cache      = load_venue_distribution(self.repo, match, match_format, gender, _timed, log)
         self.tournament_cache = load_tournament_distribution(self.repo, match, _timed)
 
-        self.innings_cache  = _timed("innings_distribution", self.repo.get_innings_distribution,  match_format, gender)
-        self.overs_cache    = _timed("overs_distribution",   self.repo.get_overs_distribution,    match_format, gender)
-        self.fielding_cache = _timed("fielding_distribution",self.repo.get_fielding_distribution, match_format, gender)
+        self.innings_cache     = _timed("innings_distribution",  self.repo.get_innings_distribution,       match_format, gender)
+        self.overs_cache       = _timed("overs_distribution",    self.repo.get_overs_distribution,         match_format, gender)
+        self.fielding_cache    = _timed("fielding_distribution",  self.repo.get_fielding_distribution,      match_format, gender)
+        self.position_baseline = _timed("position_baseline",     self.repo.get_batting_position_baseline,  match_format, gender)
 
         self.baseline_outcome_probs = self._build_baseline()
 
@@ -134,6 +148,7 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
             f"Tournament Mapped: {bool(self.tournament_cache)}, "
             f"Baseline outcomes: {len(self.baseline_outcome_probs)}"
         )
+        self._initialized = True
 
     def _build_baseline(self) -> dict:
         """
@@ -174,7 +189,11 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         bowler_name = bowler.name if bowler else "unknown bowler"
         ball_label  = f"Inn{current_inning} Ov{current_over}"
 
-        batter_outcome_probs  = self.batter_cache.get(batter.id, self.baseline_outcome_probs) if batter else self.baseline_outcome_probs
+        wickets_fallen = match.current_batting_team.total_wickets if match.current_batting_team else 0
+        pos_group = _batting_position_group(wickets_fallen)
+        pos_baseline = self.position_baseline.get(pos_group, self.baseline_outcome_probs)
+
+        batter_outcome_probs  = self.batter_cache.get(batter.id, pos_baseline) if batter else pos_baseline
         bowler_outcome_probs  = self.bowler_cache.get(bowler.id, self.baseline_outcome_probs) if bowler else self.baseline_outcome_probs
         venue_outcome_probs   = self.venue_cache      if self.venue_cache      else self.baseline_outcome_probs
         tournament_probs      = self.tournament_cache if self.tournament_cache else self.baseline_outcome_probs

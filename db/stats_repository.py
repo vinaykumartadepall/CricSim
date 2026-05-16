@@ -8,6 +8,30 @@ _FORMAT_ALIASES: Dict[str, List[str]] = {
     "T20":  ["T20",  "IT20"],
 }
 
+
+def _fine_grained_phase(over_1indexed: int, match_format: str) -> str:
+    """Map an over (1-indexed) to a fine-grained phase bucket."""
+    if match_format == 'T20':
+        if over_1indexed <= 3:  return 'pp1'
+        if over_1indexed <= 6:  return 'pp2'
+        if over_1indexed <= 11: return 'mid1'
+        if over_1indexed <= 15: return 'mid2'
+        if over_1indexed <= 17: return 'death1'
+        return 'death2'
+    if match_format == 'ODI':
+        if over_1indexed <= 5:  return 'pp1'
+        if over_1indexed <= 10: return 'pp2'
+        if over_1indexed <= 20: return 'mid1'
+        if over_1indexed <= 30: return 'mid2'
+        if over_1indexed <= 40: return 'mid3'
+        if over_1indexed <= 45: return 'death1'
+        return 'death2'
+    # Test
+    if over_1indexed <= 10: return 'new'
+    if over_1indexed <= 30: return 'early'
+    if over_1indexed <= 80: return 'middle'
+    return 'late'
+
 try:
     from db.database import get_db_connection
     HAS_DB = True
@@ -74,7 +98,8 @@ class StatsRepository:
         if not batter_ids or not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
         query = """
-        SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.batter_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
@@ -94,7 +119,8 @@ class StatsRepository:
         if not bowler_ids or not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
         query = """
-        SELECT d.bowler_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        SELECT d.bowler_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.bowler_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
@@ -114,7 +140,8 @@ class StatsRepository:
         if not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
         query = """
-        SELECT d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        SELECT d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               SUM(EXP(-LN(2) / 7.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE m.venue_id = %s AND m.match_format = ANY(%s) AND m.gender = %s
@@ -128,7 +155,8 @@ class StatsRepository:
         if not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
         query = """
-        SELECT d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        SELECT d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               SUM(EXP(-LN(2) / 8.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         JOIN history.venues  v ON m.venue_id = v.venue_id
@@ -146,7 +174,8 @@ class StatsRepository:
             return {}
         raw_fmts = self._raw_formats(match_format)
         query = """
-        SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.batter_id = ANY(%s) AND m.venue_id = %s
@@ -165,22 +194,37 @@ class StatsRepository:
         return result
 
     def get_player_country_distribution(
-        self, player_ids: List[int], country: str, match_format: str, gender: str = 'male'
+        self, player_ids: List[int], country: str, match_format: str, gender: str = 'male',
+        countries: Optional[List[str]] = None,
+        exclude_venue_id: Optional[int] = None,
     ) -> Dict[int, Tuple[Dict[Tuple, float], int]]:
-        """Per-batter distributions at venues in a country. Fallback when venue has no data."""
+        """Per-batter distributions at venues in a country or region.
+
+        countries:        when provided, pools all listed countries (e.g. West Indies islands).
+                          Overrides the single `country` argument.
+        exclude_venue_id: when provided, excludes deliveries at that venue so country data
+                          is strictly additive to (not overlapping with) venue-level data.
+        """
         if not player_ids or not self.conn:
             return {}
-        raw_fmts = self._raw_formats(match_format)
-        query = """
-        SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        raw_fmts       = self._raw_formats(match_format)
+        c_list         = countries if countries else [country]
+        venue_exclude  = "AND m.venue_id != %s" if exclude_venue_id is not None else ""
+        query = f"""
+        SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               SUM(EXP(-LN(2) / 6.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         JOIN history.venues  v ON m.venue_id = v.venue_id
-        WHERE d.batter_id = ANY(%s) AND v.country = %s
+        WHERE d.batter_id = ANY(%s) AND v.country = ANY(%s)
           AND m.match_format = ANY(%s) AND m.gender = %s
+          {venue_exclude}
         GROUP BY d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
         """
-        rows = self._run_query(query, (player_ids, country, raw_fmts, gender))
+        params: tuple = (player_ids, c_list, raw_fmts, gender)
+        if exclude_venue_id is not None:
+            params = params + (exclude_venue_id,)
+        rows = self._run_query(query, params)
         grouped = defaultdict(list)
         for row in rows:
             grouped[row[0]].append((row[1], row[2], row[3], row[4], row[5]))
@@ -190,6 +234,63 @@ class StatsRepository:
             if probs:
                 result[pid] = (probs, count)
         return result
+
+    def get_batting_position_baseline(self, match_format: str, gender: str = 'male') -> Dict[str, Dict[Tuple, float]]:
+        """
+        Returns outcome probability distributions keyed by batting position group:
+          'top_order'    — positions 1-3 (openers + first-drop)
+          'middle_order' — positions 4-6
+          'lower_order'  — positions 7+
+
+        Position is derived from each batter's first appearance (by over/ball) in each innings.
+        Used as a fallback when a batter has no personal career history in the cache.
+        """
+        if not self.conn: return {}
+        raw_fmts = self._raw_formats(match_format)
+        query = """
+        WITH first_ball AS (
+            SELECT d.match_id, d.inning_number, d.batter_id,
+                   MIN(d.over_number * 1000 + d.ball_number) AS first_key
+            FROM history.deliveries d
+            JOIN history.matches m ON d.match_id = m.match_id
+            WHERE m.match_format = ANY(%s) AND m.gender = %s
+            GROUP BY d.match_id, d.inning_number, d.batter_id
+        ),
+        batter_positions AS (
+            SELECT match_id, inning_number, batter_id,
+                   RANK() OVER (
+                       PARTITION BY match_id, inning_number
+                       ORDER BY first_key
+                   ) AS position
+            FROM first_ball
+        )
+        SELECT
+            CASE
+                WHEN bp.position <= 3 THEN 'top_order'
+                WHEN bp.position <= 6 THEN 'middle_order'
+                ELSE 'lower_order'
+            END AS position_group,
+            d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+            COUNT(*)
+        FROM history.deliveries d
+        JOIN history.matches m ON d.match_id = m.match_id
+        JOIN batter_positions bp
+            ON bp.match_id = d.match_id
+           AND bp.inning_number = d.inning_number
+           AND bp.batter_id = d.batter_id
+        WHERE m.match_format = ANY(%s) AND m.gender = %s
+        GROUP BY position_group, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
+        """
+        rows = self._run_query(query, (raw_fmts, gender, raw_fmts, gender))
+        grouped = defaultdict(list)
+        for row in rows:
+            grouped[row[0]].append((row[1], row[2], row[3], row[4], row[5]))
+        res = {}
+        for group, metrics in grouped.items():
+            probs = self._parse_rows_to_probs(metrics)
+            if probs:
+                res[group] = probs
+        return res
 
     def get_innings_distribution(self, match_format: str, gender: str = 'male') -> Dict[int, Dict[Tuple, float]]:
         if not self.conn: return {}
@@ -234,7 +335,8 @@ class StatsRepository:
     def get_tournament_distribution(self, tournament_id: int) -> Dict[Tuple, float]:
         if not self.conn: return {}
         query = """
-        SELECT d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*) 
+        SELECT d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               SUM(EXP(-LN(2) / 3.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE m.tournament_id = %s
@@ -371,23 +473,38 @@ class StatsRepository:
         rows = self._run_query(query, (player_ids, gender))
         return {r[0] for r in rows}
 
-    def get_spinner_ids(self, bowler_ids: List[int], gender: str = 'male') -> set:
+    def get_spinner_ids(self, bowler_ids: List[int], gender: str = 'male',
+                        match_format: str = None) -> set:
         """
         Returns the set of player_ids who are spinners, inferred from having
-        at least one stumped dismissal in any format (stumped wickets only occur off spin bowling).
+        at least 3 stumped dismissals (stumpings only occur off spin/slow bowling).
+        A minimum threshold prevents pace bowlers with a single freak stumping
+        from being mis-classified as spinners.
+        When match_format is given, stumpings are counted only in that format
+        so a bowler who turns their arm over occasionally in one format doesn't
+        bleed classification into another.
         """
         if not bowler_ids or not self.conn:
             return set()
-        query = """
-        SELECT DISTINCT d.bowler_id
+        format_filter = ""
+        params: list = [bowler_ids, gender]
+        if match_format:
+            aliases = _FORMAT_ALIASES.get(match_format, [match_format])
+            format_filter = "AND m.match_format = ANY(%s)"
+            params.append(aliases)
+        query = f"""
+        SELECT d.bowler_id
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.bowler_id = ANY(%s)
           AND m.gender = %s
+          {format_filter}
           AND d.outcome_type = 'Wicket'
           AND d.outcome_kind = 'stumped'
+        GROUP BY d.bowler_id
+        HAVING COUNT(*) >= 3
         """
-        rows = self._run_query(query, (bowler_ids, gender))
+        rows = self._run_query(query, tuple(params))
         return {r[0] for r in rows}
 
     def get_batter_death_stats(
@@ -498,28 +615,59 @@ class StatsRepository:
         bowler_ids: List[int],
         match_format: str,
         gender: str = 'male',
+        match_ids: Optional[List[int]] = None,
     ) -> Dict[Tuple[int, int], Dict[str, float]]:
-        """Returns {(batter_id, bowler_id): {'economy': float, 'wicket_rate': float, 'balls': int}}
+        """Returns {(batter_id, bowler_id): {'economy', 'wicket_rate', 'boundary_rate', 'dot_rate', 'balls'}}
         Only pairs with at least 6 historical balls are included.
+        When match_ids is provided, restricts to those specific matches only.
         """
         if not batter_ids or not bowler_ids or not self.conn:
             return {}
-        query = """
-        SELECT
-            d.batter_id, d.bowler_id,
-            SUM(d.runs_batter + d.runs_extras) * 6.0 / NULLIF(COUNT(*), 0) AS economy,
-            SUM(CASE WHEN d.outcome_type = 'Wicket' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS wicket_rate,
-            COUNT(*) AS balls
-        FROM history.deliveries d
-        JOIN history.matches m ON d.match_id = m.match_id
-        WHERE d.batter_id = ANY(%s) AND d.bowler_id = ANY(%s)
-          AND m.match_format = ANY(%s) AND m.gender = %s
-        GROUP BY d.batter_id, d.bowler_id
-        HAVING COUNT(*) >= 6
-        """
-        rows = self._run_query(query, (batter_ids, bowler_ids, self._raw_formats(match_format), gender))
+        if match_ids:
+            query = """
+            SELECT
+                d.batter_id, d.bowler_id,
+                SUM(d.runs_batter + d.runs_extras) * 6.0 / NULLIF(COUNT(*), 0) AS economy,
+                SUM(CASE WHEN d.outcome_type = 'Wicket' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS wicket_rate,
+                SUM(CASE WHEN d.runs_batter >= 4 THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS boundary_rate,
+                SUM(CASE WHEN d.runs_batter = 0 AND d.runs_extras = 0
+                              AND d.outcome_type != 'Wicket' THEN 1 ELSE 0 END)::float
+                    / NULLIF(COUNT(*), 0) AS dot_rate,
+                COUNT(*) AS balls
+            FROM history.deliveries d
+            WHERE d.batter_id = ANY(%s) AND d.bowler_id = ANY(%s)
+              AND d.match_id = ANY(%s)
+            GROUP BY d.batter_id, d.bowler_id
+            HAVING COUNT(*) >= 6
+            """
+            rows = self._run_query(query, (batter_ids, bowler_ids, match_ids))
+        else:
+            query = """
+            SELECT
+                d.batter_id, d.bowler_id,
+                SUM(d.runs_batter + d.runs_extras) * 6.0 / NULLIF(COUNT(*), 0) AS economy,
+                SUM(CASE WHEN d.outcome_type = 'Wicket' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS wicket_rate,
+                SUM(CASE WHEN d.runs_batter >= 4 THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS boundary_rate,
+                SUM(CASE WHEN d.runs_batter = 0 AND d.runs_extras = 0
+                              AND d.outcome_type != 'Wicket' THEN 1 ELSE 0 END)::float
+                    / NULLIF(COUNT(*), 0) AS dot_rate,
+                COUNT(*) AS balls
+            FROM history.deliveries d
+            JOIN history.matches m ON d.match_id = m.match_id
+            WHERE d.batter_id = ANY(%s) AND d.bowler_id = ANY(%s)
+              AND m.match_format = ANY(%s) AND m.gender = %s
+            GROUP BY d.batter_id, d.bowler_id
+            HAVING COUNT(*) >= 6
+            """
+            rows = self._run_query(query, (batter_ids, bowler_ids, self._raw_formats(match_format), gender))
         return {
-            (r[0], r[1]): {'economy': float(r[2] or 0), 'wicket_rate': float(r[3] or 0), 'balls': int(r[4])}
+            (r[0], r[1]): {
+                'economy':       float(r[2] or 0),
+                'wicket_rate':   float(r[3] or 0),
+                'boundary_rate': float(r[4] or 0),
+                'dot_rate':      float(r[5] or 0),
+                'balls':         int(r[6]),
+            }
             for r in rows
         }
 
@@ -643,7 +791,10 @@ class StatsRepository:
 
     def get_bowler_over_frequency(
         self, bowler_ids: List[int], match_format: str, gender: str = 'male',
-        country: Optional[str] = None, match_type: Optional[str] = None,
+        country: Optional[str] = None,
+        countries: Optional[List[str]] = None,
+        venue_id: Optional[int] = None,
+        match_type: Optional[str] = None,
         inning_number: Optional[int] = None,
     ) -> Dict[int, Dict[int, float]]:
         """
@@ -653,9 +804,12 @@ class StatsRepository:
         T20:  key = over_number  (0-indexed, 0–19, one bin per over)
         ODI:  key = over_number // 5  (0-indexed, 0–9, one bin per 5 overs)
 
+        Scope (highest priority wins):
+          venue_id  — restrict to a specific venue.
+          countries — restrict to venues in any of these countries (list).
+          country   — convenience alias for countries=[country].
         match_type: when provided (e.g. 'international'), restricts to that match_type only.
-        inning_number: when provided (1 or 2), restricts to that innings only; denominator
-                       becomes matches where the bowler had deliveries in that inning.
+        inning_number: when provided (1 or 2), restricts to that innings only.
         Returns {player_id: {key: fraction}} — sparse (only keys with data present).
         """
         if not bowler_ids or not self.conn:
@@ -666,10 +820,22 @@ class StatsRepository:
 
         raw_fmts = self._raw_formats(unified)
 
-        country_join      = "JOIN history.venues v ON m.venue_id = v.venue_id" if country else ""
-        country_filter    = "AND v.country = %s"                                if country else ""
-        match_type_filter = "AND m.match_type = %s"                             if match_type else ""
-        inning_filter     = "AND d.inning_number = %s"                          if inning_number is not None else ""
+        if venue_id is not None:
+            loc_join   = ""
+            loc_filter = "AND m.venue_id = %s"
+            loc_param: Optional[object] = venue_id
+        elif countries or country:
+            c_list     = countries if countries else [country]
+            loc_join   = "JOIN history.venues v ON m.venue_id = v.venue_id"
+            loc_filter = "AND v.country = ANY(%s)"
+            loc_param  = c_list
+        else:
+            loc_join   = ""
+            loc_filter = ""
+            loc_param  = None
+
+        match_type_filter = "AND m.match_type = %s"    if match_type        else ""
+        inning_filter     = "AND d.inning_number = %s" if inning_number is not None else ""
 
         if unified == 'T20':
             key_expr    = "d.over_number"
@@ -678,41 +844,24 @@ class StatsRepository:
             key_expr    = "d.over_number / 5"
             over_filter = "AND d.over_number BETWEEN 0 AND 49"
 
-        if inning_number is not None:
-            # Denominator: total matches played (same as non-inning path),
-            # so frequency = "bowled in this over/inning in X% of all appearances".
-            total_matches_sql = f"""
+        total_matches_sql = f"""
             SELECT mp.player_id, COUNT(DISTINCT mp.match_id) AS n
             FROM history.match_players mp
             JOIN history.matches m ON mp.match_id = m.match_id
-            {country_join}
+            {loc_join}
             WHERE mp.player_id = ANY(%s)
               AND m.match_format = ANY(%s)
               AND m.gender = %s
-              {country_filter}
+              {loc_filter}
               {match_type_filter}
             GROUP BY mp.player_id"""
-            total_params = [bowler_ids, raw_fmts, gender]
-            if country:    total_params.append(country)
-            if match_type: total_params.append(match_type)
-        else:
-            total_matches_sql = f"""
-            SELECT mp.player_id, COUNT(DISTINCT mp.match_id) AS n
-            FROM history.match_players mp
-            JOIN history.matches m ON mp.match_id = m.match_id
-            {country_join}
-            WHERE mp.player_id = ANY(%s)
-              AND m.match_format = ANY(%s)
-              AND m.gender = %s
-              {country_filter}
-              {match_type_filter}
-            GROUP BY mp.player_id"""
-            total_params = [bowler_ids, raw_fmts, gender]
-            if country:    total_params.append(country)
-            if match_type: total_params.append(match_type)
+
+        total_params = [bowler_ids, raw_fmts, gender]
+        if loc_param  is not None: total_params.append(loc_param)
+        if match_type:             total_params.append(match_type)
 
         key_params = [bowler_ids, raw_fmts, gender]
-        if country:                    key_params.append(country)
+        if loc_param  is not None:     key_params.append(loc_param)
         if match_type:                 key_params.append(match_type)
         if inning_number is not None:  key_params.append(inning_number)
 
@@ -724,11 +873,11 @@ class StatsRepository:
                    COUNT(DISTINCT d.match_id) AS cnt
             FROM history.deliveries d
             JOIN history.matches m ON d.match_id = m.match_id
-            {country_join}
+            {loc_join}
             WHERE d.bowler_id = ANY(%s)
               AND m.match_format = ANY(%s)
               AND m.gender = %s
-              {country_filter}
+              {loc_filter}
               {match_type_filter}
               {inning_filter}
               {over_filter}
@@ -948,6 +1097,8 @@ class StatsRepository:
     def get_bowler_test_phase_frequency(
         self, player_ids: List[int], gender: str = 'male',
         country: Optional[str] = None,
+        countries: Optional[List[str]] = None,
+        venue_id: Optional[int] = None,
     ) -> Dict[int, Dict]:
         """
         Returns {player_id: {'n': int, 'buckets': {innings_bucket: {phase_idx: float}}}}
@@ -957,29 +1108,42 @@ class StatsRepository:
         innings_bucket 2 = match innings 3 or 4 (second innings of each team).
         Phases 0-7 map to ball-age windows of 10 overs each within an 80-over
         new-ball cycle: 0→overs 0-9, 1→10-19, ..., 7→70-79.
-        When `country` is provided, only matches at venues in that country are used.
-        `n` is total matches the player participated in (from match_players) — the same
-        for both innings buckets since a player either plays a match in full or not at all.
+
+        Scope (highest priority wins):
+          venue_id  — restrict to a specific venue (most granular, sparsest).
+          countries — restrict to venues in any of these countries (list); use for
+                      regional grouping e.g. West Indies islands under one pool.
+          country   — convenience alias for countries=[country].
+        `n` is total matches the player participated in within the chosen scope.
         """
         if not player_ids or not self.conn:
             return {}
 
-        country_join   = "JOIN history.venues v ON m.venue_id = v.venue_id" if country else ""
-        country_filter = "AND v.country = %s"                                if country else ""
+        if venue_id is not None:
+            loc_join   = ""
+            loc_filter = "AND m.venue_id = %s"
+            loc_param: Optional[object] = venue_id
+        elif countries or country:
+            c_list     = countries if countries else [country]
+            loc_join   = "JOIN history.venues v ON m.venue_id = v.venue_id"
+            loc_filter = "AND v.country = ANY(%s)"
+            loc_param  = c_list
+        else:
+            loc_join   = ""
+            loc_filter = ""
+            loc_param  = None
 
         raw_fmts = self._raw_formats("Test")
         query = f"""
         WITH total_matches AS (
-            -- Denominator: all matches the player participated in (not just bowled).
-            -- Shared across both innings buckets since match_players has one row per match.
             SELECT mp.player_id, COUNT(DISTINCT mp.match_id) AS n
             FROM history.match_players mp
             JOIN history.matches m ON mp.match_id = m.match_id
-            {country_join}
+            {loc_join}
             WHERE mp.player_id = ANY(%s)
               AND m.match_format = ANY(%s)
               AND m.gender = %s
-              {country_filter}
+              {loc_filter}
             GROUP BY mp.player_id
         ),
         bucketed AS (
@@ -990,11 +1154,11 @@ class StatsRepository:
                 ((d.over_number %% 80) / 10)::int                AS phase
             FROM history.deliveries d
             JOIN history.matches m ON d.match_id = m.match_id
-            {country_join}
+            {loc_join}
             WHERE d.bowler_id = ANY(%s)
               AND m.match_format = ANY(%s)
               AND m.gender = %s
-              {country_filter}
+              {loc_filter}
         ),
         phase_counts AS (
             SELECT bowler_id, innings_bucket, phase, COUNT(DISTINCT match_id) AS phase_matches
@@ -1010,13 +1174,10 @@ class StatsRepository:
         FROM phase_counts p
         JOIN total_matches t ON p.bowler_id = t.player_id
         """
-        params = [player_ids, raw_fmts, gender]
-        if country:
-            params.append(country)
-        params += [player_ids, raw_fmts, gender]
-        if country:
-            params.append(country)
-        rows = self._run_query(query, tuple(params))
+        half = [player_ids, raw_fmts, gender]
+        if loc_param is not None:
+            half.append(loc_param)
+        rows = self._run_query(query, tuple(half + half))
 
         result: Dict[int, Dict] = {}
         for bowler_id, innings_bucket, n, phase, frac in rows:
@@ -1088,12 +1249,13 @@ class StatsRepository:
     def get_batters_distribution_with_counts(
         self, batter_ids: List[int], match_format: str, gender: str = 'male'
     ) -> Dict[int, Tuple[Dict[Tuple, float], int]]:
-        """Like get_batters_distribution but also returns {player_id: (probs, ball_count)}."""
+        """Like get_batters_distribution but also returns {player_id: (probs, effective_ball_count)}."""
         if not batter_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
         query = """
-        SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.batter_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
@@ -1113,12 +1275,13 @@ class StatsRepository:
     def get_bowlers_distribution_with_counts(
         self, bowler_ids: List[int], match_format: str, gender: str = 'male'
     ) -> Dict[int, Tuple[Dict[Tuple, float], int]]:
-        """Like get_bowlers_distribution but also returns {player_id: (probs, ball_count)}."""
+        """Like get_bowlers_distribution but also returns {player_id: (probs, effective_ball_count)}."""
         if not bowler_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
         query = """
-        SELECT d.bowler_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        SELECT d.bowler_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.bowler_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
@@ -1292,20 +1455,32 @@ class StatsRepository:
         return result
 
     def get_validation_deliveries(
-        self, match_format: str, gender: str = 'male', sample_size: int = 5000
+        self,
+        match_format: str,
+        gender: str = 'male',
+        sample_size: int = 5000,
+        venue_id: Optional[int] = None,
     ) -> List[tuple]:
         """
         Returns up to sample_size random deliveries with full context for model validation.
-        Each row: (batter_id, bowler_id, venue_id, inning_number, over_number, tournament_id,
-                   runs_batter, runs_extras, outcome_type, outcome_kind, batter_score_before)
 
-        batter_score_before is the batter's accumulated runs in this innings BEFORE this delivery,
-        computed via a window function — used to derive the confidence milestone at prediction time.
+        Each row:
+          (batter_id, bowler_id, venue_id, inning_number, over_number, tournament_id,
+           runs_batter, runs_extras, outcome_type, outcome_kind,
+           batter_score_before, team_score_before, team_wickets_before)
+
+        batter_score_before  — batter's runs in this innings before this delivery (window fn).
+        team_score_before    — team's total runs before this delivery (window fn).
+        team_wickets_before  — team's wickets fallen before this delivery (window fn).
+        These last two allow pressure-proxy classification without a target lookup.
+
+        venue_id: when set, restricts sample to that venue (for context-specific testing).
         """
         if not self.conn:
             return []
         raw_fmts = self._raw_formats(match_format)
-        query = """
+        venue_filter = "AND m.venue_id = %s" if venue_id is not None else ""
+        query = f"""
         WITH delivery_running AS (
             SELECT
                 d.batter_id, d.bowler_id, m.venue_id, d.inning_number, d.over_number,
@@ -1316,18 +1491,162 @@ class StatsRepository:
                         ORDER BY d.over_number, d.ball_number
                         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
                     ), 0
-                ) AS batter_score_before
+                ) AS batter_score_before,
+                COALESCE(
+                    SUM(d.runs_batter + d.runs_extras) OVER (
+                        PARTITION BY d.match_id, d.inning_number
+                        ORDER BY d.over_number, d.ball_number
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                    ), 0
+                ) AS team_score_before,
+                COALESCE(
+                    SUM(CASE WHEN d.outcome_type = 'Wicket' THEN 1 ELSE 0 END) OVER (
+                        PARTITION BY d.match_id, d.inning_number
+                        ORDER BY d.over_number, d.ball_number
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                    ), 0
+                ) AS team_wickets_before
             FROM history.deliveries d
             JOIN history.matches m ON d.match_id = m.match_id
-            WHERE m.match_format = ANY(%s) AND m.gender = %s
+            WHERE m.match_format = ANY(%s) AND m.gender = %s {venue_filter}
         )
         SELECT batter_id, bowler_id, venue_id, inning_number, over_number, tournament_id,
-               runs_batter, runs_extras, outcome_type, outcome_kind, batter_score_before
+               runs_batter, runs_extras, outcome_type, outcome_kind,
+               batter_score_before, team_score_before, team_wickets_before
         FROM delivery_running
         ORDER BY RANDOM()
         LIMIT %s
         """
-        return self._run_query(query, (raw_fmts, gender, sample_size))
+        params = [raw_fmts, gender]
+        if venue_id is not None:
+            params.append(venue_id)
+        params.append(sample_size)
+        return self._run_query(query, params)
+
+    def get_player_historical_profile(
+        self,
+        player_id: int,
+        match_format: str,
+        gender: str = 'male',
+    ) -> List[tuple]:
+        """
+        Returns every delivery faced by a batter, with context for
+        phase / milestone / bowler-type bucketing.
+
+        Each row: (over_number, runs_batter, outcome_type,
+                   batter_score_before, bowler_career_balls)
+
+        bowler_career_balls is the bowler's total ball count across ALL
+        matches in this format — same metric used by _PARTTIME_THRESHOLDS.
+        """
+        if not self.conn:
+            return []
+        raw_fmts = self._raw_formats(match_format)
+        return self._run_query("""
+            WITH bowler_career AS (
+                SELECT d2.bowler_id, COUNT(*) AS career_balls
+                FROM history.deliveries d2
+                JOIN history.matches m2 ON d2.match_id = m2.match_id
+                WHERE m2.match_format = ANY(%s) AND m2.gender = %s
+                GROUP BY d2.bowler_id
+            )
+            SELECT
+                d.over_number,
+                d.runs_batter,
+                d.outcome_type,
+                COALESCE(SUM(d.runs_batter) OVER (
+                    PARTITION BY d.batter_id, d.match_id, d.inning_number
+                    ORDER BY d.over_number, d.ball_number
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                ), 0) AS batter_score_before,
+                COALESCE(bc.career_balls, 0) AS bowler_career_balls
+            FROM history.deliveries d
+            JOIN history.matches m ON d.match_id = m.match_id
+            LEFT JOIN bowler_career bc ON bc.bowler_id = d.bowler_id
+            WHERE d.batter_id = %s AND m.match_format = ANY(%s) AND m.gender = %s
+        """, (raw_fmts, gender, player_id, raw_fmts, gender))
+
+    def get_player_recent_matches(
+        self,
+        player_id: int,
+        match_format: str,
+        gender: str = 'male',
+        limit: int = 20,
+    ) -> List[tuple]:
+        """
+        Returns recent matches a player appeared in, ordered newest first.
+        Each row: (match_id, venue_id, venue_name, venue_country,
+                   home_team_id, away_team_id, date)
+        """
+        if not self.conn:
+            return []
+        raw_fmts = self._raw_formats(match_format)
+        return self._run_query("""
+            SELECT DISTINCT mp.match_id, m.venue_id, v.name, v.country,
+                   m.home_team_id, m.away_team_id, m.date
+            FROM history.match_players mp
+            JOIN history.matches m  ON mp.match_id = m.match_id
+            JOIN history.venues  v  ON m.venue_id  = v.venue_id
+            WHERE mp.player_id = %s AND m.match_format = ANY(%s) AND m.gender = %s
+            ORDER BY m.date DESC
+            LIMIT %s
+        """, (player_id, raw_fmts, gender, limit))
+
+    def get_match_lineup(self, match_id: int) -> List[tuple]:
+        """
+        Returns the full roster for a match ordered by batting position.
+        Each row: (team_id, team_name, player_id, player_name)
+        Players who never batted appear last (ordered by player_id).
+        """
+        if not self.conn:
+            return []
+        return self._run_query("""
+            SELECT mp.team_id, t.name, mp.player_id, p.name
+            FROM history.match_players mp
+            JOIN history.players p ON mp.player_id = p.player_id
+            JOIN history.teams   t ON mp.team_id   = t.team_id
+            LEFT JOIN (
+                SELECT player_id, batting_team_id,
+                       MIN((inning_number * 10000 + over_number * 100 + ball_number) * 2 + role)
+                           AS sort_key
+                FROM (
+                    SELECT batter_id     AS player_id, batting_team_id,
+                           inning_number, over_number, ball_number, 0 AS role
+                    FROM history.deliveries WHERE match_id = %s
+                    UNION ALL
+                    SELECT non_striker_id AS player_id, batting_team_id,
+                           inning_number, over_number, ball_number, 1 AS role
+                    FROM history.deliveries WHERE match_id = %s
+                ) appearances
+                GROUP BY player_id, batting_team_id
+            ) fb ON fb.player_id = mp.player_id AND fb.batting_team_id = mp.team_id
+            WHERE mp.match_id = %s
+            ORDER BY mp.team_id, COALESCE(fb.sort_key, 999999999), mp.player_id
+        """, (match_id, match_id, match_id))
+
+    def get_bowler_career_balls(
+        self,
+        player_ids: List[int],
+        match_format: str,
+        gender: str = 'male',
+    ) -> Dict[int, int]:
+        """
+        Returns career ball counts (as bowler) for the given player IDs.
+        Used to classify genuine vs part-time bowlers in simulation tracking.
+        """
+        if not self.conn or not player_ids:
+            return {}
+        raw_fmts = self._raw_formats(match_format)
+        rows = self._run_query("""
+            SELECT d.bowler_id, COUNT(*) AS career_balls
+            FROM history.deliveries d
+            JOIN history.matches m ON d.match_id = m.match_id
+            WHERE d.bowler_id = ANY(%s)
+              AND m.match_format = ANY(%s)
+              AND m.gender = %s
+            GROUP BY d.bowler_id
+        """, (player_ids, raw_fmts, gender))
+        return {pid: int(cnt) for pid, cnt in rows}
 
     def get_full_aggregate_distribution(self, match_format: str, gender: str = 'male') -> Dict[Tuple, float]:
         """
@@ -1467,3 +1786,48 @@ class StatsRepository:
         """
         rows = self._run_query(query, (self._raw_formats(match_format), gender))
         return {r[0]: r[1] for r in rows}
+
+    def get_batter_phase_distribution(
+        self, batter_ids: List[int], match_format: str, gender: str = 'male'
+    ) -> Tuple[Dict[int, Dict[str, Dict[Tuple, float]]], Dict[int, Dict[str, int]]]:
+        """
+        Per-batter, per-phase outcome distributions using time-decayed ball weights.
+        Returns (phase_dists, phase_ball_counts):
+          phase_dists       = {batter_id: {phase: {outcome_key: prob}}}
+          phase_ball_counts = {batter_id: {phase: approx_ball_count}}
+        """
+        if not batter_ids or not self.conn:
+            return {}, {}
+        raw_fmts = self._raw_formats(match_format)
+        query = """
+        SELECT d.batter_id, d.over_number,
+               d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
+        FROM history.deliveries d
+        JOIN history.matches m ON d.match_id = m.match_id
+        WHERE d.batter_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
+        GROUP BY d.batter_id, d.over_number,
+                 d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
+        """
+        rows = self._run_query(query, (batter_ids, raw_fmts, gender))
+
+        # Accumulate weighted counts per (batter_id, phase, outcome_key)
+        acc: Dict[int, Dict[str, Dict[tuple, float]]] = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(float))
+        )
+        for batter_id, over_num, r_bat, r_ext, out_type, out_kind, weight in rows:
+            phase = _fine_grained_phase(over_num, match_format)
+            acc[batter_id][phase][(r_bat, r_ext, out_type, out_kind)] += weight
+
+        phase_dists: Dict[int, Dict[str, Dict[Tuple, float]]] = {}
+        phase_ball_counts: Dict[int, Dict[str, int]] = {}
+        for batter_id, phases in acc.items():
+            phase_dists[batter_id] = {}
+            phase_ball_counts[batter_id] = {}
+            for phase, outcome_counts in phases.items():
+                total = sum(outcome_counts.values())
+                if total > 0:
+                    phase_dists[batter_id][phase] = {k: v / total for k, v in outcome_counts.items()}
+                    phase_ball_counts[batter_id][phase] = int(round(total))
+
+        return phase_dists, phase_ball_counts

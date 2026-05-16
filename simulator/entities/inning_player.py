@@ -78,8 +78,11 @@ class InningPlayer(MatchObserver):
                         self.death_sixes += 1
 
             if bowler and bowler.id == self.id:
-                self.runs_conceded += outcome.runs_batter + outcome.runs_extras
-                if outcome.runs_batter == 0 and outcome.runs_extras == 0 and not outcome.is_wicket:
+                # Leg byes and byes are not charged to the bowler; only wides and no-balls are
+                _extras_charged = outcome.extras_type in (ExtraType.WIDE, ExtraType.NOBALL)
+                _runs_charged   = outcome.runs_batter + (outcome.runs_extras if _extras_charged else 0)
+                self.runs_conceded += _runs_charged
+                if _runs_charged == 0 and not outcome.is_wicket:
                     self.dot_balls_bowled += 1
                 if MatchRules.is_legal_delivery(outcome.extras_type):
                     self.balls_bowled += 1
@@ -87,7 +90,7 @@ class InningPlayer(MatchObserver):
                     self.wickets_taken += 1
                     self.dot_balls_bowled += 1
                 if is_death:
-                    self.death_runs_conceded += outcome.runs_batter + outcome.runs_extras
+                    self.death_runs_conceded += _runs_charged
                     if MatchRules.is_legal_delivery(outcome.extras_type):
                         self.death_balls_bowled += 1
 

@@ -118,10 +118,30 @@ class TestBowlerStatTracking:
     def _send(self, outcome, match=None):
         self.bowler.on_event(_ball_event(self.batter, self.bowler, outcome, match))
 
-    def test_runs_conceded_includes_extras(self):
+    def test_runs_conceded_includes_wide_extras(self):
         self._send(BallOutcome(runs_batter=4, runs_extras=0))
         self._send(BallOutcome(runs_batter=0, runs_extras=1, extras_type=ExtraType.WIDE))
         assert self.bowler.runs_conceded == 5
+
+    def test_runs_conceded_includes_noball_extras(self):
+        self._send(BallOutcome(runs_batter=0, runs_extras=1, extras_type=ExtraType.NOBALL))
+        assert self.bowler.runs_conceded == 1
+
+    def test_legbyes_not_charged_to_bowler(self):
+        self._send(BallOutcome(runs_batter=0, runs_extras=3, extras_type=ExtraType.LEGBYES))
+        assert self.bowler.runs_conceded == 0
+
+    def test_byes_not_charged_to_bowler(self):
+        self._send(BallOutcome(runs_batter=0, runs_extras=4, extras_type=ExtraType.BYES))
+        assert self.bowler.runs_conceded == 0
+
+    def test_legbyes_ball_still_counts_as_legal_delivery(self):
+        self._send(BallOutcome(runs_batter=0, runs_extras=1, extras_type=ExtraType.LEGBYES))
+        assert self.bowler.balls_bowled == 1
+
+    def test_legbyes_zero_runs_conceded_counts_as_dot(self):
+        self._send(BallOutcome(runs_batter=0, runs_extras=3, extras_type=ExtraType.LEGBYES))
+        assert self.bowler.dot_balls_bowled == 1
 
     def test_balls_bowled_counts_legal_only(self):
         self._send(BallOutcome(runs_batter=1))

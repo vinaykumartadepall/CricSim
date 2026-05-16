@@ -115,6 +115,13 @@ class TestHistoricalBowlingStrategy(HistoricalBowlingBase):
     def _eligible(self, team, current_bowler, match: SimulationMatch):
         return [ip for ip in team.inning_players if ip != current_bowler]
 
+    # Penalty applied to players with very little bowling history — keeps them out
+    # of the attack in normal innings and only lets them through when every
+    # genuine bowler is deeply fatigued (130+ over innings).
+    _PARTTIME_PENALTY_NONE  = -12.0  # not in workload_cache (< 3 bowling innings ever)
+    _PARTTIME_PENALTY_LIGHT =  -5.0  # in cache but avg < 5 overs/innings (very occasional)
+    _PARTTIME_AVG_THRESHOLD =   5.0  # overs/innings cutoff for "regular bowler"
+
     def _score_and_breakdown(self, ip: InningPlayer, match: SimulationMatch) -> Tuple[float, dict]:
         if self._hard_cap(ip):
             return -1000.0, {}
@@ -127,7 +134,15 @@ class TestHistoricalBowlingStrategy(HistoricalBowlingBase):
         f3c, f3f, f3w = self._f_spell_breakdown(ip, match, continuity_weight=12.0, workload_harshness=12.0)
         f4 = self._f_matchup(ip, match) * 0.15
 
-        return f1 + f2 + f3c + f3f + f3w + f4, {
+        wl_data = self.workload_cache.get(ip.id)
+        if wl_data is None:
+            pt = self._PARTTIME_PENALTY_NONE
+        elif wl_data.get('avg_overs_per_innings', 0.0) < self._PARTTIME_AVG_THRESHOLD:
+            pt = self._PARTTIME_PENALTY_LIGHT
+        else:
+            pt = 0.0
+
+        breakdown = {
             "F1_phase":   f1,
             "F2_form":    f2,
             "F3_cont":    f3c,
@@ -135,6 +150,9 @@ class TestHistoricalBowlingStrategy(HistoricalBowlingBase):
             "F3_wl":      f3w,
             "F4_matchup": f4,
         }
+        if pt:
+            breakdown["parttimer"] = pt
+        return f1 + f2 + f3c + f3f + f3w + f4 + pt, breakdown
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
