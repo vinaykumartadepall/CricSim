@@ -1,6 +1,6 @@
 {
   "match_id": 1,
-  "format": "Test",
+  "format": "ODI",
   "bowling_strategy": "historical",
   "ball_outcome_strategy": "enhanced",
   "venue": "Lord's, London",
@@ -9,14 +9,14 @@
     "players": [
       "RG Sharma",
       "Shubman Gill",
-      "CA Pujara",
       "V Kohli",
+      "SS Iyer",
       "KL Rahul",
-      "RR Pant",
       "RA Jadeja",
-      "R Ashwin",
+      "HH Pandya",
       "B Kumar",
       "JJ Bumrah",
+      "Kuldeep Yadav",
       "Mohammed Siraj"
     ]
   },
@@ -24,15 +24,15 @@
     "name": "Australia",
     "players": [
       "DA Warner",
-      "UT Khawaja",
-      "M Labuschagne",
-      "SPD Smith",
       "TM Head",
       "MR Marsh",
+      "SPD Smith",
+      "M Labuschagne",
+      "C Green",
       "AT Carey",
       "PJ Cummins",
       "MA Starc",
-      "NM Lyon",
+      "A Zampa",
       "JR Hazlewood"
     ]
   }

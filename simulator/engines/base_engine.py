@@ -111,6 +111,10 @@ class BaseEngine(ABC):
             self.match.striker, self.match.non_striker = (
                 self.match.current_batting_team.get_openers()
             )
+            if self.match.striker:
+                self.match.striker.came_to_crease = True
+            if self.match.non_striker:
+                self.match.non_striker.came_to_crease = True
 
         if self.match.current_bowling_team:
             self.match.current_bowler = self.bowling_strategy.select_bowler(self.match)

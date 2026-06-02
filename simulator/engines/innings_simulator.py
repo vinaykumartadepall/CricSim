@@ -214,6 +214,7 @@ class InningsSimulator:
             )
             if next_batter:
                 self.match.striker = next_batter
+                next_batter.came_to_crease = True
             else:
                 self.logger.warn(
                     f"[InningsSimulator] No next batter available after wicket "

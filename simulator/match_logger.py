@@ -1,97 +1,108 @@
 """
 Match commentary logger for the cricket simulator.
 
-Owns all human-readable output for a single match. Separates three output tiers:
+Two files are written per match:
 
-  Tier 1 — Match file  (match_logs/match_<id>.txt)
-              Complete ball-by-ball narrative. Always written. No timestamps.
-              Suitable for post-match review or piping into a formatter.
+  match_<id>.txt   Ball-by-ball narrative. Plain text, no timestamps.
+                   Always written regardless of SILENT flag.
 
-  Tier 2 — Console (stdout)
-              Key moments only: match start, toss, session breaks, scorecards, result.
-              Keeps terminal output digestible during a long simulation.
+  match_<id>.log   Full structured log for this match. Receives:
+                     - Timestamped headline / warn / error entries
+                     - All Python logger output routed through a dedicated
+                       FileHandler attached during the match's lifetime.
+                   This gives the same level of detail as simulation.log
+                   but scoped to a single match, making per-match debugging
+                   straightforward without hunting through a shared log.
 
-  Tier 3 — App logger (simulation.log via Python logging)
-              Warnings and errors that affect simulation quality, e.g. player not
-              found in cache, DB unavailable, fallback distribution activated.
-              Written by the caller via log.warn() / log.error() — MatchLogger
-              does not duplicate content that already goes to the match file.
-
-Usage:
-  logger = MatchLogger(match_id=1)
-  logger.headline("=== Match Start ===")  # → file + console
-  logger.ball("0.1  4 runs, Bumrah to Warner")  # → file only
-  logger.over_summary(over_text)           # → file only
-  logger.scorecard(scorecard_text)         # → file + console
-  logger.close()                           # flush and close file
+Console output (Tier 2) is controlled by MatchLogger.SILENT:
+  False (default)  Headlines and scorecards echo to stdout.
+  True             All console output suppressed (tournament / batch mode).
+                   Both files are still written in full.
 """
 
+import logging
 import os
+import time
 from simulator.logger import get_logger
+
+_FILE_FMT = logging.Formatter(
+    fmt="%(asctime)s  %(levelname)-7s  %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 
 class MatchLogger:
     """
     Single I/O surface for all match commentary output.
-    Instantiate once per match, call close() (or use as a context manager) when done.
-
-    Set MatchLogger.SILENT = True before a batch run (e.g. validation) to suppress
-    all console output — scorecards and headlines still go to their per-match files.
+    Instantiate once per match; call close() (or use as a context manager) when done.
     """
 
-    SILENT: bool = False  # class-level flag; set True for batch / validation runs
+    SILENT: bool = False  # suppress ALL console output (tournament/batch mode)
 
     def __init__(self, match_id: int, log_dir: str = "match_logs"):
         os.makedirs(log_dir, exist_ok=True)
-        self.file_path = os.path.join(log_dir, f"match_{match_id}.txt")
-        self._file = open(self.file_path, "w", encoding="utf-8", buffering=1)
-        self._log = get_logger()
+        self._match_id = match_id
 
-    # ── Tier 1: file only ─────────────────────────────────────────────────────
+        # .txt — ball-by-ball narrative
+        self.file_path = os.path.join(log_dir, f"match_{match_id}.txt")
+        self._file     = open(self.file_path, "w", encoding="utf-8", buffering=1)
+
+        # .log — full structured log, including Python logger output
+        self._log_path = os.path.join(log_dir, f"match_{match_id}.log")
+        self._logfile  = open(self._log_path, "w", encoding="utf-8", buffering=1)
+
+        # Attach a FileHandler on the shared app logger so all log.debug/info/warning
+        # calls during this match also land in the per-match .log file.
+        self._app_log  = get_logger()
+        self._handler  = logging.StreamHandler(self._logfile)
+        self._handler.setLevel(logging.DEBUG)
+        self._handler.setFormatter(_FILE_FMT)
+        self._app_log.addHandler(self._handler)
+
+        self._log_entry("INFO", f"Match {match_id} started")
+
+    # ── .txt file only ────────────────────────────────────────────────────────
 
     def ball(self, text: str) -> None:
-        """Ball-by-ball delivery line. High volume — file only."""
         self._write(text)
 
     def over_summary(self, text: str) -> None:
-        """Formatted over summary block. File only."""
         self._write(text)
 
-    # ── Tier 2: file + console ────────────────────────────────────────────────
+    # ── .txt + .log + optional console ───────────────────────────────────────
 
     def headline(self, text: str) -> None:
-        """
-        Key match moment: match start, toss, innings break, session break, result.
-        Written to file and echoed to console (suppressed when SILENT=True).
-        """
         self._write(text)
+        self._log_entry("INFO", text.strip())
         if not MatchLogger.SILENT:
             print(text)
 
     def scorecard(self, text: str) -> None:
-        """
-        Full innings scorecard. Written to file and echoed to console (suppressed when SILENT=True).
-        """
         self._write(text)
         if not MatchLogger.SILENT:
             print(text)
 
-    # ── Tier 3: app logger (warnings / errors) ────────────────────────────────
+    # ── .log + simulation.log ─────────────────────────────────────────────────
 
     def warn(self, text: str) -> None:
-        """Data quality warning — goes to the debug log (simulation.log), not the match file."""
-        self._log.warning(text)
+        self._app_log.warning(text)
+        self._log_entry("WARN", text)
 
     def error(self, text: str) -> None:
-        """Simulation error — goes to the debug log."""
-        self._log.error(text)
+        self._app_log.error(text)
+        self._log_entry("ERROR", text)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def close(self) -> None:
-        """Flush and close the match file."""
-        self._file.flush()
-        self._file.close()
+        self._log_entry("INFO", f"Match {self._match_id} closed")
+
+        # Detach the per-match handler before closing the file
+        self._app_log.removeHandler(self._handler)
+        self._handler.close()
+
+        self._file.flush();   self._file.close()
+        self._logfile.flush(); self._logfile.close()
 
     def __enter__(self) -> "MatchLogger":
         return self
@@ -103,3 +114,8 @@ class MatchLogger:
 
     def _write(self, text: str) -> None:
         self._file.write(text + "\n")
+
+    def _log_entry(self, level: str, text: str) -> None:
+        ts = time.strftime("%H:%M:%S")
+        self._logfile.write(f"{ts}  {level:<5}  {text}\n")
+        self._logfile.flush()

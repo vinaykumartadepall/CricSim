@@ -2,6 +2,7 @@ import os
 import sys
 import random
 import math
+from collections import defaultdict
 
 sys.path.append(os.getcwd())
 
@@ -67,7 +68,6 @@ def load_data(match_format='T20', gender='male', sample_size=15000):
         GROUP BY 1, 2, 3, 4, 5
     """, (['T20', 'IT20'] if match_format=='T20' else [match_format], venue_ids, gender))
     v_rows = cur.fetchall()
-    from collections import defaultdict
     v_grouped = defaultdict(list)
     for r in v_rows: v_grouped[r[0]].append(r[1:])
     for v_id, mets in v_grouped.items():

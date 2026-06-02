@@ -24,6 +24,7 @@ from collections import defaultdict
 from db.stats_repository import StatsRepository
 from simulator.entities.match import SimulationMatch
 from simulator.entities.ball_outcome import BallOutcome
+from simulator.entities.rules import MatchRules
 from simulator.strategies.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
 from simulator.strategies.ball_outcome_prediction.common.utils import (
     BASELINE_FALLBACK,
@@ -115,7 +116,6 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         if self._initialized:
             return
 
-        from simulator.entities.rules import MatchRules
         match_format = MatchRules.get_unified_format(getattr(match, 'match_format', 'T20'))
         gender = getattr(match, 'gender', 'male').lower()
         log.info(f"[Strategy] Initializing probability matrices — format: {match_format} ({gender})")

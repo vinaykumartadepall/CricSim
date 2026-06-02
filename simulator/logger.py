@@ -24,6 +24,7 @@ Configuration:
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 CONSOLE = 25
@@ -73,22 +74,39 @@ def get_logger() -> logging.Logger:
     return _logger
 
 
-def configure_logger(log_file: str, level: int = logging.DEBUG) -> logging.Logger:
+def set_console_level(level: int) -> None:
+    """Adjust the console handler's minimum level (e.g. WARNING to suppress engine-init noise)."""
+    logger = get_logger()
+    for h in logger.handlers:
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
+            h.setLevel(level)
+
+
+def configure_logger(
+    log_file: str,
+    level: int = logging.DEBUG,
+    max_bytes: int = 10 * 1024 * 1024,  # 10 MB per file
+    backup_count: int = 5,
+) -> logging.Logger:
     """
-    Attaches a file handler to the application logger.
+    Attaches a rotating file handler to the application logger.
+    Rotates at max_bytes, keeping backup_count old files (.1, .2, …).
     Call once at startup before simulation begins.
     """
     logger = get_logger()
 
     already_attached = any(
-        isinstance(h, logging.FileHandler)
+        isinstance(h, RotatingFileHandler)
         and os.path.abspath(h.baseFilename) == os.path.abspath(log_file)
         for h in logger.handlers
     )
     if already_attached:
         return logger
 
-    fh = logging.FileHandler(log_file, mode="w", encoding="utf-8")
+    fh = RotatingFileHandler(
+        log_file, mode="a", encoding="utf-8",
+        maxBytes=max_bytes, backupCount=backup_count,
+    )
     fh.setLevel(level)
     fh.setFormatter(_FILE_FMT)
     logger.addHandler(fh)

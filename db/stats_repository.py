@@ -1,6 +1,27 @@
 from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
 
+# Seconds in a Julian year (365.25 × 24 × 3600). Used to convert epoch differences to years
+# in all time-decay expressions so the magic number is never repeated in SQL strings.
+_SECONDS_PER_YEAR = 31_557_600
+
+
+def _decay_sql(half_life_years: float) -> str:
+    """Return the SQL weight expression for exponential time decay with the given half-life."""
+    return (
+        f"EXP(-LN(2) / {half_life_years} "
+        f"* GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / {_SECONDS_PER_YEAR}))"
+    )
+
+
+# Pre-computed decay expressions for the half-lives used across queries.
+_D3Y  = _decay_sql(3.0)   # tournament distribution
+_D5Y  = _decay_sql(5.0)   # batter, bowler, matchup, phase, player-country (close)
+_D6Y  = _decay_sql(6.0)   # player-country (region-wide)
+_D7Y  = _decay_sql(7.0)   # venue aggregate
+_D8Y  = _decay_sql(8.0)   # player-venue (sparse — slower decay to preserve signal)
+
+
 # Maps unified format names to all raw DB format strings that belong to that bucket.
 _FORMAT_ALIASES: Dict[str, List[str]] = {
     "Test": ["Test", "MDM"],
@@ -68,6 +89,21 @@ class StatsRepository:
             print(f"[DB] Lookup failed: Venue '{name}' not found.")
             return None
         return (rows[0][0], rows[0][1], rows[0][2])
+
+    def get_tournament_by_name(self, name: str) -> Optional[Tuple[int, str, Optional[str]]]:
+        """Returns (tournament_id, tournament_name, season) or None. Matches most recent season."""
+        if not self.conn: return None
+        query = """
+            SELECT tournament_id, tournament_name, season
+            FROM history.tournaments
+            WHERE tournament_name ILIKE %s
+            ORDER BY season DESC NULLS LAST
+            LIMIT 1
+        """
+        rows = self._run_query(query, (f"%{name}%",))
+        if not rows:
+            return None
+        return (rows[0][0], rows[0][1], rows[0][2])
         
     def _run_query(self, query: str, params: tuple = ()) -> List[tuple]:
         if not self.conn:
@@ -97,9 +133,9 @@ class StatsRepository:
     def get_batters_distribution(self, batter_ids: List[int], match_format: str, gender: str = 'male') -> Dict[int, Dict[Tuple, float]]:
         if not batter_ids or not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
-        query = """
+        query = f"""
         SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
-               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
+               SUM({_D5Y})
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.batter_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
@@ -118,9 +154,9 @@ class StatsRepository:
     def get_bowlers_distribution(self, bowler_ids: List[int], match_format: str, gender: str = 'male') -> Dict[int, Dict[Tuple, float]]:
         if not bowler_ids or not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
-        query = """
+        query = f"""
         SELECT d.bowler_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
-               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
+               SUM({_D5Y})
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.bowler_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
@@ -139,9 +175,9 @@ class StatsRepository:
     def get_venue_distribution(self, venue_id: int, match_format: str, gender: str = 'male') -> Dict[Tuple, float]:
         if not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
-        query = """
+        query = f"""
         SELECT d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
-               SUM(EXP(-LN(2) / 7.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
+               SUM({_D7Y})
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE m.venue_id = %s AND m.match_format = ANY(%s) AND m.gender = %s
@@ -154,9 +190,9 @@ class StatsRepository:
         """Outcome distribution across all venues in a country. Used as fallback when venue data is sparse."""
         if not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
-        query = """
+        query = f"""
         SELECT d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
-               SUM(EXP(-LN(2) / 8.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
+               SUM({_D8Y})
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         JOIN history.venues  v ON m.venue_id = v.venue_id
@@ -173,9 +209,9 @@ class StatsRepository:
         if not player_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
-        query = """
+        query = f"""
         SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
-               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
+               SUM({_D5Y})
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.batter_id = ANY(%s) AND m.venue_id = %s
@@ -212,7 +248,7 @@ class StatsRepository:
         venue_exclude  = "AND m.venue_id != %s" if exclude_venue_id is not None else ""
         query = f"""
         SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
-               SUM(EXP(-LN(2) / 6.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
+               SUM({_D6Y})
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         JOIN history.venues  v ON m.venue_id = v.venue_id
@@ -334,9 +370,9 @@ class StatsRepository:
         
     def get_tournament_distribution(self, tournament_id: int) -> Dict[Tuple, float]:
         if not self.conn: return {}
-        query = """
+        query = f"""
         SELECT d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
-               SUM(EXP(-LN(2) / 3.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
+               SUM({_D3Y})
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE m.tournament_id = %s
@@ -1253,9 +1289,9 @@ class StatsRepository:
         if not batter_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
-        query = """
+        query = f"""
         SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
-               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
+               SUM({_D5Y})
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.batter_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
@@ -1279,9 +1315,9 @@ class StatsRepository:
         if not bowler_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
-        query = """
+        query = f"""
         SELECT d.bowler_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
-               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
+               SUM({_D5Y})
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.bowler_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
@@ -1713,7 +1749,8 @@ class StatsRepository:
             END"""
         query = f"""
         SELECT {phase_expr} AS phase,
-               d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+               d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               SUM({_D5Y})
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE m.match_format = ANY(%s) AND m.gender = %s
@@ -1799,10 +1836,10 @@ class StatsRepository:
         if not batter_ids or not self.conn:
             return {}, {}
         raw_fmts = self._raw_formats(match_format)
-        query = """
+        query = f"""
         SELECT d.batter_id, d.over_number,
                d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
-               SUM(EXP(-LN(2) / 5.0 * GREATEST(0.0, EXTRACT(EPOCH FROM NOW() - m.date) / 31557600.0)))
+               SUM({_D5Y})
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         WHERE d.batter_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s

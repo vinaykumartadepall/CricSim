@@ -24,8 +24,10 @@ import logging
 import math
 import time
 from abc import abstractmethod
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Optional, Tuple
 
+from db.stats_repository import StatsRepository
 from simulator.entities.inning_player import InningPlayer
 from simulator.entities.match import SimulationMatch
 from simulator.entities.rules import MatchRules
@@ -115,7 +117,6 @@ class HistoricalBowlingBase(BowlingStrategy):
 
     def __init__(self, repo=None):
         if repo is None:
-            from db.stats_repository import StatsRepository
             repo = StatsRepository()
         self.repo = repo
 
@@ -141,22 +142,32 @@ class HistoricalBowlingBase(BowlingStrategy):
         self._fmt    = "T20"
         self._gender = "male"
         self._initialized = False
+        self._loaded_ids: set = set()   # player IDs whose global caches are loaded
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def init_model(self, match: SimulationMatch) -> None:
-        if self._initialized:
-            return
-
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        from db.stats_repository import StatsRepository
-
-        self._fmt    = MatchRules.get_unified_format(match.match_format)
-        self._gender = getattr(match, "gender", "male").lower()
-
         home_ids = [p.id for p in match.home_team.players] if match.home_team else []
         away_ids = [p.id for p in match.away_team.players] if match.away_team else []
         all_ids  = home_ids + away_ids
+
+        if not self._initialized:
+            # First call: full init including format/gender, all caches for this match.
+            self._do_full_init(match, all_ids)
+            self._loaded_ids.update(all_ids)
+            self._initialized = True
+            return
+
+        # Subsequent calls (tournament): extend global caches for any new player IDs.
+        new_ids = [pid for pid in all_ids if pid not in self._loaded_ids]
+        if new_ids:
+            self._extend_global_caches(new_ids)
+            self._loaded_ids.update(new_ids)
+
+    def _do_full_init(self, match: SimulationMatch, all_ids: list) -> None:
+        """First-time full cache load for a match's player set and venue."""
+        self._fmt    = MatchRules.get_unified_format(match.match_format)
+        self._gender = getattr(match, "gender", "male").lower()
 
         venue    = getattr(match, "venue", None)
         country  = venue.country if venue else None
@@ -167,8 +178,6 @@ class HistoricalBowlingBase(BowlingStrategy):
                     self._fmt, self._gender, len(all_ids), country or "global", venue_id)
         t0 = time.perf_counter()
 
-        _wl_match_type = 'international' if self._fmt == 'T20' else None
-
         def _q(method, *args, **kw):
             return lambda repo: getattr(repo, method)(*args, **kw)
 
@@ -176,7 +185,7 @@ class HistoricalBowlingBase(BowlingStrategy):
             ("career_stats",    _q("get_bowler_career_stats",      all_ids, self._fmt, self._gender)),
             ("phase_stats",     _q("get_bowler_phase_stats",        all_ids, self._fmt, self._gender)),
             ("batter_matchups", _q("get_batter_bowler_matchups",    all_ids, all_ids, self._fmt, self._gender)),
-            ("workload_stats",  _q("get_bowler_workload_stats",     all_ids, self._fmt, self._gender, match_type=_wl_match_type)),
+            ("workload_stats",  _q("get_bowler_workload_stats",     all_ids, self._fmt, self._gender)),
             ("recent_form",     _q("get_bowler_recent_form",        all_ids, self._fmt, self._gender)),
         ]
 
@@ -282,7 +291,63 @@ class HistoricalBowlingBase(BowlingStrategy):
             self.venue_over_freq_cache_inn2 = results.get("over_freq_venue_inn2", {})
 
         log.console("[BowlingModel] All caches ready — total %.2fs", time.perf_counter() - t0)
-        self._initialized = True
+
+    def _extend_global_caches(self, new_ids: list) -> None:
+        """
+        Load format-level global caches for player IDs not seen in the first match.
+        Called on each subsequent match in a tournament. Venue/country caches are
+        not extended here — global data is the appropriate fallback across venues.
+        """
+        log.console("[BowlingModel] Extending caches for %d new players", len(new_ids))
+
+        def _q(method, *args, **kw):
+            return lambda repo: getattr(repo, method)(*args, **kw)
+
+        tasks = [
+            ("career_stats",   _q("get_bowler_career_stats",            new_ids, self._fmt, self._gender)),
+            ("workload_stats", _q("get_bowler_workload_stats",           new_ids, self._fmt, self._gender)),
+            ("recent_form",    _q("get_bowler_recent_form",              new_ids, self._fmt, self._gender)),
+            ("matchups",       _q("get_batter_bowler_matchups",          new_ids, new_ids, self._fmt, self._gender)),
+        ]
+        if self._fmt == "Test":
+            tasks.append(("global_test", _q("get_bowler_test_phase_frequency", new_ids, self._gender)))
+        else:
+            tasks.append(("global_freq", _q("get_bowler_over_frequency",       new_ids, self._fmt, self._gender)))
+            if self._fmt != "Test":
+                tasks.append(("phase_dist", _q("get_bowler_phase_overs_distribution", new_ids, self._fmt, self._gender)))
+
+        def _run(label, fn):
+            repo = StatsRepository()
+            try:
+                return label, fn(repo)
+            finally:
+                if getattr(repo, 'conn', None):
+                    try: repo.conn.close()
+                    except Exception: pass
+
+        results = {}
+        with ThreadPoolExecutor(max_workers=min(len(tasks), 4)) as pool:
+            futures = {pool.submit(_run, label, fn): label for label, fn in tasks}
+            for future in as_completed(futures):
+                try:
+                    label, result = future.result()
+                    results[label] = result
+                except Exception as e:
+                    log.warning("[BowlingModel] Cache extend '%s' failed: %s", futures[future], e)
+
+        # Merge into existing caches (existing entries not overwritten)
+        self.career_cache.update(results.get("career_stats",  {}))
+        self.workload_cache.update(results.get("workload_stats", {}))
+        self.form_cache.update(results.get("recent_form",    {}))
+        self.matchup_cache.update(results.get("matchups",    {}))
+        if self._fmt == "Test":
+            self.global_test_phase_freq_cache.update(results.get("global_test", {}))
+        else:
+            self.global_over_freq_cache.update(results.get("global_freq", {}))
+            if self._fmt == "ODI":
+                self.phase_dist_cache.update(results.get("phase_dist", {}))
+            elif self._fmt == "T20":
+                self.phase_dist_cache.update(results.get("phase_dist", {}))
 
     # ── Bowler selection ──────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 from simulator.engines.base_engine import BaseEngine
 from simulator.engines.innings_simulator import InningsSimulator
-from simulator.entities.match import MatchStatus
+from simulator.entities.match import MatchStatus, MatchResult
 from simulator.entities.team import MatchTeam
 
 _FOLLOW_ON_THRESHOLD = 200
@@ -157,33 +157,46 @@ class TestMatchEngine(BaseEngine):
         innings = self.match.innings
         team_names = list(dict.fromkeys(inn.batting_team.name for inn in innings))
         team_totals = {n: 0 for n in team_names}
+        team_balls  = {n: 0 for n in team_names}
         for inn in innings:
             team_totals[inn.batting_team.name] += inn.batting_team.total_runs
+            team_balls[inn.batting_team.name]  += inn.batting_team.total_balls
+
+        summary = {n: (team_totals[n], team_balls[n]) for n in team_names}
 
         if self.match_overs_total >= 450:
-            res = "*** Match Drawn! ***"
+            result = MatchResult(winner=None, description="Match Drawn", is_no_result=True,
+                                 team_innings_summary=summary)
         elif len(innings) <= 3:
-            # Innings victory: one team batted once, the other twice
             innings_count = {n: 0 for n in team_names}
             for inn in innings:
                 innings_count[inn.batting_team.name] += 1
             winner = next(n for n, c in innings_count.items() if c == 1)
             loser  = next(n for n, c in innings_count.items() if c == 2)
             margin = team_totals[winner] - team_totals[loser]
-            res = f"*** {winner} won by an innings and {margin} run{'s' if margin != 1 else ''}! ***"
+            desc = f"{winner} won by an innings and {margin} run{'s' if margin != 1 else ''}"
+            result = MatchResult(winner=winner, description=desc, team_innings_summary=summary)
         elif len(innings) == 4:
             batting_4th = innings[3].batting_team
             if self.match.target_score and batting_4th.total_runs >= self.match.target_score:
-                res = f"*** {batting_4th.name} won by {10 - batting_4th.total_wickets} wicket{'s' if 10 - batting_4th.total_wickets != 1 else ''}! ***"
+                wkts = 10 - batting_4th.total_wickets
+                desc = f"{batting_4th.name} won by {wkts} wicket{'s' if wkts != 1 else ''}"
+                result = MatchResult(winner=batting_4th.name, description=desc,
+                                     team_innings_summary=summary)
             elif team_totals[team_names[0]] == team_totals[team_names[1]]:
-                res = "*** Match Tied! ***"
+                result = MatchResult(winner=None, description="Match Tied", is_tie=True,
+                                     team_innings_summary=summary)
             else:
                 winner = max(team_totals, key=team_totals.get)
-                margin = team_totals[team_names[0]] - team_totals[team_names[1]]
-                res = f"*** {winner} won by {abs(margin)} run{'s' if abs(margin) != 1 else ''}! ***"
+                margin = abs(team_totals[team_names[0]] - team_totals[team_names[1]])
+                desc = f"{winner} won by {margin} run{'s' if margin != 1 else ''}"
+                result = MatchResult(winner=winner, description=desc, team_innings_summary=summary)
         else:
-            res = "*** Match Drawn! ***"
+            result = MatchResult(winner=None, description="Match Drawn", is_no_result=True,
+                                 team_innings_summary=summary)
 
-        self.logger.headline(res)
+        self.match.result = result
+        self.logger.headline(f"*** {result.description}! ***")
         self.match.status = MatchStatus.COMPLETED
+        self.logger.close()
         return self.match

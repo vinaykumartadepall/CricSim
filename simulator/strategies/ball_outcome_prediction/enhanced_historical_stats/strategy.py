@@ -52,6 +52,8 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from db.stats_repository import StatsRepository
 from enums.constants import ExtraType
 from simulator.entities.ball_outcome import BallOutcome
@@ -66,6 +68,7 @@ from simulator.strategies.ball_outcome_prediction.common.utils import (
     load_tournament_distribution,
 )
 from simulator.logger import get_logger
+from simulator.strategies.bowling.historical.base import _region_countries
 
 log = get_logger()
 
@@ -75,7 +78,7 @@ _RATIO_MIN        = 0.1
 _RATIO_MAX        = 10.0
 
 # ── Prob^k sharpness ──────────────────────────────────────────────────────────
-_SHARPNESS_K: float = 2.5
+_SHARPNESS_K: float = 2.0
 _MILESTONE_K: float = 3.0
 
 
@@ -104,6 +107,15 @@ _PLAYER_LOC_THRESHOLDS: Dict[str, Dict[str, int]] = {
 }
 # Maximum weight given to player-specific location stats when fully saturated.
 _PLAYER_LOC_MAX_W = 0.88
+
+# ── Phase blending ─────────────────────────────────────────────────────────────
+# Adaptive blend: batter's own phase distribution → bowler's career distribution → global phase.
+# Batter weight ramps from 0 to _PHASE_BATTER_MAX_W as phase ball count reaches the threshold.
+# Bowler takes up to _PHASE_BOWLER_MAX_W of the remaining weight (after batter), scaled by
+# the standard bowler reliability score.  Global phase always absorbs the remainder.
+_PHASE_BATTER_MAX_W:   Dict[str, float] = {'T20': 0.35, 'ODI': 0.35, 'Test': 0.35}
+_PHASE_BATTER_THRESHOLD: Dict[str, int] = {'T20': 30,   'ODI': 50,   'Test': 100}
+_PHASE_BOWLER_MAX_W = 0.30   # fraction of post-batter remaining weight
 
 # ── Part-timer bowling distribution ───────────────────────────────────────────
 # Ball count at which a bowler is treated as "genuine" (alpha → 0).
@@ -293,6 +305,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         self.batter_ball_counts  = {}
         self.bowler_ball_counts  = {}
         self.matchup_ball_counts = {}
+        self._last_raw_weights: Dict[tuple, float] = {}
 
         self.batter_phase_cache: dict = {}        # {player_id: {phase: {outcome_key: prob}}}
         self.batter_phase_ball_counts: dict = {}  # {player_id: {phase: int}}
@@ -319,14 +332,13 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
 
     def init_model(self, match: SimulationMatch):
         if self._initialized:
+            self._extend_player_caches(match)
             return
-
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        from db.stats_repository import StatsRepository
 
         match_format = MatchRules.get_unified_format(getattr(match, 'match_format', 'T20'))
         gender = getattr(match, 'gender', 'male').lower()
         self._match_format = match_format
+        self._gender = gender
 
         log.info("[EnhancedStrategy] Initialising — format: %s (%s)", match_format, gender)
 
@@ -350,8 +362,6 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             if not tournament or not tournament.id:
                 return {}
             return repo.get_tournament_distribution(tournament.id)
-
-        from simulator.strategies.bowling.historical.base import _region_countries
 
         venue_country        = getattr(venue, 'country', None) if venue else None
         venue_country_group  = _region_countries(venue_country) if venue_country else None
@@ -481,6 +491,96 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         )
         self._initialized = True
 
+    def _extend_player_caches(self, match: SimulationMatch) -> None:
+        """Load stats for players in this match not seen in the first match's init_model call."""
+        all_ids = [pid for pid in collect_player_ids(match) if pid]
+        existing_ids = set(self.batter_cache) | set(self.bowler_cache)
+        new_ids = [pid for pid in all_ids if pid not in existing_ids]
+        if not new_ids:
+            return
+
+        fmt    = self._match_format
+        gender = self._gender
+
+        def _run(fn):
+            repo = StatsRepository()
+            try:
+                return fn(repo)
+            finally:
+                if getattr(repo, 'conn', None):
+                    try:
+                        repo.conn.close()
+                    except Exception:
+                        pass
+
+        all_known_ids = list(existing_ids | set(new_ids))
+
+        tasks = {
+            "batters":          lambda repo: repo.get_batters_distribution_with_counts(new_ids, fmt, gender),
+            "bowlers":          lambda repo: repo.get_bowlers_distribution_with_counts(new_ids, fmt, gender),
+            # new as batters vs all known bowlers, and all known batters vs new as bowlers
+            "matchups_new_bat": lambda repo: repo.get_matchup_distribution_with_counts(new_ids, all_known_ids, fmt, gender),
+            "matchups_new_bow": lambda repo: repo.get_matchup_distribution_with_counts(list(existing_ids), new_ids, fmt, gender),
+            "batter_phase":     lambda repo: repo.get_batter_phase_distribution(new_ids, fmt, gender),
+            "milestone_player": lambda repo: repo.get_player_milestone_distributions(new_ids, fmt, gender),
+            "keepers":          lambda repo: repo.get_wicket_keepers(new_ids, gender),
+            "spinners":         lambda repo: repo.get_spinner_ids(new_ids, gender, fmt),
+        }
+
+        results = {}
+        with ThreadPoolExecutor(max_workers=min(len(tasks), 8)) as pool:
+            futures = {pool.submit(_run, fn): label for label, fn in tasks.items()}
+            for future in as_completed(futures):
+                label = futures[future]
+                try:
+                    results[label] = future.result()
+                except Exception as e:
+                    log.warning("[EnhancedStrategy] Extend '%s' failed: %s", label, e)
+                    results[label] = {}
+
+        for pid, (probs, count) in results["batters"].items():
+            self.batter_cache[pid] = probs
+            self.batter_ball_counts[pid] = count
+
+        for pid, (probs, count) in results["bowlers"].items():
+            self.bowler_cache[pid] = probs
+            self.bowler_ball_counts[pid] = count
+
+        for pair, (probs, count) in {**results["matchups_new_bat"], **results["matchups_new_bow"]}.items():
+            self.matchup_cache[pair] = probs
+            self.matchup_ball_counts[pair] = count
+
+        phase_dists, phase_counts = results["batter_phase"] if isinstance(results["batter_phase"], tuple) else ({}, {})
+        self.batter_phase_cache.update(phase_dists)
+        self.batter_phase_ball_counts.update(phase_counts)
+
+        if results["milestone_player"]:
+            self.player_milestone_cache.update(results["milestone_player"])
+
+        keeper_ids = results["keepers"]
+        for team in (match.home_team, match.away_team):
+            if team:
+                for p in team.players:
+                    if p.id in new_ids:
+                        p.is_keeper = (p.id in keeper_ids)
+
+        self.spinner_ids |= results["spinners"]
+
+        # Update distinctiveness for new players
+        for pid in new_ids:
+            if pid in self.batter_cache and self.batter_cache[pid]:
+                self.batter_distinctiveness[pid] = _compute_distinctiveness(self.batter_cache[pid], self.baseline_outcome_probs)
+            if pid in self.bowler_cache and self.bowler_cache[pid]:
+                self.bowler_distinctiveness[pid] = _compute_distinctiveness(self.bowler_cache[pid], self.baseline_outcome_probs)
+        for pair, (probs, _) in {**results["matchups_new_bat"], **results["matchups_new_bow"]}.items():
+            if probs:
+                self.matchup_distinctiveness[pair] = _compute_distinctiveness(probs, self.baseline_outcome_probs)
+
+        log.info(
+            "[EnhancedStrategy] Extended caches for %d new players → batters=%d bowlers=%d matchups=%d",
+            len(new_ids), len(self.batter_cache), len(self.bowler_cache), len(self.matchup_cache),
+        )
+
     def _get_player_venue_probs(self, batter_id: Optional[int]) -> dict:
         """
         Three-level adaptive blend for venue context:
@@ -524,6 +624,52 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         total = sum(blended.values())
         return {k: v / total for k, v in blended.items()} if total > 0 else general
 
+    def _compute_phase_probs(
+        self,
+        batter_id: Optional[int],
+        bowler_id: Optional[int],
+        phase: str,
+    ) -> dict:
+        """
+        Adaptive three-level blend for the phase context:
+          batter's own phase distribution → bowler's career distribution → global phase.
+
+        Batter weight ramps 0 → _PHASE_BATTER_MAX_W as phase-ball count reaches threshold.
+        Bowler weight ramps 0 → _PHASE_BOWLER_MAX_W of the post-batter remainder, scaled
+        by the standard bowler reliability score.  Global phase takes the rest.
+
+        Degrades cleanly: no player data → pure global phase.
+        """
+        global_phase = self.phase_cache.get(phase, self.baseline_outcome_probs)
+
+        batter_max_w  = _PHASE_BATTER_MAX_W.get(self._match_format, 0.60)
+        batter_thresh = _PHASE_BATTER_THRESHOLD.get(self._match_format, 50)
+        rel_thresholds = _RELIABILITY_THRESHOLDS.get(self._match_format, _RELIABILITY_THRESHOLDS['T20'])
+
+        # Batter's phase-specific distribution
+        batter_phase_dist  = self.batter_phase_cache.get(batter_id, {}).get(phase) if batter_id else None
+        batter_phase_balls = self.batter_phase_ball_counts.get(batter_id, {}).get(phase, 0) if batter_id else 0
+        bw = min(batter_max_w, batter_max_w * batter_phase_balls / batter_thresh) if batter_phase_dist else 0.0
+
+        # Bowler's career distribution (proxy for their phase tendency)
+        bowler_dist  = self.bowler_cache.get(bowler_id) if bowler_id else None
+        bowler_balls = self.bowler_ball_counts.get(bowler_id, 0) if bowler_id else 0
+        remaining    = 1.0 - bw
+        ow = min(_PHASE_BOWLER_MAX_W * remaining,
+                 remaining * min(1.0, bowler_balls / rel_thresholds['bowler'])) if bowler_dist else 0.0
+
+        gw = 1.0 - bw - ow
+
+        bp = batter_phase_dist or {}
+        bd = bowler_dist or {}
+        all_keys = set(global_phase) | set(bp) | set(bd)
+        blended  = {
+            k: bw * bp.get(k, 0.0) + ow * bd.get(k, 0.0) + gw * global_phase.get(k, 0.0)
+            for k in all_keys
+        }
+        total = sum(blended.values())
+        return {k: v / total for k, v in blended.items()} if total > 0 else global_phase
+
     # ── Weight computation ─────────────────────────────────────────────────────
 
     def _compute_effective_weights(
@@ -552,6 +698,17 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             'innings':    w['innings'],
             'milestone':  w['milestone'],
         }
+
+        # T20 only: freed matchup budget goes 60% to phase, 20% to batter group, 20% to bowler.
+        # Phase is a population-level prior for this context window; routing the majority
+        # there prevents sparse-matchup situations from over-amplifying extreme batter profiles.
+        if self._match_format == 'T20':
+            freed = w['matchup'] - eff['matchup']
+            if freed > 0:
+                eff['phase']     += freed * 0.60
+                eff['batter']    += freed * 0.10
+                eff['milestone'] += freed * 0.10
+                eff['bowler']    += freed * 0.20
 
         total = sum(eff.values())
         if total > 0:
@@ -597,17 +754,22 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
                 if runs_needed <= 5:
                     score_p = max(score_p, -0.2)
         elif fmt in ('T20', 'ODI') and batting and batting.total_balls >= 12:
-            wkts_rem = 10 - batting.total_wickets
-            _ph      = MatchRules.get_fine_grained_phase(match.current_over + 1, fmt)
+            wkts_rem    = 10 - batting.total_wickets
+            _ph         = MatchRules.get_fine_grained_phase(match.current_over + 1, fmt)
+            total_overs = match.overs_per_innings or (20 if fmt == 'T20' else 50)
+            overs_pct   = min(1.0, (match.current_over + 1) / total_overs)
             if _ph in ('death1', 'death2'):
-                # Encourage acceleration proportional to wickets in hand; run-rate-independent
-                # so high-scoring matches don't get spuriously suppressed
-                score_p = min(0.40, max(-0.10, (wkts_rem - 2) / 8.0 * 0.40))
+                # Death: always attack with a floor so even a collapsed side swings;
+                # ceiling scales with wickets in hand
+                score_p = min(0.40, max(0.15, wkts_rem / 10.0 * 0.40))
             elif wkts_rem >= 5:
-                score_p = 0.0   # neutral — phase distribution already encodes the scoring rate
+                # Wickets in hand — neutral; phase distribution already encodes the base scoring rate
+                score_p = 0.0
             else:
-                # Conserve wickets when running low in non-death overs
-                score_p = max(-0.30, (wkts_rem - 5) / 10.0 * 0.60)
+                # Wickets running low in non-death overs: firm conservation pressure.
+                # Death phase already handled above, so no need to decay with overs_pct.
+                wkt_conserve = ((5 - wkts_rem) / 5.0) * 0.30
+                score_p = max(-0.30, -wkt_conserve)
         else:
             score_p = 0.0
 
@@ -698,6 +860,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             elif net_attack < 0:
                 if runs_batter >= 4:           modifier = 1.0 + net_attack * 0.30
                 elif outcome_type == 'Dot':    modifier = 1.0 - net_attack * 0.20
+                elif outcome_type == 'Wicket': modifier = 1.0 + net_attack * 0.20
 
             if ctx.dot_p > 0.15:
                 if runs_batter >= 4:           modifier += ctx.dot_p * 0.08
@@ -716,6 +879,8 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
                     modifier *= max(0.40, 1.0 - settle_p * 0.25)
                 elif outcome_type == 'Dot':
                     modifier *= 1.0 + settle_p * 0.18
+                elif outcome_type == 'Wicket':
+                    modifier *= max(0.55, 1.0 - settle_p * 0.30)
 
             adjusted.append(weights[i] * max(0.0, modifier))
 
@@ -742,13 +907,6 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         pos_baseline   = self.position_baseline.get(_batting_position_group(wickets_fallen), self.baseline_outcome_probs)
         batter_probs   = self.batter_cache.get(batter_id, pos_baseline) if batter_id else pos_baseline
 
-        # Prefer phase-specific batter distribution when enough balls in that phase
-        if batter_id:
-            _phase_min  = {'T20': 30, 'ODI': 50, 'Test': 100}.get(self._match_format, 50)
-            _phase_dist = self.batter_phase_cache.get(batter_id, {}).get(phase)
-            if _phase_dist and self.batter_phase_ball_counts.get(batter_id, {}).get(phase, 0) >= _phase_min:
-                batter_probs = _phase_dist
-
         if bowler_id:
             _raw_bowler    = self.bowler_cache.get(bowler_id, self.baseline_outcome_probs)
             _pt_alpha      = _parttime_alpha(self.bowler_ball_counts.get(bowler_id, 0), self._match_format)
@@ -757,7 +915,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             bowler_probs   = self.baseline_outcome_probs
 
         matchup_probs  = self.matchup_cache.get(matchup_key, self.baseline_outcome_probs) if matchup_key else self.baseline_outcome_probs
-        phase_probs    = self.phase_cache.get(phase,     self.baseline_outcome_probs)
+        phase_probs    = self._compute_phase_probs(batter_id, bowler_id, phase)
         _player_ms     = self.player_milestone_cache.get(batter_id, {}) if batter_id else {}
         milestone_probs = (
             _player_ms.get(milestone)
@@ -802,6 +960,9 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             norm = [w / total for w in raw_weights]
         else:
             norm = [1.0 / len(ordered_keys)] * len(ordered_keys)
+
+        # Stash unnormalised weights for debug logging (keyed by outcome tuple).
+        self._last_raw_weights: Dict[tuple, float] = dict(zip(ordered_keys, raw_weights))
 
         return dict(zip(ordered_keys, norm))
 
@@ -858,12 +1019,12 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         ]
 
         lines.append(
-            f"  {'CONTEXT':<22} {'CACHE':<6} {'BALLS':>6}  {'RELIAB':>6}  {'BASE_WT':>7}  {'EFF_WT':>7}  {'K':>4}"
+            f"  {'CONTEXT':<22} {'CACHE':<6} {'BALLS':>7}  {'RELIAB':>6}  {'BASE_WT':>7}  {'EFF_WT':>7}  {'K':>4}"
         )
         lines.append(f"  {'─'*68}")
 
         def _ctx_row(label, hit, balls, rel, base_wt, eff_wt, k=1.0):
-            balls_s = f"{balls:>6}" if balls else f"{'—':>6}"
+            balls_s = f"{balls:>7.2f}" if balls else f"{'—':>7}"
             rel_s   = f"{rel:>6.3f}" if rel is not None else f"{'—':>6}"
             k_s     = f"{k:>4.1f}" if k != 1.0 else f"{'1':>4}"
             return (f"  {label:<22} {'HIT' if hit else 'MISS':<6} {balls_s}  {rel_s}  "
@@ -894,16 +1055,20 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         lines.append("")
         lines.append(
             f"  {'OUTCOME KEY':<38} {'BASE':>6} {'BAT':>6} {'BOWL':>6} "
-            f"{'MTCH':>6} {'PHASE':>6} {'MLSTN':>6} {'INN':>6} {'CAT':<10} {'PROB%':>6}"
+            f"{'MTCH':>6} {'PHASE':>6} {'MLSTN':>6} {'INN':>6} {'CAT':<10} {'RAW_W':>7} {'PROB%':>6}"
         )
-        lines.append(f"  {'─'*100}")
+        lines.append(f"  {'─'*110}")
 
         batter_probs  = self.batter_cache.get(batter_id,    self.baseline_outcome_probs) if batter_id   else self.baseline_outcome_probs
         bowler_probs  = self.bowler_cache.get(bowler_id,    self.baseline_outcome_probs) if bowler_id   else self.baseline_outcome_probs
         matchup_probs = self.matchup_cache.get(matchup_key, self.baseline_outcome_probs) if matchup_key else self.baseline_outcome_probs
-        phase_probs   = self.phase_cache.get(phase,     self.baseline_outcome_probs)
-        mlstn_probs   = self.milestone_cache.get(milestone, self.baseline_outcome_probs)
+        # Use blended phase (same as _compute_distribution) and player-specific milestone
+        phase_probs   = self._compute_phase_probs(batter_id, bowler_id, phase)
+        _player_ms    = self.player_milestone_cache.get(batter_id, {}) if batter_id else {}
+        mlstn_probs   = _player_ms.get(milestone) or self.milestone_cache.get(milestone) or self.baseline_outcome_probs
         inn_probs     = self.innings_cache.get(inning,   self.baseline_outcome_probs)
+
+        raw_weights_map = getattr(self, '_last_raw_weights', {})
 
         sorted_items = sorted(distribution.items(), key=lambda kv: kv[1], reverse=True)
 
@@ -916,10 +1081,11 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             ml    = mlstn_probs.get(outcome_key,   base)
             inn   = inn_probs.get(outcome_key,     base)
             cat   = _outcome_category(outcome_key)
+            raw_w = raw_weights_map.get(outcome_key, 0.0)
             mark  = " ◀" if outcome_key == selected_key else ""
             lines.append(
                 f"  {str(outcome_key):<38} {base:>6.4f} {bat:>6.4f} {bowl:>6.4f} "
-                f"{mtch:>6.4f} {ph:>6.4f} {ml:>6.4f} {inn:>6.4f} {cat:<10} {final_prob*100:>5.2f}%{mark}"
+                f"{mtch:>6.4f} {ph:>6.4f} {ml:>6.4f} {inn:>6.4f} {cat:<10} {raw_w:>7.4f} {final_prob*100:>5.2f}%{mark}"
             )
 
         sel_prob = distribution.get(selected_key, 0.0)
@@ -949,7 +1115,12 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         venue_probs = self._get_player_venue_probs(batter_id)
         tourn_probs = self.tournament_cache if self.tournament_cache else self.baseline_outcome_probs
 
-        eff_w = self._compute_effective_weights(batter_id, bowler_id, matchup_key)
+        # On a free hit the batter attacks without dismissal fear — nullify the matchup
+        # weight so the batter's own profile dominates (and the T20 70/30 batter/bowler
+        # redistribution kicks in). The matchup context still shapes the delivery type
+        # via _compute_distribution but with zero exponent influence.
+        eff_w_matchup = None if getattr(match, 'is_free_hit', False) else matchup_key
+        eff_w = self._compute_effective_weights(batter_id, bowler_id, eff_w_matchup)
 
         distribution = self._compute_distribution(
             batter_id      = batter_id,

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 from simulator.entities.player import Player, TournamentPlayer
 
@@ -20,3 +20,5 @@ class TournamentTeam(Team):
 @dataclass
 class MatchTeam(Team):
     players: List[Player] = field(default_factory=list)
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None

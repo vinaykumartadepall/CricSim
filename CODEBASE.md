@@ -2,7 +2,7 @@
 
 ## Overview
 
-A ball-by-ball cricket simulation engine that drives T20, ODI, and Test matches using historical delivery-level data from a PostgreSQL database. Given two squads and a venue, it produces a statistically realistic scorecard with per-ball commentary, bowling figures, and match results including super overs.
+A ball-by-ball cricket simulation engine that drives T20, ODI, and Test matches using historical delivery-level data from a PostgreSQL database. Given two squads and a venue, it produces a statistically realistic scorecard with per-ball commentary, bowling figures, and match results including super overs. A tournament layer wraps the engine to run round-robin group stages, playoffs, leaderboards, and award tracking.
 
 ---
 
@@ -24,7 +24,7 @@ A ball-by-ball cricket simulation engine that drives T20, ODI, and Test matches 
 cricket-simulator/
 ├── db/                          # Database layer
 │   ├── database.py              # Connection factory (get_db_connection)
-│   ├── stats_repository.py      # 1400-line query facade — all simulation queries live here
+│   ├── stats_repository.py      # Query facade — all simulation queries live here
 │   ├── entities/                # Plain data classes mirroring DB tables
 │   │   ├── match.py  player.py  venue.py  team.py  tournament.py  delivery.py
 │   ├── ingest_data.py           # Cricsheet JSON → PostgreSQL ingestion script
@@ -54,7 +54,6 @@ cricket-simulator/
 │   │   ├── limited_overs_engine.py  # T20 / ODI: two innings, run chase, super-over trigger
 │   │   ├── test_engine.py       # Test: four innings, follow-on, draw detection
 │   │   ├── super_over_engine.py # Super over: 1-over per side, bowler/batter selection
-│   │   ├── tournament_engine.py # Round-robin or knockout tournament wrapper
 │   │   ├── innings_simulator.py # InningsSimulator — drives overs and balls within an innings
 │   │   └── engine_factory.py    # EngineFactory.create() — format → engine class
 │   │
@@ -64,31 +63,45 @@ cricket-simulator/
 │   │   │   ├── common/utils.py                 # Shared constants, helpers, apply_free_hit_modifier
 │   │   │   ├── historical_stats/strategy.py    # BaseHistoricalStatsStrategy (RMS v1)
 │   │   │   ├── historical_stats/validate.py    # ModelValidator — backtest against held-out data
-│   │   │   ├── historical_stats/optimize_weights.py  # Grid search / optimiser for context weights
 │   │   │   └── enhanced_historical_stats/strategy.py # EnhancedBaseHistoricalStatsStrategy (RMS v2)
 │   │   │
 │   │   └── bowling/
 │   │       ├── strategy_interface.py     # BowlingStrategy ABC
-│   │       ├── historical/base.py        # HistoricalBowlingBase — scoring framework
+│   │       ├── historical/base.py        # HistoricalBowlingBase — scoring framework + cache mgmt
 │   │       ├── historical/strategies.py  # T20/ODI/TestHistoricalBowlingStrategy + factory
 │   │       ├── rotation/strategy.py      # SimpleRotationBowlingStrategy — round-robin fallback
 │   │       └── smart/strategy.py         # SmartBowlingStrategy — phase-aware heuristic
 │   │
-│   ├── logger.py          # Dual-sink logger (console + file via configure_logger)
-│   ├── match_logger.py    # MatchLogger — structured log sinks (ball/over/scorecard/headline)
-│   ├── presentation/formatters.py  # Format ball commentary, over summaries, scorecards
-│   └── simulate_driver.py # CLI entry point — loads config, builds match, calls engine
+│   ├── tournament/              # Tournament simulation layer
+│   │   ├── __init__.py          # Re-exports TournamentEngine, TournamentConfig, load_tournament_config
+│   │   ├── engine.py            # TournamentEngine — orchestrates group stage + playoffs
+│   │   ├── config.py            # TournamentConfig, TeamConfig, ScheduleConfig, PlayoffConfig
+│   │   ├── scheduler.py         # generate_fixtures / generate_playoffs — fixture list builders
+│   │   ├── points_table.py      # PointsTable — standings, NRR, points tracking
+│   │   ├── leaderboards.py      # TournamentLeaderboards — batting/bowling aggregates
+│   │   ├── awards.py            # MatchAwards (POTM) + TournamentAwards (POTT)
+│   │   └── presenter.py         # Coloured terminal output — scorecards, points table, leaderboards
+│   │
+│   ├── presentation/
+│   │   └── formatters.py        # format_ball_commentary, format_over_summary, format_innings_scorecard
+│   │
+│   ├── logger.py                # Dual-sink logger: console + rotating file (configure_logger)
+│   ├── match_logger.py          # MatchLogger — writes match_<id>.txt + match_<id>.log per match
+│   └── simulate_driver.py       # CLI entry point — loads config, builds match, calls engine
 │
-├── tests/                 # pytest unit tests (no DB required)
+├── tests/                       # pytest unit tests (no DB required)
 │   ├── test_rules.py
 │   ├── test_inning_player.py
 │   ├── test_innings_simulator.py
 │   ├── test_free_hit_modifier.py
 │   └── test_stats_repository_parsing.py
 │
-├── match_config.json      # Default squad + venue configuration for manual runs
-├── test_super_over.py     # Smoke test: forces a tie and validates super over
-└── compare_milestone.py   # Compare context-weight configurations via backtest
+├── validation/                  # Backtest and validation scripts
+├── tools/                       # Developer tools
+├── match_config.json            # Default squad + venue configuration for single-match runs
+├── tournament_config.json       # 8-team ODI tournament configuration (Champions Trophy 2025)
+├── run_tournament.py            # Tournament entry point: python run_tournament.py --config tournament_config.json
+└── schema.txt                   # PostgreSQL schema reference
 ```
 
 ---
@@ -119,9 +132,11 @@ BaseEngine.__init__()       Stores match + both strategies (ball-outcome and bow
 ### 2. Model initialisation (BaseEngine._prepare_match_logs)
 
 ```
-ball_outcomes.init_model(match)      For each strategy, triggers N serial DB queries:
+ball_outcomes.init_model(match)      For each strategy, triggers parallel DB queries:
 bowling_strategy.init_model(match)   player distributions, phase/milestone/venue caches.
                                      For T20 enhanced + historical bowling combined: ~26 queries.
+                                     In tournament mode, init_model is called before every match
+                                     so strategies can extend caches for newly-seen players.
                                      All caches are in-memory dicts keyed by player_id,
                                      venue_id, phase name, etc.
 ```
@@ -278,13 +293,54 @@ Scores each eligible bowler on six factors (F1–F6) and returns the highest sco
 | F5 | Quota pacing — urgency to use remaining quota before the innings ends |
 | F6 | Death reservation — holds specialists back for the death overs |
 
+**Tournament cache management**: `init_model` is called before every match in a tournament. On the first call it performs a full parallel cache load. On subsequent calls it detects new player IDs not seen before and calls `_extend_global_caches(new_ids)` to load their global-level data, merging into the existing caches. This ensures every team's bowlers are properly scored rather than falling back to a zero-score default.
+
 #### SmartBowlingStrategy (`bowling/smart/strategy.py`)
 
-Lighter phase-aware heuristic used when no historical data is available. Selected by `BaseEngine` as the default.
+Lighter phase-aware heuristic used when no historical data is available.
 
 #### SimpleRotationBowlingStrategy (`bowling/rotation/strategy.py`)
 
 Round-robin bowler rotation, useful for testing or minimal dependencies.
+
+---
+
+## Tournament Layer (`simulator/tournament/`)
+
+### TournamentEngine (`engine.py`)
+
+Orchestrates a complete tournament:
+1. Pre-loads all player objects via `_preload_players()`.
+2. Generates group-stage fixtures via `generate_fixtures()`.
+3. Runs each fixture: simulates the match, updates `PointsTable`, `TournamentLeaderboards`, and `MatchAwards`.
+4. After the group stage, generates and runs playoff fixtures with bracket propagation.
+5. Prints final standings, leaderboards, and Player of the Tournament.
+
+**Output model**: `MatchLogger.SILENT = True` is set in tournament mode so the simulation engine writes per-match `.txt`/`.log` files but produces no console output. The `Presenter` owns all console rendering.
+
+### Config (`config.py`)
+
+Dataclasses: `TournamentConfig`, `TeamConfig` (name, colors, players), `ScheduleConfig` (round_robin / double_round_robin), `PlayoffConfig` (none / semis_final / quarters_semis_final / ipl).
+
+### Presenter (`presenter.py`)
+
+Coloured ANSI 24-bit true-color terminal output. Falls back to identical plain-text layout when stdout is not a TTY.
+
+- **Scorecard**: same layout as `format_innings_scorecard` (100-char width, column-aligned). Out batters: team primary bg. Not-out batters: flipped (secondary bg, primary text, bold). Bowling rows: bowling team's primary bg. Column headings: fixed muted gray.
+- **Points table**: each row in team primary bg + secondary text.
+- **Leaderboards**: plain text, team badge in team primary color.
+
+### Awards (`awards.py`)
+
+`MatchAwards` records batting/bowling/fielding contribution points per match and selects the Player of the Match. `TournamentAwards` accumulates across matches to rank Player of the Tournament.
+
+### Leaderboards (`leaderboards.py`)
+
+Maintains running `BatterStats` and `BowlerStats` across all matches. Surfaces ranked lists: most runs, highest score, best average, best strike rate, most wickets, best economy, etc.
+
+### Points table (`points_table.py`)
+
+Tracks W/L/T/NR, points, and Net Run Rate for each team. `standings()` returns teams sorted by points then NRR.
 
 ---
 
@@ -331,7 +387,7 @@ run(max_overs, should_terminate, on_over_complete, max_wickets)
 
 ## Database Layer (`db/stats_repository.py`)
 
-~1450 lines. All simulation queries are here. Key method groups:
+All simulation queries live here. Key method groups:
 
 | Group | Methods |
 |-------|---------|
@@ -340,11 +396,20 @@ run(max_overs, should_terminate, on_over_complete, max_wickets)
 | Per-player caches | `get_batters_distribution_with_counts`, `get_bowlers_distribution_with_counts`, `get_matchup_distribution_with_counts` |
 | Milestone caches | `get_batter_milestone_distribution`, `get_player_milestone_distributions` |
 | Venue/country | `get_venue_distribution`, `get_country_distribution`, `get_player_venue_distribution`, `get_player_country_distribution` |
-| Bowling specific | `get_bowler_workload_stats`, `get_bowler_venue_stats`, `get_bowler_country_stats`, `get_recent_match_bowling_stats` |
+| Bowling specific | `get_bowler_career_stats`, `get_bowler_workload_stats`, `get_bowler_over_frequency`, `get_bowler_phase_overs_distribution`, `get_batter_bowler_matchups`, `get_bowler_recent_form` |
 | Validation | `get_validation_deliveries` |
 | Metadata | `get_wicket_keepers`, `get_spinner_ids`, `get_fielding_distribution` |
 
 All results are normalised probability dicts keyed by `(runs_batter, runs_extras, outcome_type, outcome_kind)`.
+
+---
+
+## Logging
+
+Two-layer system:
+
+- `simulator/logger.py` — Python `logging`-backed dual sink: console (WARNING+) + rotating file (DEBUG, 10MB × 5 backups). `configure_logger(log_file, level)` attaches the file handler once at startup. `set_console_level(level)` adjusts the console threshold (used by tournament engine to suppress engine-level noise).
+- `simulator/match_logger.py` — `MatchLogger` owns all human-readable output for one match. Opens `match_<id>.txt` (ball-by-ball commentary, always written) and `match_<id>.log` (timestamped structured events). Set `MatchLogger.SILENT = True` before a batch or tournament run to suppress all console output while still writing both files.
 
 ---
 
@@ -371,8 +436,6 @@ When `match.is_free_hit` is True before `predict_next_ball()` is called, `apply_
 - Dots: ×0.45  
 - Non-run-out wickets: ×0.15 (they will be cancelled by `_apply_free_hit_rules` anyway)
 
-This produces an empirically plausible ~38% boundary rate vs ~17% on normal balls.
-
 ---
 
 ## Event System
@@ -386,23 +449,12 @@ The bus is cleared and rewired at the start of each innings so observers from th
 
 ---
 
-## Logging
-
-Two-layer system:
-
-- `simulator/logger.py` — Python `logging`-backed dual sink: console (INFO) + rotating file (DEBUG). `configure_logger(log_file, level)` is called once at the start of a simulation run.
-- `simulator/match_logger.py` — `MatchLogger` writes structured commentary to a per-match log file. Uses four methods: `ball()`, `over_summary()`, `scorecard()`, `headline()`. Backed by `simulator/presentation/formatters.py`.
-
----
-
 ## Adding a New Ball-Outcome Strategy
 
 1. Create a new folder under `simulator/strategies/ball_outcome_prediction/` with `__init__.py` and `strategy.py`.
 2. Subclass `BallOutcomeStrategy` from `strategy_interface.py`.
 3. Implement `init_model(match)` (load any caches needed) and `predict_next_ball(match) → BallOutcome`.
 4. Register it in `simulate_driver.py`'s `_OUTCOME_STRATEGIES` dict.
-
-The `ModelValidator` in `historical_stats/validate.py` can backtest any `EnhancedBaseHistoricalStatsStrategy` subclass against held-out historical deliveries.
 
 ## Adding a New Bowling Strategy
 
@@ -425,3 +477,12 @@ All tests run without a database connection. They cover:
 - `InningsSimulator._apply_free_hit_rules` — state transitions and wicket cancellation.
 - `apply_free_hit_modifier` — boundary boost, dot suppression, wicket suppression.
 - `StatsRepository._parse_rows_to_probs[_with_count]` — probability normalisation.
+
+## Running a Tournament
+
+```bash
+python run_tournament.py --config tournament_config.json
+python run_tournament.py --config tournament_config.json --seed 42 --silent
+```
+
+The config JSON specifies teams (name, colors, player names), schedule type (round_robin / double_round_robin), venues, and playoff format.

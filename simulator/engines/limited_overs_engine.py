@@ -1,6 +1,8 @@
+from db.stats_repository import StatsRepository
 from simulator.engines.base_engine import BaseEngine
 from simulator.engines.innings_simulator import InningsSimulator
-from simulator.entities.match import MatchStatus
+from simulator.engines.super_over_engine import SuperOverEngine
+from simulator.entities.match import MatchStatus, MatchResult
 from simulator.entities.team import MatchTeam
 
 
@@ -35,6 +37,7 @@ class LimitedOversEngine(BaseEngine):
             self._print_match_result()
 
         self.match.status = MatchStatus.COMPLETED
+        self.logger.close()
         return self.match
 
     def _run_inning(self, inning_num: int, batting_team: MatchTeam, bowling_team: MatchTeam):
@@ -62,9 +65,6 @@ class LimitedOversEngine(BaseEngine):
         return inn1.batting_team.total_runs == inn2.batting_team.total_runs
 
     def _run_super_over(self, team1: MatchTeam, team2: MatchTeam):
-        from db.stats_repository import StatsRepository
-        from simulator.engines.super_over_engine import SuperOverEngine
-
         repo = StatsRepository()
         so_engine = SuperOverEngine(
             match=self.match,
@@ -74,20 +74,50 @@ class LimitedOversEngine(BaseEngine):
             repo=repo,
         )
         # In real cricket, the team that batted SECOND in the main match bats FIRST in the super over.
-        so_engine.run(
+        so_result = so_engine.run(
             team1=team2,
             team2=team1,
             team1_inning=self.match.innings[1],
             team2_inning=self.match.innings[0],
         )
+        # Propagate super-over outcome to match.result so the tournament layer can read it.
+        inn1 = self.match.innings[0]
+        inn2 = self.match.innings[1]
+        summary = {
+            inn1.batting_team.name: (inn1.batting_team.total_runs, inn1.batting_team.total_balls),
+            inn2.batting_team.name: (inn2.batting_team.total_runs, inn2.batting_team.total_balls),
+        }
+        if so_result.winner:
+            # winner name is the team with more super-over runs
+            so_winner = (so_result.batting_second_team
+                         if so_result.batting_second_runs > so_result.batting_first_runs
+                         else so_result.batting_first_team)
+            self.match.result = MatchResult(winner=so_winner, description=so_result.winner,
+                                            team_innings_summary=summary)
+        else:
+            self.match.result = MatchResult(winner=None, description="Super Over Tied",
+                                            is_tie=True, team_innings_summary=summary)
 
     def _print_match_result(self):
         inn1 = self.match.innings[0]
         inn2 = self.match.innings[1]
+        summary = {
+            inn1.batting_team.name: (inn1.batting_team.total_runs, inn1.batting_team.total_balls),
+            inn2.batting_team.name: (inn2.batting_team.total_runs, inn2.batting_team.total_balls),
+        }
         if inn2.batting_team.total_runs >= self.match.target_score:
-            res = f"*** {inn2.batting_team.name} won by {10 - inn2.batting_team.total_wickets} wickets! ***"
+            winner = inn2.batting_team.name
+            wkts   = 10 - inn2.batting_team.total_wickets
+            desc   = f"{winner} won by {wkts} wicket{'s' if wkts != 1 else ''}"
+            self.match.result = MatchResult(winner=winner, description=desc,
+                                            team_innings_summary=summary)
         elif inn1.batting_team.total_runs > inn2.batting_team.total_runs:
-            res = f"*** {inn1.batting_team.name} won by {inn1.batting_team.total_runs - inn2.batting_team.total_runs} runs! ***"
+            winner = inn1.batting_team.name
+            margin = inn1.batting_team.total_runs - inn2.batting_team.total_runs
+            desc   = f"{winner} won by {margin} run{'s' if margin != 1 else ''}"
+            self.match.result = MatchResult(winner=winner, description=desc,
+                                            team_innings_summary=summary)
         else:
-            res = "*** Match Tied! ***"
-        self.logger.headline(res)
+            self.match.result = MatchResult(winner=None, description="Match Tied",
+                                            is_tie=True, team_innings_summary=summary)
+        self.logger.headline(f"*** {self.match.result.description}! ***")

@@ -7,7 +7,9 @@ db/*.db
 
 # Logs and output
 simulation.log
+simulation.log.*
 match_logs/
+validation_results/
 
 # Images / charts
 *.png

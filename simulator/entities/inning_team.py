@@ -38,6 +38,14 @@ class InningTeam(MatchObserver):
         return self.team.name
 
     @property
+    def primary_color(self) -> Optional[str]:
+        return self.team.primary_color
+
+    @property
+    def secondary_color(self) -> Optional[str]:
+        return self.team.secondary_color
+
+    @property
     def extras(self) -> int:
         return self.extras_wides + self.extras_noballs + self.extras_byes + self.extras_legbyes + self.extras_penalty
 

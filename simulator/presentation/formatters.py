@@ -1,6 +1,13 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from enums.constants import ExtraType
-from simulator.entities.match import SimulationMatch
 from simulator.entities.inning import Inning
+from simulator.presentation.colors import bg, hdr, sep, dim
+
+if TYPE_CHECKING:
+    from simulator.entities.match import SimulationMatch
 
 
 def format_ball_commentary(ball, is_super_over: bool = False) -> str:
@@ -106,19 +113,6 @@ def format_over_summary(match: SimulationMatch, inning: Inning) -> str:
 
 
 def _format_super_over_summary(match: SimulationMatch, inning: Inning) -> str:
-    """
-    Distinctive over-summary block for a super over innings.
-
-    Layout (first innings / batting first):
-        ══════════════════════
-        SUPER OVER | India  14/1          1 W 1 0 6 6 (14 runs)
-        ──────────────────────
-        RR Pant*   13(4)  |  JJ Bumrah  1-0-14-1
-        ══════════════════════
-
-    Chase block also shows the result line:
-        ... Australia need 5 more to win  /  Australia reached the target!
-    """
     _W = 100
     SEP  = "═" * _W
     DASH = "─" * _W
@@ -162,82 +156,157 @@ def _format_super_over_summary(match: SimulationMatch, inning: Inning) -> str:
     return "\n".join(lines)
 
 
+def _build_did_not_bat(inning: Inning) -> list:
+    """Returns names of players who never came to the crease."""
+    return [
+        ip.name for ip in inning.batting_team.inning_players
+        if not ip.came_to_crease
+    ]
+
+
+def _build_fall_of_wickets(inning: Inning) -> list:
+    """Returns [(name, score_str, over_str), ...] in the order wickets fell."""
+    fow = []
+    cumulative = 0
+    wickets = 0
+    for d in inning.deliveries:
+        cumulative += d.runs_batter + d.runs_extras
+        if d.is_wicket:
+            wickets += 1
+            name = d.batter.name if d.batter else "Unknown"
+            fow.append((name, f"{cumulative}-{wickets}", f"{d.over_number}.{d.ball_number}"))
+    return fow
+
+
+def _build_dismissal_lookup(inning: Inning) -> dict:
+    """Pre-build a {player_id: dismissal_string} map from all deliveries in an inning."""
+    dismissal: dict = {}
+    for d in inning.deliveries:
+        if d.is_wicket and d.batter and d.batter.id not in dismissal:
+            kind    = d.wicket_kind or ""
+            bowler  = d.bowler.name if d.bowler else ""
+            fielder = d.outcome_player.name if d.outcome_player else ""
+            if kind == "caught":
+                dismissal[d.batter.id] = f"c {fielder} b {bowler}" if fielder else f"b {bowler}"
+            elif kind == "stumped":
+                dismissal[d.batter.id] = f"st {fielder} b {bowler}" if fielder else f"b {bowler}"
+            elif kind == "run out":
+                dismissal[d.batter.id] = f"run out ({fielder})" if fielder else "run out"
+            elif kind == "lbw":
+                dismissal[d.batter.id] = f"lbw b {bowler}"
+            else:
+                dismissal[d.batter.id] = f"b {bowler}"
+    return dismissal
+
+
 def format_innings_scorecard(inning: Inning, is_super_over: bool = False) -> str:
-    batting = inning.batting_team
-    bowling = inning.bowling_team
+    """
+    Format one innings as a scorecard string.
+
+    Uses ANSI 24-bit colour codes when the batting team has a primary_color set;
+    falls back to plain text otherwise (safe for log files).
+    """
+    batting  = inning.batting_team
+    bowling  = inning.bowling_team
+    colored  = batting.primary_color is not None
+
+    pcolor  = batting.primary_color  or "#333333"
+    scolor  = batting.secondary_color or "#FFFFFF"
+    bpcolor = bowling.primary_color  or "#333333"
+    bscolor = bowling.secondary_color or "#FFFFFF"
 
     ovs = batting.total_balls // 6
     bls = batting.total_balls % 6
     ov_str = f"{ovs}.{bls}" if bls else f"{ovs}"
 
     innings_label = "Super Over" if is_super_over else "Innings"
-    lines = [
-        f"\n{'=' * 100}",
-        f"{batting.name + ' ' + innings_label:<70} {f'{batting.total_runs}-{batting.total_wickets} ({ov_str} Ov)':>29}",
-        "=" * 100,
-        f"{'Batter':<71} {'R':<5} {'B':<5} {'4s':<5} {'6s':<5} {'SR':<8}",
-        "-" * 100,
-    ]
+    banner_left  = f"{batting.name} {innings_label}"
+    banner_right = f"{batting.total_runs}-{batting.total_wickets} ({ov_str} Ov)"
 
-    # Players — skip DNB (hasn't batted, isn't currently at crease)
-    # Note: match.striker/non_striker may belong to a later inning at scorecard time,
-    # so we determine "currently batting" from is_out=False and balls_faced>0.
+    if colored:
+        banner_plain = f"{banner_left:<70} {banner_right:>29}"
+        lines = [
+            "\n" + sep("="),
+            bg(banner_plain, pcolor, scolor, bold=True),
+            sep("="),
+            hdr(f"{'Batter':<71} {'R':<5} {'B':<5} {'4s':<5} {'6s':<5} {'SR':<8}"),
+            sep("-"),
+        ]
+    else:
+        lines = [
+            f"\n{'=' * 100}",
+            f"{banner_left:<70} {banner_right:>29}",
+            "=" * 100,
+            f"{'Batter':<71} {'R':<5} {'B':<5} {'4s':<5} {'6s':<5} {'SR':<8}",
+            "-" * 100,
+        ]
+
+    dismissal = _build_dismissal_lookup(inning)
+
     for ip in batting.inning_players:
-        if ip.balls_faced == 0 and not ip.is_out:
+        if not ip.came_to_crease:
             continue  # DNB
 
-        name = ip.name
-        status = ""
+        not_out = not ip.is_out
+        name    = ip.name + ("*" if not_out else "")
+        status  = "not out" if not_out else dismissal.get(ip.id, "")
+        sr      = f"{ip.runs_scored / ip.balls_faced * 100:.2f}" if ip.balls_faced else "0.00"
 
-        if ip.is_out:
-            for d in inning.deliveries:
-                if d.is_wicket and d.batter and d.batter.id == ip.id:
-                    status = f"b {d.bowler.name}"
-                    if d.wicket_kind == 'caught' and d.outcome_player:
-                        status = f"c {d.outcome_player.name} b {d.bowler.name}"
-                    elif d.wicket_kind == 'stumped' and d.outcome_player:
-                        status = f"st {d.outcome_player.name} b {d.bowler.name}"
-                    elif d.wicket_kind == 'run out':
-                        status = f"run out ({d.outcome_player.name})" if d.outcome_player else "run out"
-                    elif d.wicket_kind == 'lbw':
-                        status = f"lbw b {d.bowler.name}"
-                    break
+        row = (f"{name:<25} {status:<45} {ip.runs_scored:<5} {ip.balls_faced:<5}"
+               f" {ip.fours:<5} {ip.sixes:<5} {sr:<8}")
+        if colored:
+            lines.append(bg(row, scolor, pcolor, bold=True) if not_out else bg(row, pcolor, scolor))
         else:
-            name += "*"
-            status = "not out"
+            lines.append(row)
 
-        sr = f"{(ip.runs_scored / ip.balls_faced * 100):.2f}" if ip.balls_faced > 0 else "0.00"
-        lines.append(f"{name:<25} {status:<45} {ip.runs_scored:<5} {ip.balls_faced:<5} {ip.fours:<5} {ip.sixes:<5} {sr:<8}")
-
-    lines.append("-" * 100)
+    lines.append(sep("-") if colored else "-" * 100)
 
     extra_breakdown = (
         f"(b {batting.extras_byes}, lb {batting.extras_legbyes}, "
         f"w {batting.extras_wides}, nb {batting.extras_noballs}, p {batting.extras_penalty})"
     )
-    lines.append(f"{'Extras':<71} {batting.extras} {extra_breakdown}")
-    lines.append(f"{'Total':<71} {batting.total_runs}-{batting.total_wickets}")
+    extras_row = f"{'Extras':<71} {batting.extras} {extra_breakdown}"
+    total_row  = f"{'Total':<71} {batting.total_runs}-{batting.total_wickets}"
+
+    if colored:
+        lines.append(bg(extras_row, pcolor, scolor))
+        lines.append(bg(total_row,  pcolor, scolor, bold=True))
+    else:
+        lines.append(extras_row)
+        lines.append(total_row)
+
+    dnb = _build_did_not_bat(inning)
+    if dnb:
+        dnb_row = f"{'Did not Bat':<25} {', '.join(dnb)}"
+        lines.append(bg(dnb_row, pcolor, scolor) if colored else dnb_row)
 
     lines.append("\n")
-    lines.append(f"{'Bowler':<40} {'O':<5} {'M':<5} {'R':<5} {'W':<5} {'ECO':<8}")
-    lines.append("-" * 100)
+    bhdr_line = f"{'Bowler':<40} {'O':<5} {'M':<5} {'R':<5} {'W':<5} {'ECO':<8}"
+    lines.append(hdr(bhdr_line) if colored else bhdr_line)
+    lines.append(sep("-") if colored else "-" * 100)
 
-    first_over = {
-        d.bowler.id: d.over_number
-        for d in reversed(inning.deliveries)
-        if d.bowler
-    }
+    first_over = {d.bowler.id: d.over_number for d in reversed(inning.deliveries) if d.bowler}
     bowlers = sorted(
         (ip for ip in bowling.inning_players if ip.balls_bowled > 0 or ip.runs_conceded > 0),
-        key=lambda ip: first_over.get(ip.id, float('inf')),
+        key=lambda ip: first_over.get(ip.id, float("inf")),
     )
     for ip in bowlers:
+        o   = ip.balls_bowled // 6
+        bl  = ip.balls_bowled % 6
+        ov  = f"{o}.{bl}" if bl else f"{o}"
+        eco = f"{ip.runs_conceded / (ip.balls_bowled / 6):.2f}" if ip.balls_bowled else "0.00"
+        row = f"{ip.name:<40} {ov:<5} {ip.maidens:<5} {ip.runs_conceded:<5} {ip.wickets_taken:<5} {eco:<8}"
+        lines.append(bg(row, bpcolor, bscolor) if colored else row)
 
-        ovs = ip.balls_bowled // 6
-        bls = ip.balls_bowled % 6
-        ov_str = f"{ovs}.{bls}" if bls else f"{ovs}"
-        eco = f"{(ip.runs_conceded / (ip.balls_bowled / 6)):.2f}" if ip.balls_bowled > 0 else "0.00"
-        lines.append(f"{ip.name:<40} {ov_str:<5} {ip.maidens:<5} {ip.runs_conceded:<5} {ip.wickets_taken:<5} {eco:<8}")
+    fow = _build_fall_of_wickets(inning)
+    if fow:
+        lines.append(sep("-") if colored else "-" * 100)
+        fow_hdr = f"{'Fall of Wickets':<40} {'Score':<20} {'Over':<10}"
+        lines.append(hdr(fow_hdr) if colored else fow_hdr)
+        lines.append(sep("-") if colored else "-" * 100)
+        for name, score_str, over_str in fow:
+            row = f"{name:<40} {score_str:<20} {over_str:<10}"
+            lines.append(bg(row, pcolor, scolor) if colored else row)
 
-    lines.append("=" * 100)
+    lines.append(sep("=") if colored else "=" * 100)
     return "\n".join(lines)

@@ -15,21 +15,27 @@ Player selection
 Batters (top 3):
     score = 0.60 * global_death_score + 0.30 * match_death_score + 0.10 * match_full_score
 
-    global_death_score  = (death_sr / 150) * 0.30 + (boundary_rate / 0.20) * 0.70
-    match_death_score   = (death_sr_today / 160) * 0.30 + (death_bdry_today / 0.20) * 0.70
-    match_full_score    = (sr_today / 160) * 0.30 + (bdry_today / 0.20) * 0.70
+    global_death_score  = sigmoid(death_sr, base=120) * 0.30 + sigmoid(bdry_rate, base=0.20) * 0.70
+    match_death_score   = 0 when no death balls faced this match, else same sigmoid formula
+    match_full_score    = sigmoid(sr_today, base=120) * 0.30 + sigmoid(bdry_today, base=0.20) * 0.70
 
 Bowler (1 per team):
     score = 0.60 * global_death_score + 0.30 * match_death_score + 0.10 * match_full_score
 
     global_death_score  = eco_part * reliability
-    match_death_score   = eco_part from death balls bowled this match
+    match_death_score   = 0 when no death balls bowled this match, else eco_part from death balls
     match_full_score    = eco_part from all balls bowled this match
 
 Fallback: players without enough historical data receive a small non-zero base
 score so they are never completely excluded if no alternatives exist.
+
+The sigmoid curve rewards outlier performance super-linearly: a batter at the
+T20 death-average SR (~120) scores 0.5; exceptional finishers (SR ~200) score ~0.9;
+poor death players (SR ~60) score ~0.12. Players who did not bat in death overs
+this match score 0 for match_death_score.
 """
 
+import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -54,12 +60,21 @@ _GLOBAL_W       = 0.60
 _MATCH_DEATH_W  = 0.30   # death-phase performance in this match
 _MATCH_FULL_W   = 0.10   # full-match performance (lower-weight tiebreaker)
 
-_DEATH_SR_REF   = 150.0
-_BDRY_RATE_REF  = 0.20
+# Death-batting sigmoid references.
+# Base = realistic T20 death average (score ≈ 0.5 at this level).
+# k = steepness: at k=4 the curve spans ~0.02→0.98 across a 2× performance range.
+_DEATH_SR_BASE  = 120.0   # T20 death average SR
+_BDRY_RATE_BASE = 0.20    # one boundary every 5 balls at death
+_SIGMOID_K      = 4.0
 _DEATH_ECO_REF  = 16.0
-_DEATH_WR_REF   = 0.15
 
 _FALLBACK_SCORE = 0.05
+
+
+def _death_sigmoid(value: float, base: float) -> float:
+    """Non-linear death score: ~0.5 at base, super-linear reward/penalty above/below."""
+    ratio = value / base if base > 0 else 0.0
+    return 1.0 / (1.0 + math.exp(-_SIGMOID_K * (ratio - 1.0)))
 
 
 # ── Result ─────────────────────────────────────────────────────────────────────
@@ -144,7 +159,7 @@ class SuperOverSelector:
                     player.name, f"{g:.3f}" if g is not None else "None",
                 )
 
-            if ip and ip.death_balls_faced > 0:
+            if ip is not None and ip.death_balls_faced > 0:
                 d_sr   = ip.death_runs_scored / ip.death_balls_faced
                 d_bdry = (ip.death_fours + ip.death_sixes) / ip.death_balls_faced
                 _log.info(
@@ -152,7 +167,10 @@ class SuperOverSelector:
                     player.name, ip.death_runs_scored, ip.death_balls_faced, d_sr, d_bdry, m_death,
                 )
             else:
-                _log.info("[SuperOver]   %-22s | match(death): no death balls  m_death=0.000", player.name)
+                _log.info(
+                    "[SuperOver]   %-22s | match(death): no death balls  m_death=0.000",
+                    player.name,
+                )
 
             if ip and ip.balls_faced > 0:
                 sr_full   = ip.runs_scored / ip.balls_faced
@@ -171,11 +189,11 @@ class SuperOverSelector:
                 else (m_total if m_total > 0 else _FALLBACK_SCORE)
             )
             _log.info(
-                "[SuperOver]   %-22s | combined: %.3f  (global=%s×%.2f  death=%s×%.2f  full=%s×%.2f)",
+                "[SuperOver]   %-22s | combined: %.3f  (global=%s×%.2f  death=%.3f×%.2f  full=%.3f×%.2f)",
                 player.name, scores[pid],
                 f"{g:.3f}" if g is not None else "None", _GLOBAL_W,
-                f"{m_death:.3f}", _MATCH_DEATH_W,
-                f"{m_full:.3f}", _MATCH_FULL_W,
+                m_death, _MATCH_DEATH_W,
+                m_full, _MATCH_FULL_W,
             )
 
         top_ids  = sorted(scores, key=lambda x: scores[x], reverse=True)[:n]
@@ -234,14 +252,17 @@ class SuperOverSelector:
                     player.name,
                 )
 
-            if ip and ip.death_balls_bowled > 0:
+            if ip is not None and ip.death_balls_bowled > 0:
                 d_eco = ip.death_runs_conceded / (ip.death_balls_bowled / 6.0)
                 _log.info(
                     "[SuperOver]   %-22s | match(death): eco=%.2f  balls=%d  m_death=%.3f",
                     player.name, d_eco, ip.death_balls_bowled, m_death,
                 )
             else:
-                _log.info("[SuperOver]   %-22s | match(death): no death balls bowled  m_death=0.000", player.name)
+                _log.info(
+                    "[SuperOver]   %-22s | match(death): no death balls  m_death=0.000",
+                    player.name,
+                )
 
             if ip and ip.balls_bowled > 0:
                 full_eco = ip.runs_conceded / (ip.balls_bowled / 6.0)
@@ -259,11 +280,11 @@ class SuperOverSelector:
                 else (m_total if m_total > 0 else _FALLBACK_SCORE)
             )
             _log.info(
-                "[SuperOver]   %-22s | combined: %.3f  (global=%s×%.2f  death=%s×%.2f  full=%s×%.2f)",
+                "[SuperOver]   %-22s | combined: %.3f  (global=%s×%.2f  death=%.3f×%.2f  full=%.3f×%.2f)",
                 player.name, scores[pid],
                 f"{g:.3f}" if g is not None else "None", _GLOBAL_W,
-                f"{m_death:.3f}", _MATCH_DEATH_W,
-                f"{m_full:.3f}", _MATCH_FULL_W,
+                m_death, _MATCH_DEATH_W,
+                m_full, _MATCH_FULL_W,
             )
 
         best_id  = max(scores, key=lambda x: scores[x])
@@ -287,11 +308,9 @@ class SuperOverSelector:
     def _global_bat(death: Optional[Dict]) -> Optional[float]:
         if not death:
             return None
-        # Boundary rate is the primary signal: a super over needs sixes and fours.
-        # Strike rate is a secondary confirmation.
-        sr_part   = min(1.0, death.get('death_sr',      0.0) / _DEATH_SR_REF)
-        bdry_part = min(1.0, death.get('boundary_rate', 0.0) / _BDRY_RATE_REF)
-        return bdry_part * 0.70 + sr_part * 0.30
+        sr_score   = _death_sigmoid(death.get('death_sr',      0.0), _DEATH_SR_BASE)
+        bdry_score = _death_sigmoid(death.get('boundary_rate', 0.0), _BDRY_RATE_BASE)
+        return bdry_score * 0.70 + sr_score * 0.30
 
     @staticmethod
     def _match_bat_split(ip: Optional[InningPlayer]):
@@ -299,9 +318,9 @@ class SuperOverSelector:
         def _bat_score(runs, balls, bdries):
             if balls == 0:
                 return 0.0
-            bdry_part = min(1.0, (bdries / balls) / _BDRY_RATE_REF)
-            sr_part   = min(1.0, (runs / balls) / 1.60)
-            return bdry_part * 0.70 + sr_part * 0.30
+            sr        = runs / balls * 100        # convert fraction → SR (e.g. 0.8 → 80)
+            bdry_rate = bdries / balls
+            return _death_sigmoid(bdry_rate, _BDRY_RATE_BASE) * 0.70 + _death_sigmoid(sr, _DEATH_SR_BASE) * 0.30
 
         if not ip:
             return 0.0, 0.0

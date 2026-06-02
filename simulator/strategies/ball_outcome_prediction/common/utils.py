@@ -67,30 +67,34 @@ def apply_free_hit_modifier(weights: list, ordered_keys: list) -> list:
     """
     Applies a free-hit scoring adjustment to an already-computed probability weight list.
 
-    Free hits historically produce ~35% boundary rate (vs ~17% on normal balls) and
-    far fewer dots (~20% vs ~35%), because batters swing aggressively knowing they cannot
-    be dismissed by most wicket types.  Wickets (non run-out) are already cancelled by
-    InningsSimulator, but reducing their weight here keeps the sampled distribution
-    realistic and reduces wasted resamples.
+    Free hits produce ~40% boundary rate (vs ~17% on normal balls) because batters swing
+    hard knowing they cannot be dismissed by most wicket types.  This modifier is applied
+    on top of a batter-centric distribution (matchup weight nullified upstream), so the
+    two effects compound.  Wickets (non run-out) are also cancelled by InningsSimulator;
+    the near-zero multiplier here reduces wasted resamples.
 
-    Multipliers are calibrated to roughly match observed T20 free-hit aggregates:
-      6s: ×2.5  |  4s: ×2.0  |  1–3 runs: ×1.2  |  dots: ×0.45
-      wickets (non run-out): ×0.15  |  run-out / extras: ×1.0
+    Multipliers are calibrated to produce ~40% boundary rate on free hits (vs ~17% baseline).
+    The distribution is also computed with matchup weight nullified upstream (batter-centric),
+    so these multipliers act on a profile that already reflects the batter's attacking tendencies.
+
+      6s: ×4.0  |  4s: ×3.0  |  1–3 runs: ×1.0  |  dots: ×0.3
+      wickets (non run-out): ×0.05  |  run-out / extras: ×1.0
+
     The result must be renormalised by the caller.
     """
     adjusted = []
     for w, key in zip(weights, ordered_keys):
         runs_batter, _, outcome_type, outcome_kind = key
         if runs_batter >= 6:
-            m = 2.5
+            m = 4.0
         elif runs_batter == 4:
-            m = 2.0
+            m = 3.0
         elif runs_batter in (1, 2, 3):
-            m = 1.2
+            m = 1.0
         elif outcome_type == 'Dot':
-            m = 0.45
+            m = 0.3
         elif outcome_type == 'Wicket' and outcome_kind != 'run out':
-            m = 0.15
+            m = 0.05
         else:
             m = 1.0
         adjusted.append(w * m)

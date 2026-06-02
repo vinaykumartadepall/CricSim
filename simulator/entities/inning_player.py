@@ -15,6 +15,7 @@ class InningPlayer(MatchObserver):
     sixes: int = 0
     dot_balls_faced: int = 0
     is_out: bool = False
+    came_to_crease: bool = False
 
     # Death-phase subset (used by SuperOverSelector)
     death_runs_scored:  int = 0
