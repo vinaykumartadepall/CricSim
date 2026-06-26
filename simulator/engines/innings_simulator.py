@@ -26,11 +26,13 @@ class InningsSimulator:
         ball_outcome_strategy: BallOutcomeStrategy,
         logger: MatchLogger,
         bowling_strategy: BowlingStrategy = None,
+        is_super_over: bool = False,
     ):
-        self.match = match
-        self.ball_outcomes = ball_outcome_strategy
-        self.logger = logger
+        self.match          = match
+        self.ball_outcomes  = ball_outcome_strategy
+        self.logger         = logger
         self.bowling_strategy = bowling_strategy
+        self._is_super_over = is_super_over
 
     def run(
         self,
@@ -75,7 +77,7 @@ class InningsSimulator:
             # Log summary before incrementing so formatter can filter deliveries
             # by current_over directly (0-indexed, no adjustment needed).
             self.logger.over_summary(
-                format_over_summary(self.match, self.match.innings[-1])
+                format_over_summary(self.match, self.match.innings[-1], self._is_super_over)
             )
 
             self.match.current_over += 1
@@ -136,7 +138,7 @@ class InningsSimulator:
 
             prefix = "(Free Hit) " if this_ball_is_free_hit else ""
             self.logger.ball(prefix + format_ball_commentary(
-                delivery, is_super_over=getattr(self.match, 'is_super_over', False)
+                delivery, is_super_over=self._is_super_over
             ))
 
             if outcome.is_wicket:
@@ -185,6 +187,7 @@ class InningsSimulator:
             ball_number    = display_ball,
             batter         = self.match.striker,
             bowler         = self.match.current_bowler,
+            non_striker    = self.match.non_striker,
             runs_batter    = outcome.runs_batter,
             runs_extras    = outcome.runs_extras,
             is_wicket      = outcome.is_wicket,

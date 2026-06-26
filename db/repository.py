@@ -1,5 +1,6 @@
 from db.database import get_db_connection
 from db.entities import Player, Team, Venue, Tournament, Match, Delivery
+from db.venue_resolver import load_overrides, resolve_canonical, resolve_final_country
 import psycopg2.extras
 import logging
 
@@ -7,12 +8,15 @@ class CricketRepository:
     def __init__(self):
         self.conn = get_db_connection(autocommit=False) # Manage transactions manually for batches
         self.cur = self.conn.cursor()
-        
+
         # In-memory caches to reduce DB round-trips
         self._players_cache = {} # code -> id
         self._teams_cache = {}   # name -> id
         self._venues_cache = {}  # name -> id
         self._tournaments_cache = {} # (name, season) -> id
+
+        # Load venue overrides once per repository instance (file-level cache in venue_resolver)
+        self._venue_overrides = load_overrides()
         
     def commit(self):
         self.conn.commit()
@@ -69,23 +73,39 @@ class CricketRepository:
         return team
 
     def get_or_create_venue(self, venue: Venue) -> Venue:
-        if venue.name in self._venues_cache:
-            venue.id = self._venues_cache[venue.name]
+        # Normalise to canonical name before any DB access so alias variants
+        # never create separate venue rows.
+        canonical_name, canonical_city, _ = resolve_canonical(
+            venue.name, venue.city, self._venue_overrides
+        )
+        city = canonical_city or venue.city
+
+        if canonical_name in self._venues_cache:
+            venue.id = self._venues_cache[canonical_name]
+            venue.name = canonical_name
+            venue.city = city
             return venue
 
-        self.cur.execute("SELECT venue_id FROM history.venues WHERE name = %s", (venue.name,))
+        self.cur.execute("SELECT venue_id FROM history.venues WHERE name = %s", (canonical_name,))
         res = self.cur.fetchone()
         if res:
             venue.id = res[0]
-            self._venues_cache[venue.name] = venue.id
+            venue.name = canonical_name
+            venue.city = city
+            self._venues_cache[canonical_name] = venue.id
             return venue
-            
+
+        # New venue — resolve country (geocoding handled later by populate_venue_countries.py).
+        country = resolve_final_country(canonical_name, city, self._venue_overrides)
         self.cur.execute(
-            "INSERT INTO history.venues (name, city) VALUES (%s, %s) RETURNING venue_id",
-            (venue.name, venue.city)
+            "INSERT INTO history.venues (name, city, country) VALUES (%s, %s, %s) RETURNING venue_id",
+            (canonical_name, city, country)
         )
         venue.id = self.cur.fetchone()[0]
-        self._venues_cache[venue.name] = venue.id
+        venue.name = canonical_name
+        venue.city = city
+        venue.country = country
+        self._venues_cache[canonical_name] = venue.id
         return venue
 
     def get_or_create_tournament(self, tournament: Tournament) -> Tournament:

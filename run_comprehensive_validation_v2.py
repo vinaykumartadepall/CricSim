@@ -1000,7 +1000,7 @@ def run_format(match_format, cfg, run_dir, seed, gender, hist_only=False):
     """Validate one format end-to-end. Designed to run in a subprocess."""
     from simulator.match_logger import MatchLogger
     MatchLogger.SILENT = True
-    from simulator.simulate_driver import _OUTCOME_STRATEGIES
+    from simulator.strategies.factory import OutcomeStrategyFactory
     from simulator.engines.engine_factory import EngineFactory
     from simulator.entities.match import SimulationMatch
     from simulator.entities.team import MatchTeam
@@ -1110,7 +1110,7 @@ def run_format(match_format, cfg, run_dir, seed, gender, hist_only=False):
         innings_per_match=first.innings_per_match,
     )
     _w(f"  Initialising player caches for {len(seen_pids)} unique players …")
-    out_strat = _OUTCOME_STRATEGIES['enhanced'][fmt]()
+    out_strat = OutcomeStrategyFactory.for_name('enhanced', fmt)
     out_strat.init_model(union_match)
     _w("  Player caches ready.")
 

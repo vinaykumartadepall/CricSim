@@ -1,4 +1,3 @@
-from db.stats_repository import StatsRepository
 from simulator.engines.base_engine import BaseEngine
 from simulator.engines.innings_simulator import InningsSimulator
 from simulator.engines.super_over_engine import SuperOverEngine
@@ -65,7 +64,7 @@ class LimitedOversEngine(BaseEngine):
         return inn1.batting_team.total_runs == inn2.batting_team.total_runs
 
     def _run_super_over(self, team1: MatchTeam, team2: MatchTeam):
-        repo = StatsRepository()
+        repo = getattr(self.bowling_strategy, 'repo', None)
         so_engine = SuperOverEngine(
             match=self.match,
             ball_outcomes=self.ball_outcomes,

@@ -1,0 +1,117 @@
+{
+  "tournament_name": "Champions Trophy 2025",
+  "format": "ODI",
+  "gender": "male",
+  "season": "2025",
+  "outcome_strategy": "enhanced",
+  "bowling_strategy": "historical",
+
+  "venues": [
+    {"name": "National Stadium, Karachi", "city": "Karachi"},
+    {"name": "Gaddafi Stadium, Lahore", "city": "Lahore"},
+    {"name": "Rawalpindi Cricket Stadium", "city": "Rawalpindi"}
+  ],
+
+  "teams": [
+    {
+      "name": "India",
+      "short_name": "IND",
+      "primary_color": "#003087",
+      "secondary_color": "#FF8C00",
+      "players": [
+        "RG Sharma", "Shubman Gill", "V Kohli", "SS Iyer",
+        "KL Rahul", "RA Jadeja", "HH Pandya", "B Kumar",
+        "JJ Bumrah", "Kuldeep Yadav", "Mohammed Siraj"
+      ]
+    },
+    {
+      "name": "Australia",
+      "short_name": "AUS",
+      "primary_color": "#FFCD00",
+      "secondary_color": "#00843D",
+      "players": [
+        "DA Warner", "TM Head", "MR Marsh", "SPD Smith",
+        "M Labuschagne", "C Green", "AT Carey", "PJ Cummins",
+        "MA Starc", "A Zampa", "JR Hazlewood"
+      ]
+    },
+    {
+      "name": "England",
+      "short_name": "ENG",
+      "primary_color": "#003366",
+      "secondary_color": "#CC0000",
+      "players": [
+        "Z Crawley", "DJ Malan", "JE Root", "HC Brook",
+        "BA Stokes", "MM Ali", "JC Buttler", "CR Woakes",
+        "MA Wood", "JM Anderson", "AU Rashid"
+      ]
+    },
+    {
+      "name": "Pakistan",
+      "short_name": "PAK",
+      "primary_color": "#01411C",
+      "secondary_color": "#FFFFFF",
+      "home_venue": "National Stadium, Karachi",
+      "players": [
+        "Babar Azam", "Mohammad Rizwan", "Fakhar Zaman", "Imam-ul-Haq",
+        "Saud Shakeel", "Agha Salman", "Mohammad Nawaz", "Shadab Khan",
+        "Shaheen Shah Afridi", "Haris Rauf", "Mohammad Wasim"
+      ]
+    },
+    {
+      "name": "South Africa",
+      "short_name": "SA",
+      "primary_color": "#007A4D",
+      "secondary_color": "#FFB81C",
+      "players": [
+        "Q de Kock", "T Bavuma", "RR Hendricks", "HE van der Dussen",
+        "DA Miller", "M Jansen", "KA Maharaj", "MV Boucher",
+        "K Rabada", "A Nortje", "L Ngidi"
+      ]
+    },
+    {
+      "name": "New Zealand",
+      "short_name": "NZ",
+      "primary_color": "#000000",
+      "secondary_color": "#FFFFFF",
+      "players": [
+        "TWM Latham", "WA Young", "KS Williamson", "DP Conway",
+        "DJM Short", "MJ Santner", "GD Phillips", "TG Southee",
+        "MJ Henry", "IS Sodhi", "KA Jamieson"
+      ]
+    },
+    {
+      "name": "Bangladesh",
+      "short_name": "BAN",
+      "primary_color": "#006A4E",
+      "secondary_color": "#F42A41",
+      "players": [
+        "Tamim Iqbal", "Liton Das", "Shakib Al Hasan", "Mushfiqur Rahim",
+        "Towhid Hridoy", "Mahmudullah", "Mehedi Hasan Miraz", "Taskin Ahmed",
+        "Mustafizur Rahman", "Shoriful Islam", "Rishad Hossain"
+      ]
+    },
+    {
+      "name": "Sri Lanka",
+      "short_name": "SL",
+      "primary_color": "#003087",
+      "secondary_color": "#FFD700",
+      "players": [
+        "MD Gunathilaka", "P Nissanka", "BKG Mendis", "KIC Asalanka",
+        "MD Shanaka", "DN Wellalage", "M Theekshana", "PVD Chameera",
+        "CRD Fernando", "CAK Rajitha", "AM Fernando"
+      ]
+    }
+  ],
+
+  "schedule": {
+    "type": "round_robin",
+    "matches_per_pair": 1,
+    "neutral_venues": true
+  },
+
+  "playoffs": {
+    "format": "semis_final",
+    "top_n": 4
+  }
+}

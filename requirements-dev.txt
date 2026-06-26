@@ -1,0 +1,8 @@
+# Development and testing dependencies
+-r requirements.txt
+
+pytest            # Test runner
+
+# Optional: developer analysis tools (tools/plot_*.py, tools/optimize_params.py)
+numpy
+matplotlib

@@ -1,5 +1,5 @@
 """
-Populate history.venues.country from city/venue name via Nominatim geocoding,
+Populate history.venues.country_id from city/venue name via Nominatim geocoding,
 then apply manual overrides from venue_country_overrides.json.
 
 Usage:
@@ -7,26 +7,24 @@ Usage:
     python -m db.populate_venue_countries --commit  # write to DB
 
 Steps:
-  1. Adds country column to history.venues if absent.
-  2. Loads ALL venues; geocodes those with a NULL country (1 req/s rate limit).
+  1. Ensures country_id column exists on history.venues.
+  2. Loads ALL venues; geocodes those with NULL country_id (1 req/s rate limit).
   3. Applies overrides from venue_country_overrides.json to every venue
-     (overrides always win, even over a previously geocoded value).
-     Priority: by_venue_id > by_name_pattern > by_city.
-  4. Prints a diff of changes; if --commit, bulk-updates the DB.
-  5. Prints any rows that remain unresolved for manual review.
+     (overrides always win, even over a previously resolved value).
+     Priority: by_name_city > by_name_pattern > by_city.
+  4. Remaps West Indies member countries to "West Indies".
+  5. Prints a diff of changes; if --commit, bulk-updates the DB.
+  6. Prints any rows that remain unresolved for manual review.
 """
 
 import argparse
-import json
 import re
 import time
-from pathlib import Path
 from typing import Optional
 from geopy.geocoders import Nominatim
 
 from db.database import get_db_connection
-
-_OVERRIDES_PATH = Path(__file__).parent / "venue_country_overrides.json"
+from db.venue_resolver import load_overrides, resolve_final_country, invalidate_cache
 
 _VENUE_NOISE = re.compile(
     r"\b(cricket|ground|stadium|oval|park|field|international|club|"
@@ -34,11 +32,6 @@ _VENUE_NOISE = re.compile(
     r"no\.?\s*\d+|'[a-z]')\b",
     re.IGNORECASE,
 )
-
-
-def _load_overrides() -> dict:
-    with open(_OVERRIDES_PATH, encoding="utf-8") as f:
-        return json.load(f)
 
 
 def _guess_city_from_name(venue_name: str) -> str:
@@ -64,57 +57,64 @@ def _geocode(geolocator, query: str) -> Optional[str]:
     return None
 
 
-def _apply_override(vid: int, name: str, city: Optional[str], overrides: dict) -> Optional[str]:
-    """Return the override country for this venue, or None if no override applies."""
-    # Most specific: exact venue_id
-    entry = overrides["by_venue_id"].get(str(vid))
-    if entry:
-        return entry["country"]
-
-    # Name pattern match (city must match too when specified)
-    name_lower = name.lower()
-    city_lower = (city or "").lower()
-    for pat in overrides["by_name_pattern"]:
-        if pat["city"].lower() == city_lower and pat["name_contains"].lower() in name_lower:
-            return pat["country"]
-
-    # Least specific: city-level
-    if city and city in overrides["by_city"]:
-        return overrides["by_city"][city]
-
-    return None
+def _load_or_insert_country(cur, name: str, name_to_id: dict[str, int]) -> int:
+    """Return country_id for name, inserting a new row if it doesn't exist yet."""
+    if name in name_to_id:
+        return name_to_id[name]
+    cur.execute(
+        "INSERT INTO history.countries (name) VALUES (%s) ON CONFLICT (name) DO NOTHING RETURNING country_id",
+        (name,),
+    )
+    row = cur.fetchone()
+    if row:
+        country_id = row[0]
+    else:
+        cur.execute("SELECT country_id FROM history.countries WHERE name = %s", (name,))
+        country_id = cur.fetchone()[0]
+    name_to_id[name] = country_id
+    return country_id
 
 
 def run(commit: bool) -> None:
-    overrides = _load_overrides()
+    invalidate_cache()
+    overrides = load_overrides()
     conn = get_db_connection(autocommit=False)
-    cur = conn.cursor()
+    cur  = conn.cursor()
 
-    # ── 1. Add column if missing ────────────────────────────────────────────
+    # ── 1. Ensure country_id column exists ──────────────────────────────────
     cur.execute("""
         SELECT column_name FROM information_schema.columns
         WHERE table_schema = 'history' AND table_name = 'venues'
-          AND column_name = 'country'
+          AND column_name = 'country_id'
     """)
     if not cur.fetchone():
-        print("Adding country column to history.venues …")
-        cur.execute("ALTER TABLE history.venues ADD COLUMN country TEXT")
+        print("Adding country_id column to history.venues …")
+        cur.execute(
+            "ALTER TABLE history.venues "
+            "ADD COLUMN country_id INT REFERENCES history.countries(country_id)"
+        )
         conn.commit()
 
-    # ── 2. Load ALL venues ──────────────────────────────────────────────────
+    # ── 2. Load countries name→id mapping ───────────────────────────────────
+    cur.execute("SELECT name, country_id FROM history.countries")
+    name_to_id: dict[str, int] = {row[0]: row[1] for row in cur.fetchall()}
+
+    # ── 3. Load ALL venues — current country name via join ───────────────────
     cur.execute("""
-        SELECT venue_id, name, city, country
-        FROM history.venues
-        ORDER BY city NULLS LAST, name
+        SELECT v.venue_id, v.name, v.city,
+               c.name AS current_country
+        FROM   history.venues v
+        LEFT JOIN history.countries c ON c.country_id = v.country_id
+        ORDER  BY v.city NULLS LAST, v.name
     """)
     all_venues = cur.fetchall()  # (venue_id, name, city, current_country)
     print(f"Loaded {len(all_venues)} venues.\n")
 
-    # ── 3. Geocode venues that still have NULL country ───────────────────────
+    # ── 4. Geocode venues that still have NULL country_id ───────────────────
     geolocator = Nominatim(user_agent="cricket-simulator-venue-filler/1.0")
 
     null_venues = [(vid, name, city) for vid, name, city, cc in all_venues if not cc]
-    geocoded: dict[int, Optional[str]] = {}   # venue_id → geocoded country
+    geocoded: dict[int, Optional[str]] = {}
 
     if null_venues:
         distinct_cities: list[str] = sorted({city for _, _, city in null_venues if city})
@@ -143,8 +143,8 @@ def run(commit: bool) -> None:
     else:
         print("No NULL-country venues — skipping geocoding.\n")
 
-    # ── 4. Determine final country for every venue ───────────────────────────
-    updates: list[tuple[str, int]] = []
+    # ── 5. Determine final country for every venue ───────────────────────────
+    updates: list[tuple[str, int]] = []   # (resolved_country_name, venue_id)
     unresolved: list[tuple] = []
 
     print("\n" + "=" * 85)
@@ -152,15 +152,15 @@ def run(commit: bool) -> None:
     print("-" * 85)
 
     for vid, name, city, current_country in all_venues:
-        base = current_country or geocoded.get(vid)
-        override = _apply_override(vid, name, city, overrides)
-        final = override or base
+        geocoded_country = geocoded.get(vid) if not current_country else None
+        final = resolve_final_country(name, city, overrides, geocoded_country=geocoded_country or current_country)
 
         if final:
-            source = "override" if override else ("geocoded" if not current_country else "existing")
+            had_override = final != (geocoded_country or current_country)
+            source = "override" if had_override else ("geocoded" if not current_country else "existing")
             if final != current_country:
                 updates.append((final, vid))
-                marker = "*" if override else "+"
+                marker = "*" if had_override else "+"
             else:
                 marker = " "
             print(f"{marker} {vid:>7}  {str(city):<25}  {final:<22}  {source:<12}  {name}")
@@ -172,32 +172,35 @@ def run(commit: bool) -> None:
     print(f"\nChanges: {len(updates)}  (legend: * = override applied, + = newly geocoded)")
     print(f"Unresolved: {len(unresolved)}")
 
-    # ── 5. Write or report ───────────────────────────────────────────────────
+    # ── 6. Write or report ───────────────────────────────────────────────────
     if not commit:
         print("\n[DRY RUN] No changes written. Re-run with --commit to apply.")
     else:
         if updates:
             print(f"\nWriting {len(updates)} updates …")
-            cur.executemany(
-                "UPDATE history.venues SET country = %s WHERE venue_id = %s",
-                updates,
-            )
+            for country_name, vid in updates:
+                cid = _load_or_insert_country(cur, country_name, name_to_id)
+                cur.execute(
+                    "UPDATE history.venues SET country_id = %s WHERE venue_id = %s",
+                    (cid, vid),
+                )
             conn.commit()
             print("Done.")
         else:
             print("\nNothing to update.")
 
     if unresolved:
-        print("\nVenues still needing a country — add to venue_country_overrides.json by_venue_id:")
+        print("\nVenues still needing a country — add to venue_country_overrides.json by_name_city:")
         for vid, name, city in unresolved:
-            print(f'  "{vid}": {{"country": "...", "note": "{name} / city={city}"}}')
+            city_fragment = f', "city": "{city}"' if city else ""
+            print(f'  {{"name": "{name}"{city_fragment}, "country": "..."}}  // venue_id={vid}')
 
     cur.close()
     conn.close()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Populate history.venues.country")
+    parser = argparse.ArgumentParser(description="Populate history.venues.country_id")
     parser.add_argument("--commit", action="store_true", help="Write to DB (default: dry run)")
     args = parser.parse_args()
     run(commit=args.commit)

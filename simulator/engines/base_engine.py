@@ -42,19 +42,6 @@ class BaseEngine(ABC):
         """Entry point for match simulation. Subclasses drive the innings sequence."""
 
     def _prepare_match_logs(self):
-        t0 = time.perf_counter()
-        _log.console("[Engine] Initialising ball-outcome model …")
-        t = time.perf_counter()
-        self.ball_outcomes.init_model(self.match)
-        _log.console("[Engine] Ball-outcome model ready              %.2fs", time.perf_counter() - t)
-
-        _log.console("[Engine] Initialising bowling-selection model …")
-        t = time.perf_counter()
-        self.bowling_strategy.init_model(self.match)
-        _log.console("[Engine] Bowling-selection model ready         %.2fs", time.perf_counter() - t)
-
-        _log.console("[Engine] Total model initialisation            %.2fs", time.perf_counter() - t0)
-
         self.match.status = MatchStatus.IN_PROGRESS
         self.logger = MatchLogger(match_id=self.match.id)
         header = (
@@ -62,7 +49,25 @@ class BaseEngine(ABC):
             f"| {self.match.match_format} ==="
         )
         self.logger.headline(header)
-        self.logger.headline(f"Match file: {self.logger.file_path}\n")
+
+        t0 = time.perf_counter()
+        _log.info("[Engine] ── Model Init: %s %s (%s vs %s) ──",
+                  self.match.match_format,
+                  getattr(self.match, 'gender', 'male'),
+                  self.match.home_team.name,
+                  self.match.away_team.name)
+
+        _log.info("[Engine] Initialising ball-outcome model …")
+        t = time.perf_counter()
+        self.ball_outcomes.init_model(self.match)
+        _log.info("[Engine] Ball-outcome model ready              %.2fs", time.perf_counter() - t)
+
+        _log.info("[Engine] Initialising bowling-selection model …")
+        t = time.perf_counter()
+        self.bowling_strategy.init_model(self.match)
+        _log.info("[Engine] Bowling-selection model ready         %.2fs", time.perf_counter() - t)
+
+        _log.info("[Engine] Total model initialisation            %.2fs", time.perf_counter() - t0)
 
     def _execute_toss(self) -> Tuple[MatchTeam, MatchTeam]:
         """Returns (batting_team, bowling_team) after a randomised toss."""

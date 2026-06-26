@@ -1,0 +1,260 @@
+{
+  "tournament_name": "Indian Premier League",
+  "format": "T20",
+  "gender": "male",
+  "season": "2025",
+  "outcome_strategy": "enhanced",
+  "bowling_strategy": "historical",
+  "venues": [
+    {
+      "name": "Wankhede Stadium",
+      "city": "Mumbai"
+    },
+    {
+      "name": "MA Chidambaram Stadium, Chepauk",
+      "city": "Chennai"
+    },
+    {
+      "name": "M Chinnaswamy Stadium",
+      "city": "Bengaluru"
+    },
+    {
+      "name": "Arun Jaitley Stadium",
+      "city": "Delhi"
+    },
+    {
+      "name": "Eden Gardens",
+      "city": "Kolkata"
+    },
+    {
+      "name": "Sawai Mansingh Stadium",
+      "city": "Jaipur"
+    },
+    {
+      "name": "Punjab Cricket Association IS Bindra Stadium",
+      "city": "Chandigarh"
+    },
+    {
+      "name": "Rajiv Gandhi International Stadium",
+      "city": "Hyderabad"
+    },
+    {
+      "name": "Narendra Modi Stadium",
+      "city": "Ahmedabad"
+    },
+    {
+      "name": "Bharat Ratna Shri Atal Bihari Vajpayee Ekana Cricket Stadium",
+      "city": "Lucknow"
+    }
+  ],
+  "teams": [
+    {
+      "name": "Mumbai Indians",
+      "short_name": "MI",
+      "primary_color": "#004B8D",
+      "secondary_color": "#D4AF37",
+      "home_venue": "Wankhede Stadium",
+      "players": [
+        "RG Sharma",
+        "RD Rickelton",
+        "SK Yadav",
+        "Tilak Varma",
+        "HH Pandya",
+        "Naman Dhir",
+        "MJ Santner",
+        "C Bosch",
+        "DL Chahar",
+        "JJ Bumrah",
+        "TA Boult"
+      ]
+    },
+    {
+      "name": "Chennai Super Kings",
+      "short_name": "CSK",
+      "primary_color": "#F9CD05",
+      "secondary_color": "#0047AB",
+      "home_venue": "MA Chidambaram Stadium, Chepauk",
+      "players": [
+        "SV Samson",
+        "RD Gaikwad",
+        "A Mhatre",
+        "D Brevis",
+        "S Dube",
+        "SN Khan",
+        "MS Dhoni",
+        "J Overton",
+        "Noor Ahmad",
+        "A Kamboj",
+        "KK Ahmed"
+      ]
+    },
+    {
+      "name": "Royal Challengers Bengaluru",
+      "short_name": "RCB",
+      "primary_color": "#E81020",
+      "secondary_color": "#FFD700",
+      "home_venue": "M Chinnaswamy Stadium",
+      "players": [
+        "V Kohli",
+        "PD Salt",
+        "D Padikkal",
+        "RM Patidar",
+        "JM Sharma",
+        "TH David",
+        "R Shepherd",
+        "KH Pandya",
+        "JR Hazlewood",
+        "B Kumar",
+        "Suyash Sharma"
+      ]
+    },
+    {
+      "name": "Delhi Capitals",
+      "short_name": "DC",
+      "primary_color": "#004C97",
+      "secondary_color": "#EF1C25",
+      "home_venue": "Arun Jaitley Stadium",
+      "players": [
+        "KL Rahul",
+        "P Nissanka",
+        "KK Nair",
+        "Sameer Rizvi",
+        "T Stubbs",
+        "DA Miller",
+        "AR Patel",
+        "MA Starc",
+        "Kuldeep Yadav",
+        "Mukesh Kumar",
+        "T Natarajan"
+      ]
+    },
+    {
+      "name": "Kolkata Knight Riders",
+      "short_name": "KKR",
+      "primary_color": "#3A225D",
+      "secondary_color": "#B3992C",
+      "home_venue": "Eden Gardens",
+      "players": [
+        "FH Allen",
+        "AM Rahane",
+        "A Raghuvanshi",
+        "C Green",
+        "RK Singh",
+        "MK Pandey",
+        "R Powell",
+        "SP Narine",
+        "Harshit Rana",
+        "CV Varun",
+        "VG Arora"
+      ]
+    },
+    {
+      "name": "Rajasthan Royals",
+      "short_name": "RR",
+      "primary_color": "#f50247",
+      "secondary_color": "#0B4EA2",
+      "home_venue": "Sawai Mansingh Stadium",
+      "players": [
+        "YBK Jaiswal",
+        "V Suryavanshi",
+        "Dhruv Jurel",
+        "R Parag",
+        "SO Hetmyer",
+        "D Ferreira",
+        "RA Jadeja",
+        "JC Archer",
+        "Sandeep Sharma",
+        "Ravi Bishnoi",
+        "TU Deshpande"
+      ]
+    },
+    {
+      "name": "Punjab Kings",
+      "short_name": "PBKS",
+      "primary_color": "#ce3746",
+      "secondary_color": "#384dc7",
+      "home_venue": "Punjab Cricket Association IS Bindra Stadium",
+      "players": [
+        "Priyansh Arya",
+        "P Simran Singh",
+        "C Connolly",
+        "SS Iyer",
+        "Suryansh Shedge",
+        "MP Stoinis",
+        "Shashank Singh",
+        "M Jansen",
+        "Arshdeep Singh",
+        "XC Bartlett",
+        "YS Chahal"
+      ]
+    },
+    {
+      "name": "Sunrisers Hyderabad",
+      "short_name": "SRH",
+      "primary_color": "#FF6700",
+      "secondary_color": "#000000",
+      "home_venue": "Rajiv Gandhi International Stadium",
+      "players": [
+        "TM Head",
+        "Abhishek Sharma",
+        "Ishan Kishan",
+        "H Klaasen",
+        "Nithish Kumar Reddy",
+        "Aniket Verma",
+        "S Arora",
+        "PJ Cummins",
+        "HV Patel",
+        "Harsh Dubey",
+        "JD Unadkat"
+      ]
+    },
+    {
+      "name": "Gujarat Titans",
+      "short_name": "GT",
+      "primary_color": "#1C3D70",
+      "secondary_color": "#C4A661",
+      "home_venue": "Narendra Modi Stadium",
+      "players": [
+        "Shubman Gill",
+        "B Sai Sudharsan",
+        "JC Buttler",
+        "Washington Sundar",
+        "JO Holder",
+        "M Shahrukh Khan",
+        "R Tewatia",
+        "Rashid Khan",
+        "K Rabada",
+        "Mohammed Siraj",
+        "M Prasidh Krishna"
+      ]
+    },
+    {
+      "name": "Lucknow Super Giants",
+      "short_name": "LSG",
+      "primary_color": "#0f0f87",
+      "secondary_color": "#8c0808",
+      "home_venue": "Bharat Ratna Shri Atal Bihari Vajpayee Ekana Cricket Stadium",
+      "players": [
+        "MR Marsh",
+        "AK Markram",
+        "N Pooran",
+        "RR Pant",
+        "A Badoni",
+        "Abdul Samad",
+        "Shahbaz Ahmed",
+        "Mohammed Shami",
+        "Prince Yadav",
+        "Mohsin Khan",
+        "DS Rathi"
+      ]
+    }
+  ],
+  "schedule": {
+    "type": "double_round_robin",
+    "neutral_venues": false
+  },
+  "playoffs": {
+    "format": "ipl",
+    "top_n": 4
+  }
+}

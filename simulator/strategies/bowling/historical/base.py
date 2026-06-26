@@ -24,7 +24,6 @@ import logging
 import math
 import time
 from abc import abstractmethod
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Optional, Tuple
 
 from db.stats_repository import StatsRepository
@@ -49,6 +48,15 @@ _RECOVERY_RATE     = 0.13
 
 _MIN_CAREER_BALLS = 6
 _MIN_H2H_BALLS    = 6
+
+# F2 maturity: balls at which F2 reaches its full potential per format.
+# Before this point the score is linearly scaled down so early overs don't
+# over-index on a tiny match sample.
+_F2_MATURITY_BALLS = {
+    'T20':  12,   # 2 overs
+    'ODI':  18,   # 3 overs
+    'Test': 30,   # 5 overs
+}
 
 # Asymmetric eco scoring: reward for bowling below neutral is 3x the penalty
 _ECO_NEUTRAL      = 8.0
@@ -80,19 +88,8 @@ _COUNTRY_SAT = 15   # saturates at 15 country/region matches
 _VENUE_MAX_W   = 0.55
 _COUNTRY_MAX_W = 0.85
 
-# West Indies island countries that should be pooled into one regional dataset.
-_WEST_INDIES_COUNTRIES = [
-    'Antigua and Barbuda', 'Barbados', 'Dominica', 'Grenada', 'Guyana',
-    'Jamaica', 'Saint Kitts and Nevis', 'Saint Lucia',
-    'Saint Vincent and the Grenadines', 'Trinidad and Tobago',
-]
-# Maps each WI island → the full pool list so a Barbados venue gets all WI data.
-_REGION_MAP = {c: _WEST_INDIES_COUNTRIES for c in _WEST_INDIES_COUNTRIES}
-
-
-def _region_countries(country: str):
-    """Returns the country pool to use for DB queries — WI islands get grouped."""
-    return _REGION_MAP.get(country, [country])
+def _region_countries(country: str) -> list:
+    return [country]
 
 
 def _three_level_blend(vf: float, n_v: int, cf: float, n_c: int, gf: float) -> float:
@@ -165,189 +162,103 @@ class HistoricalBowlingBase(BowlingStrategy):
             self._loaded_ids.update(new_ids)
 
     def _do_full_init(self, match: SimulationMatch, all_ids: list) -> None:
-        """First-time full cache load for a match's player set and venue."""
+        """First-time full cache load. All reads from precomputed tables — never deliveries."""
         self._fmt    = MatchRules.get_unified_format(match.match_format)
         self._gender = getattr(match, "gender", "male").lower()
 
         venue    = getattr(match, "venue", None)
-        country  = venue.country if venue else None
-        venue_id = venue.id      if venue else None
-        country_group = _region_countries(country) if country else None
+        venue_id = venue.id if venue else None
 
-        log.console("[BowlingModel] Loading caches — format=%s  gender=%s  players=%d  country=%s  venue_id=%s",
-                    self._fmt, self._gender, len(all_ids), country or "global", venue_id)
+        log.console("[BowlingModel] Loading caches — format=%s  gender=%s  players=%d  venue_id=%s",
+                    self._fmt, self._gender, len(all_ids), venue_id)
         t0 = time.perf_counter()
+        repo = self.repo
 
-        def _q(method, *args, **kw):
-            return lambda repo: getattr(repo, method)(*args, **kw)
+        # Workload (used by _hard_cap, _eligible, _f_spell_breakdown, _f_phase_pacing)
+        t = time.perf_counter()
+        self.workload_cache = repo.get_bowler_workload_precomputed(all_ids, self._fmt)
+        log.info("[BowlingModel]   %-38s  %.3fs  (%d players)", "workload",
+                 time.perf_counter() - t, len(self.workload_cache))
 
-        tasks = [
-            ("career_stats",    _q("get_bowler_career_stats",      all_ids, self._fmt, self._gender)),
-            ("phase_stats",     _q("get_bowler_phase_stats",        all_ids, self._fmt, self._gender)),
-            ("batter_matchups", _q("get_batter_bowler_matchups",    all_ids, all_ids, self._fmt, self._gender)),
-            ("workload_stats",  _q("get_bowler_workload_stats",     all_ids, self._fmt, self._gender)),
-            ("recent_form",     _q("get_bowler_recent_form",        all_ids, self._fmt, self._gender)),
-        ]
+        # H2H matchup aggregates (used by _f_matchup)
+        t = time.perf_counter()
+        self.matchup_cache = repo.get_batter_bowler_matchups_aggregate(all_ids, all_ids, self._fmt)
+        log.info("[BowlingModel]   %-38s  %.3fs  (%d pairs)", "matchup_aggregate",
+                 time.perf_counter() - t, len(self.matchup_cache))
 
-        if self._fmt == "Test":
-            tasks.append(("test_phase_freq_global", _q("get_bowler_test_phase_frequency", all_ids, self._gender)))
-            if country_group:
-                tasks.append(("test_phase_freq_country", _q("get_bowler_test_phase_frequency", all_ids, self._gender, countries=country_group)))
-            if venue_id:
-                tasks.append(("test_phase_freq_venue", _q("get_bowler_test_phase_frequency", all_ids, self._gender, venue_id=venue_id)))
-        elif self._fmt == "T20":
-            tasks += [
-                ("over_freq_global",     _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender)),
-                ("over_freq_intl",       _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, match_type='international')),
-                ("over_freq_intl_inn1",  _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, match_type='international', inning_number=1)),
-                ("over_freq_intl_inn2",  _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, match_type='international', inning_number=2)),
-                ("phase_dist_intl",      _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender, match_type='international')),
-                ("phase_dist_intl_inn1", _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender, match_type='international', inning_number=1)),
-                ("phase_dist_intl_inn2", _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender, match_type='international', inning_number=2)),
-            ]
-            if venue_id:
-                tasks += [
-                    ("over_freq_venue",      _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id)),
-                    ("over_freq_venue_inn1", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id, inning_number=1)),
-                    ("over_freq_venue_inn2", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id, inning_number=2)),
-                ]
-        else:  # ODI
-            tasks += [
-                ("over_freq_global", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender)),
-                ("phase_dist",       _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender)),
-                ("phase_dist_inn1",  _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender, inning_number=1)),
-                ("phase_dist_inn2",  _q("get_bowler_phase_overs_distribution", all_ids, self._fmt, self._gender, inning_number=2)),
-            ]
-            if country_group:
-                tasks += [
-                    ("over_freq_country",      _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, countries=country_group)),
-                    ("over_freq_country_inn1", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, countries=country_group, inning_number=1)),
-                    ("over_freq_country_inn2", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, countries=country_group, inning_number=2)),
-                ]
-            if venue_id:
-                tasks += [
-                    ("over_freq_venue",      _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id)),
-                    ("over_freq_venue_inn1", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id, inning_number=1)),
-                    ("over_freq_venue_inn2", _q("get_bowler_over_frequency", all_ids, self._fmt, self._gender, venue_id=venue_id, inning_number=2)),
-                ]
-
-        def _run(label, fn):
-            repo = StatsRepository()
-            try:
-                t = time.perf_counter()
-                result = fn(repo)
-                log.info("[BowlingModel]   %-38s  %.2fs", label, time.perf_counter() - t)
-                return label, result
-            finally:
-                if getattr(repo, 'conn', None):
-                    try:
-                        repo.conn.close()
-                    except Exception:
-                        pass
-
-        results = {}
-        with ThreadPoolExecutor(max_workers=min(len(tasks), 8)) as pool:
-            futures = {pool.submit(_run, label, fn): label for label, fn in tasks}
-            for future in as_completed(futures):
-                task_label = futures[future]
-                try:
-                    returned_label, result = future.result()
-                    results[returned_label] = result
-                except Exception as e:
-                    log.warning("[BowlingModel] Cache '%s' failed: %s", task_label, e)
-                    results[task_label] = {}
-
-        self.career_cache   = results.get("career_stats",    {})
-        self.phase_cache    = results.get("phase_stats",     {})
-        self.matchup_cache  = results.get("batter_matchups", {})
-        self.workload_cache = results.get("workload_stats",  {})
-        self.form_cache     = results.get("recent_form",     {})
+        # career/phase/form caches are unused in scoring — skip
+        self.career_cache = {}
+        self.phase_cache  = {}
+        self.form_cache   = {}
 
         if self._fmt == "Test":
-            self.global_test_phase_freq_cache = results.get("test_phase_freq_global",  {})
-            self.test_phase_freq_cache        = results.get("test_phase_freq_country", {})
-            self.venue_test_phase_freq_cache  = results.get("test_phase_freq_venue",   {})
-        elif self._fmt == "T20":
-            self.global_over_freq_cache  = results.get("over_freq_global",     {})
-            self.over_freq_cache         = results.get("over_freq_intl",       {})
-            self.over_freq_cache_inn1    = results.get("over_freq_intl_inn1",  {})
-            self.over_freq_cache_inn2    = results.get("over_freq_intl_inn2",  {})
-            self.phase_dist_cache        = results.get("phase_dist_intl",      {})
-            self.phase_dist_cache_inn1   = results.get("phase_dist_intl_inn1", {})
-            self.phase_dist_cache_inn2   = results.get("phase_dist_intl_inn2", {})
-            self.venue_over_freq_cache      = results.get("over_freq_venue",      {})
-            self.venue_over_freq_cache_inn1 = results.get("over_freq_venue_inn1", {})
-            self.venue_over_freq_cache_inn2 = results.get("over_freq_venue_inn2", {})
-        else:  # ODI
-            self.global_over_freq_cache  = results.get("over_freq_global",       {})
-            self.over_freq_cache         = results.get("over_freq_country",      {})
-            self.over_freq_cache_inn1    = results.get("over_freq_country_inn1", {})
-            self.over_freq_cache_inn2    = results.get("over_freq_country_inn2", {})
-            self.phase_dist_cache        = results.get("phase_dist",             {})
-            self.phase_dist_cache_inn1   = results.get("phase_dist_inn1",        {})
-            self.phase_dist_cache_inn2   = results.get("phase_dist_inn2",        {})
-            self.venue_over_freq_cache      = results.get("over_freq_venue",      {})
-            self.venue_over_freq_cache_inn1 = results.get("over_freq_venue_inn1", {})
-            self.venue_over_freq_cache_inn2 = results.get("over_freq_venue_inn2", {})
+            # No precomputed Test phase-frequency yet; _f_test_phase_affinity returns 0
+            # (blending gracefully falls back to 0 with empty caches)
+            self.global_test_phase_freq_cache = {}
+            self.test_phase_freq_cache        = {}
+            self.venue_test_phase_freq_cache  = {}
+            log.info("[BowlingModel]   %-38s  (no precomputed data)", "test_phase_freq")
 
-        log.console("[BowlingModel] All caches ready — total %.2fs", time.perf_counter() - t0)
+        elif self._fmt == "T20":
+            t = time.perf_counter()
+            self.global_over_freq_cache  = repo.get_bowler_over_frequency_precomputed(all_ids, 'T20', 'all',           0)
+            self.over_freq_cache         = repo.get_bowler_over_frequency_precomputed(all_ids, 'T20', 'international', 0)
+            self.over_freq_cache_inn1    = repo.get_bowler_over_frequency_precomputed(all_ids, 'T20', 'international', 1)
+            self.over_freq_cache_inn2    = repo.get_bowler_over_frequency_precomputed(all_ids, 'T20', 'international', 2)
+            self.phase_dist_cache        = repo.get_bowler_phase_dist_precomputed(all_ids, 'T20', 'international', 0)
+            self.phase_dist_cache_inn1   = repo.get_bowler_phase_dist_precomputed(all_ids, 'T20', 'international', 1)
+            self.phase_dist_cache_inn2   = repo.get_bowler_phase_dist_precomputed(all_ids, 'T20', 'international', 2)
+            # Venue-specific over-freq not precomputed; blending falls back to global
+            self.venue_over_freq_cache      = {}
+            self.venue_over_freq_cache_inn1 = {}
+            self.venue_over_freq_cache_inn2 = {}
+            log.info("[BowlingModel]   %-38s  %.3fs  (%d players)", "T20 over_freq+phase_dist",
+                     time.perf_counter() - t, len(self.global_over_freq_cache))
+
+        else:  # ODI
+            t = time.perf_counter()
+            self.global_over_freq_cache  = repo.get_bowler_over_frequency_precomputed(all_ids, 'ODI', 'all',           0)
+            self.over_freq_cache         = repo.get_bowler_over_frequency_precomputed(all_ids, 'ODI', 'international', 0)
+            self.over_freq_cache_inn1    = repo.get_bowler_over_frequency_precomputed(all_ids, 'ODI', 'international', 1)
+            self.over_freq_cache_inn2    = repo.get_bowler_over_frequency_precomputed(all_ids, 'ODI', 'international', 2)
+            self.phase_dist_cache        = repo.get_bowler_phase_dist_precomputed(all_ids, 'ODI', 'all', 0)
+            self.phase_dist_cache_inn1   = repo.get_bowler_phase_dist_precomputed(all_ids, 'ODI', 'all', 1)
+            self.phase_dist_cache_inn2   = repo.get_bowler_phase_dist_precomputed(all_ids, 'ODI', 'all', 2)
+            self.venue_over_freq_cache      = {}
+            self.venue_over_freq_cache_inn1 = {}
+            self.venue_over_freq_cache_inn2 = {}
+            log.info("[BowlingModel]   %-38s  %.3fs  (%d players)", "ODI over_freq+phase_dist",
+                     time.perf_counter() - t, len(self.global_over_freq_cache))
+
+        log.console("[BowlingModel] All caches ready — total %.3fs", time.perf_counter() - t0)
 
     def _extend_global_caches(self, new_ids: list) -> None:
         """
-        Load format-level global caches for player IDs not seen in the first match.
-        Called on each subsequent match in a tournament. Venue/country caches are
-        not extended here — global data is the appropriate fallback across venues.
+        Extend instance caches for player IDs not seen in the first match.
+        All data comes from precomputed tables (process-level caches already loaded).
         """
         log.console("[BowlingModel] Extending caches for %d new players", len(new_ids))
+        repo = self.repo
 
-        def _q(method, *args, **kw):
-            return lambda repo: getattr(repo, method)(*args, **kw)
+        self.workload_cache.update(repo.get_bowler_workload_precomputed(new_ids, self._fmt))
+        self.matchup_cache.update(repo.get_batter_bowler_matchups_aggregate(new_ids, new_ids, self._fmt))
 
-        tasks = [
-            ("career_stats",   _q("get_bowler_career_stats",            new_ids, self._fmt, self._gender)),
-            ("workload_stats", _q("get_bowler_workload_stats",           new_ids, self._fmt, self._gender)),
-            ("recent_form",    _q("get_bowler_recent_form",              new_ids, self._fmt, self._gender)),
-            ("matchups",       _q("get_batter_bowler_matchups",          new_ids, new_ids, self._fmt, self._gender)),
-        ]
-        if self._fmt == "Test":
-            tasks.append(("global_test", _q("get_bowler_test_phase_frequency", new_ids, self._gender)))
-        else:
-            tasks.append(("global_freq", _q("get_bowler_over_frequency",       new_ids, self._fmt, self._gender)))
-            if self._fmt != "Test":
-                tasks.append(("phase_dist", _q("get_bowler_phase_overs_distribution", new_ids, self._fmt, self._gender)))
-
-        def _run(label, fn):
-            repo = StatsRepository()
-            try:
-                return label, fn(repo)
-            finally:
-                if getattr(repo, 'conn', None):
-                    try: repo.conn.close()
-                    except Exception: pass
-
-        results = {}
-        with ThreadPoolExecutor(max_workers=min(len(tasks), 4)) as pool:
-            futures = {pool.submit(_run, label, fn): label for label, fn in tasks}
-            for future in as_completed(futures):
-                try:
-                    label, result = future.result()
-                    results[label] = result
-                except Exception as e:
-                    log.warning("[BowlingModel] Cache extend '%s' failed: %s", futures[future], e)
-
-        # Merge into existing caches (existing entries not overwritten)
-        self.career_cache.update(results.get("career_stats",  {}))
-        self.workload_cache.update(results.get("workload_stats", {}))
-        self.form_cache.update(results.get("recent_form",    {}))
-        self.matchup_cache.update(results.get("matchups",    {}))
-        if self._fmt == "Test":
-            self.global_test_phase_freq_cache.update(results.get("global_test", {}))
-        else:
-            self.global_over_freq_cache.update(results.get("global_freq", {}))
-            if self._fmt == "ODI":
-                self.phase_dist_cache.update(results.get("phase_dist", {}))
-            elif self._fmt == "T20":
-                self.phase_dist_cache.update(results.get("phase_dist", {}))
+        if self._fmt != "Test":
+            self.global_over_freq_cache.update(
+                repo.get_bowler_over_frequency_precomputed(new_ids, self._fmt, 'all', 0))
+            self.over_freq_cache.update(
+                repo.get_bowler_over_frequency_precomputed(new_ids, self._fmt, 'international', 0))
+            self.over_freq_cache_inn1.update(
+                repo.get_bowler_over_frequency_precomputed(new_ids, self._fmt, 'international', 1))
+            self.over_freq_cache_inn2.update(
+                repo.get_bowler_over_frequency_precomputed(new_ids, self._fmt, 'international', 2))
+            mt = 'international' if self._fmt == 'T20' else 'all'
+            self.phase_dist_cache.update(
+                repo.get_bowler_phase_dist_precomputed(new_ids, self._fmt, mt, 0))
+            self.phase_dist_cache_inn1.update(
+                repo.get_bowler_phase_dist_precomputed(new_ids, self._fmt, mt, 1))
+            self.phase_dist_cache_inn2.update(
+                repo.get_bowler_phase_dist_precomputed(new_ids, self._fmt, mt, 2))
 
     # ── Bowler selection ──────────────────────────────────────────────────────
 
@@ -596,26 +507,37 @@ class HistoricalBowlingBase(BowlingStrategy):
     # ── Factor 2: Match form ──────────────────────────────────────────────────
 
     def _f_match_form(self, ip: InningPlayer) -> float:
-        career       = self.career_cache.get(ip.id, {})
-        career_balls = career.get("balls", 0)
-        career_eco   = career.get("economy")        if career_balls >= _MIN_CAREER_BALLS else None
-        career_wr    = career.get("wicket_rate", 0) if career_balls >= _MIN_CAREER_BALLS else 0.0
+        # F2 is purely match-based; returns 0 before any balls bowled.
+        # A maturity factor linearly ramps from 0 → 1 as balls_bowled grows to
+        # _F2_MATURITY_BALLS[fmt], preventing early-over noise from dominating.
 
-        if ip.balls_bowled >= 6:
-            match_eco = ip.runs_conceded / (ip.balls_bowled / 6)
-            alpha     = min(1.0, ip.balls_bowled / 30)
-            eco       = alpha * match_eco + (1.0 - alpha) * (career_eco or match_eco)
-            eco_score = _eco_score(eco)
-        elif career_eco is not None:
-            eco_score = _eco_score(career_eco)
-        else:
-            eco_score = 0.0
+        # career       = self.career_cache.get(ip.id, {})
+        # career_balls = career.get("balls", 0)
+        # career_eco   = career.get("economy")        if career_balls >= _MIN_CAREER_BALLS else None
+        # career_wr    = career.get("wicket_rate", 0) if career_balls >= _MIN_CAREER_BALLS else 0.0
 
-        wicket_score  = ip.wickets_taken * 2.0
-        if career_balls >= 30:
-            wicket_score += career_wr * 30.0
+        if ip.balls_bowled == 0:
+            return 0.0
 
-        return eco_score + wicket_score
+        match_eco = ip.runs_conceded / (ip.balls_bowled / 6)
+        eco_score = _eco_score(match_eco)
+
+        # if ip.balls_bowled >= 6:
+        #     match_eco = ip.runs_conceded / (ip.balls_bowled / 6)
+        #     alpha     = min(1.0, ip.balls_bowled / 30)
+        #     eco       = alpha * match_eco + (1.0 - alpha) * (career_eco or match_eco)
+        #     eco_score = _eco_score(eco)
+        # elif career_eco is not None:
+        #     eco_score = _eco_score(career_eco)
+        # else:
+        #     eco_score = 0.0
+
+        wicket_score = ip.wickets_taken * 2.0
+        # if career_balls >= 30:
+        #     wicket_score += career_wr * 30.0
+
+        maturity = min(1.0, ip.balls_bowled / _F2_MATURITY_BALLS.get(self._fmt, 30))
+        return min(2.0, (eco_score + wicket_score) * maturity)
 
     # ── Factor 3: Spell management ────────────────────────────────────────────
 

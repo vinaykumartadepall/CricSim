@@ -59,6 +59,9 @@ class _TestStrategy(EnhancedBaseHistoricalStatsStrategy):
         self._reliability_thresholds = {'batter': 500, 'bowler': 500, 'matchup': 100,
                                          'phase': 1000, 'venue': 2000, 'tournament': 1000,
                                          'innings': 2000, 'milestone': 500}
+        from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import _outcome_category
+        self._ordered_keys = list(self.baseline_outcome_probs.keys())
+        self._key_categories = {k: _outcome_category(k) for k in self._ordered_keys}
 
     def init_model(self, match):
         pass
@@ -118,10 +121,16 @@ class TestBatterPhaseCache:
         )
 
     def test_phase_dist_used_when_sufficient_balls(self):
-        dist = self._compute(phase_balls=50)  # T20 threshold is 30
-        # Phase dist has 0.30 boundary rate; career has 0.10 — result should be closer to phase
-        boundary_prob = sum(v for (rb, rx, ot, ok), v in dist.items() if rb >= 4)
-        assert boundary_prob > 0.15, f"Expected phase distribution to dominate, boundary_prob={boundary_prob}"
+        dist_full  = self._compute(phase_balls=50)  # T20 threshold is 30
+        dist_none  = self._compute(phase_balls=0)   # no phase data
+        full_bp  = sum(v for (rb, rx, ot, ok), v in dist_full.items() if rb >= 4)
+        none_bp  = sum(v for (rb, rx, ot, ok), v in dist_none.items() if rb >= 4)
+        # Phase dist has 0.30 boundary rate; baseline is 0.12.
+        # batter_phase blends 35% phase / 65% global so the effect is moderate,
+        # but with sufficient data the boundary_prob should be above baseline (0.12)
+        # and above the no-phase baseline (which batter alone drags below 0.12).
+        assert full_bp > 0.12, f"Expected phase lift above baseline, boundary_prob={full_bp}"
+        assert full_bp > none_bp, f"Expected more boundaries with phase data, full={full_bp} none={none_bp}"
 
     def test_career_dist_used_when_insufficient_balls(self):
         dist = self._compute(phase_balls=10)  # Below T20 threshold of 30
@@ -136,9 +145,14 @@ class TestBatterPhaseCache:
 
     def test_phase_dist_exact_boundary_ball_count_triggers_upgrade(self):
         """Ball count exactly at threshold should trigger the phase distribution."""
-        dist = self._compute(phase_balls=30)  # exactly at T20 threshold
-        boundary_prob = sum(v for (rb, rx, ot, ok), v in dist.items() if rb >= 4)
-        assert boundary_prob > 0.15, f"Threshold should be inclusive, boundary_prob={boundary_prob}"
+        dist_at   = self._compute(phase_balls=30)   # exactly at T20 threshold
+        dist_none = self._compute(phase_balls=0)    # no phase data baseline
+        bp_at   = sum(v for (rb, rx, ot, ok), v in dist_at.items()   if rb >= 4)
+        bp_none = sum(v for (rb, rx, ot, ok), v in dist_none.items() if rb >= 4)
+        # At threshold the batter-phase weight is at its maximum (bw=1.0×max_w),
+        # so boundary_prob should be above baseline (0.12) and above the no-phase case.
+        assert bp_at > 0.12,   f"Threshold should activate phase lift, boundary_prob={bp_at}"
+        assert bp_at > bp_none, f"Threshold case should dominate no-phase case, at={bp_at} none={bp_none}"
 
     def test_phase_dist_one_below_threshold_uses_career(self):
         dist = self._compute(phase_balls=29)  # one below threshold

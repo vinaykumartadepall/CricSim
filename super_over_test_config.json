@@ -1,0 +1,43 @@
+{
+  "match_id": 99,
+  "format": "T20",
+  "bowling_strategy": "historical",
+  "ball_outcome_strategy": "enhanced",
+  "venue": "Eden Gardens",
+  "team_a": {
+    "name": "India",
+    "primary_color": "#003580",
+    "secondary_color": "#FF9933",
+    "players": [
+      "RG Sharma",
+      "Abhishek Sharma",
+      "V Kohli",
+      "SK Yadav",
+      "HH Pandya",
+      "Tilak Varma",
+      "RR Pant",
+      "Washington Sundar",
+      "Arshdeep Singh",
+      "JJ Bumrah",
+      "Mohammed Siraj"
+    ]
+  },
+  "team_b": {
+    "name": "England",
+    "primary_color": "#003082",
+    "secondary_color": "#FFFFFF",
+    "players": [
+      "PD Salt",
+      "JM Bairstow",
+      "HE Brook",
+      "JE Root",
+      "JC Buttler",
+      "MM Ali",
+      "B Sam",
+      "CR Woakes",
+      "MA Wood",
+      "A Rashid",
+      "JC Archer"
+    ]
+  }
+}

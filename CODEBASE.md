@@ -85,8 +85,9 @@ cricket-simulator/
 │   ├── presentation/
 │   │   └── formatters.py        # format_ball_commentary, format_over_summary, format_innings_scorecard
 │   │
-│   ├── logger.py                # Dual-sink logger: console + rotating file (configure_logger)
-│   ├── match_logger.py          # MatchLogger — writes match_<id>.txt + match_<id>.log per match
+│   ├── logger.py                # Centralised logger: console + 2 rotating files; ContextVar injection;
+│   │                            #   configure_logger(), log_context(), set_log_level(), get_logger()
+│   ├── match_logger.py          # MatchLogger — routes to global logger; NO per-match files
 │   └── simulate_driver.py       # CLI entry point — loads config, builds match, calls engine
 │
 ├── tests/                       # pytest unit tests (no DB required)
@@ -94,7 +95,16 @@ cricket-simulator/
 │   ├── test_inning_player.py
 │   ├── test_innings_simulator.py
 │   ├── test_free_hit_modifier.py
-│   └── test_stats_repository_parsing.py
+│   ├── test_stats_repository_parsing.py
+│   ├── test_enhanced_strategy.py
+│   ├── test_bowling_eligibility.py
+│   ├── test_historical_bowling_order.py
+│   ├── test_super_over_selector.py
+│   ├── test_super_over.py
+│   ├── test_leaderboards.py
+│   ├── test_points_table.py
+│   ├── test_scheduler.py
+│   └── test_awards.py
 │
 ├── validation/                  # Backtest and validation scripts
 ├── tools/                       # Developer tools
@@ -132,9 +142,9 @@ BaseEngine.__init__()       Stores match + both strategies (ball-outcome and bow
 ### 2. Model initialisation (BaseEngine._prepare_match_logs)
 
 ```
-ball_outcomes.init_model(match)      For each strategy, triggers parallel DB queries:
-bowling_strategy.init_model(match)   player distributions, phase/milestone/venue caches.
-                                     For T20 enhanced + historical bowling combined: ~26 queries.
+ball_outcomes.init_model(match)      For each strategy, loads player data from _PRECOMPUTED_CACHE
+bowling_strategy.init_model(match)   (warmed at server startup). Cache reads are pure dict lookups
+                                     — no DB round-trips in the hot path.
                                      In tournament mode, init_model is called before every match
                                      so strategies can extend caches for newly-seen players.
                                      All caches are in-memory dicts keyed by player_id,

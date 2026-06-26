@@ -20,50 +20,20 @@ import time
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from simulator.logger import configure_logger
-from simulator.entities.player import Player
 from simulator.entities.team import MatchTeam
 from simulator.entities.match import SimulationMatch
-from simulator.engines.engine_factory import EngineFactory
-from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats import (
-    T20EnhancedHistoricalStatsStrategy,
-    ODIEnhancedHistoricalStatsStrategy,
+from simulator.strategies.factory import (
+    FORMAT_SETTINGS,
+    OutcomeStrategyFactory,
+    BowlingStrategyFactory,
+    resolve_player,
+    resolve_venue,
 )
-from simulator.strategies.bowling.historical import create_historical_bowling_strategy
 from db.stats_repository import StatsRepository
-from db.entities.venue import Venue
 
-LOG_FILE = os.path.join(os.path.dirname(__file__), "simulation.log")
-log = configure_logger(log_file=LOG_FILE, level=logging.DEBUG)
+log = configure_logger(log_dir=os.path.join(os.path.dirname(__file__), "logs"), sim_log_level=logging.DEBUG)
 
 _DEFAULT_CONFIG = os.path.join(os.path.dirname(__file__), "match_config.json")
-
-_FORMAT_SETTINGS = {
-    "T20": {"overs_per_innings": 20, "innings_per_match": 2},
-    "ODI": {"overs_per_innings": 50, "innings_per_match": 2},
-}
-
-_OUTCOME_STRATEGIES = {
-    "T20": T20EnhancedHistoricalStatsStrategy,
-    "ODI": ODIEnhancedHistoricalStatsStrategy,
-}
-
-
-def _resolve_player(repo: StatsRepository, name: str) -> Player:
-    res = repo.get_player_by_name(name)
-    if res:
-        return Player(id=res[0], name=res[1])
-    log.warning("Player '%s' not found — using hash-based fallback ID", name)
-    return Player(id=abs(hash(name)) % 10000, name=name)
-
-
-def _resolve_venue(repo: StatsRepository, name: str | None) -> Venue | None:
-    if not name:
-        return None
-    res = repo.get_venue_by_name(name)
-    if res:
-        vid, vname, country = res
-        return Venue.builder().with_id(vid).with_name(vname).with_country(country).build()
-    return None
 
 
 def _run_tied_super_over(config_path: str, fmt: str, gender: str):
@@ -92,14 +62,14 @@ def _run_tied_super_over(config_path: str, fmt: str, gender: str):
     team_a = MatchTeam(
         id=1,
         name=team_a_cfg["name"],
-        players=[_resolve_player(repo, n) for n in team_a_cfg["players"]],
+        players=[resolve_player(repo, n) for n in team_a_cfg["players"]],
     )
     team_b = MatchTeam(
         id=2,
         name=team_b_cfg["name"],
-        players=[_resolve_player(repo, n) for n in team_b_cfg["players"]],
+        players=[resolve_player(repo, n) for n in team_b_cfg["players"]],
     )
-    venue = _resolve_venue(repo, config.get("venue"))
+    venue = resolve_venue(repo, config.get("venue"))
 
     match = SimulationMatch(
         id=config.get("match_id", 99),
@@ -108,11 +78,11 @@ def _run_tied_super_over(config_path: str, fmt: str, gender: str):
         venue=venue,
         match_format=fmt,
         balls_per_over=6,
-        **_FORMAT_SETTINGS[fmt],
+        **FORMAT_SETTINGS[fmt],
     )
 
-    outcome_strategy = _OUTCOME_STRATEGIES[fmt]()
-    bowling_strategy = create_historical_bowling_strategy(fmt)
+    outcome_strategy = OutcomeStrategyFactory.for_name("enhanced", fmt)
+    bowling_strategy = BowlingStrategyFactory.for_name("historical", fmt)
 
     # Init models (required before running any innings)
     log.console("[Test] Initialising models …")

@@ -12,9 +12,11 @@ class SimulationDelivery:
     ball_number: int
     batter: Optional["InningPlayer"]
     bowler: Optional["InningPlayer"]
+    non_striker: Optional["InningPlayer"] = None
     runs_batter: int = 0
     runs_extras: int = 0
     is_wicket: bool = False
     wicket_kind: Optional[str] = None
     extras_type: Optional[str] = None
     outcome_player: Optional["InningPlayer"] = None
+    is_free_hit: bool = False

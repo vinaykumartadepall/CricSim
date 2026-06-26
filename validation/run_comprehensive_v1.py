@@ -663,7 +663,7 @@ def main(seed=42, outdir='validation_results', gender='male'):
     from simulator.match_logger import MatchLogger
     MatchLogger.SILENT = True
 
-    from simulator.simulate_driver import _OUTCOME_STRATEGIES, _BOWLING_STRATEGY_FACTORIES
+    from simulator.strategies.factory import OutcomeStrategyFactory, BowlingStrategyFactory
     from simulator.engines.engine_factory import EngineFactory
     from simulator.entities.match import SimulationMatch
     from simulator.entities.team import MatchTeam
@@ -775,8 +775,8 @@ def main(seed=42, outdir='validation_results', gender='male'):
         )
 
         _w(f"  Initialising player caches for {len(seen_pids)} unique players …")
-        out_strat = _OUTCOME_STRATEGIES['enhanced'][fmt]()
-        bow_strat = _BOWLING_STRATEGY_FACTORIES['historical'](fmt)
+        out_strat = OutcomeStrategyFactory.for_name('enhanced', fmt)
+        bow_strat = BowlingStrategyFactory.for_name('historical', fmt)
         out_strat.init_model(union_match)
         bow_strat.init_model(union_match)
         _w("  Player caches ready.")

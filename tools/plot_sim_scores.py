@@ -29,33 +29,14 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
 from db.stats_repository import StatsRepository
-from db.entities.venue import Venue
 from simulator.entities.match import SimulationMatch
 from simulator.entities.team import MatchTeam
-from simulator.entities.player import Player
 from simulator.entities.rules import MatchRules
 from simulator.engines.innings_simulator import InningsSimulator
 from simulator.match_logger import MatchLogger
 from simulator.logger import get_logger
-from simulator.strategies.bowling.historical import create_historical_bowling_strategy
-from simulator.strategies.ball_outcome_prediction.historical_stats.strategy import (
-    T20HistoricalStatsStrategy,
-    ODIHistoricalStatsStrategy,
-    TestHistoricalStatsStrategy,
-)
+from simulator.strategies.factory import FORMAT_SETTINGS, OutcomeStrategyFactory, resolve_player, resolve_venue
 from simulator.engines.base_engine import BaseEngine
-
-_OUTCOME_STRATEGIES = {
-    "T20":  T20HistoricalStatsStrategy,
-    "ODI":  ODIHistoricalStatsStrategy,
-    "Test": TestHistoricalStatsStrategy,
-}
-
-_FORMAT_SETTINGS = {
-    "T20":  {"overs_per_innings": 20,   "innings_per_match": 2},
-    "ODI":  {"overs_per_innings": 50,   "innings_per_match": 2},
-    "Test": {"overs_per_innings": None, "innings_per_match": 4},
-}
 
 
 # ── Score-capturing bowling strategy wrapper ──────────────────────────────────
@@ -122,24 +103,6 @@ class CapturingBowlingStrategy:
         return chosen
 
 
-# ── Match setup helpers ───────────────────────────────────────────────────────
-
-def _resolve_player(repo, name):
-    res = repo.get_player_by_name(name)
-    if res:
-        return Player(id=res[0], name=res[1])
-    return Player(id=abs(hash(name)) % 10000, name=name)
-
-
-def _resolve_venue(repo, name):
-    if not name:
-        return None
-    res = repo.get_venue_by_name(name)
-    if res:
-        vid, vname, country = res
-        return Venue.builder().with_id(vid).with_name(vname).with_country(country).build()
-    return None
-
 
 # ── Single-innings simulation ─────────────────────────────────────────────────
 
@@ -154,13 +117,13 @@ def run_one_inning(config, capturing_strategy, inning_number):
     repo     = StatsRepository()
 
     team_a = MatchTeam(id=1, name=config['team_a']['name'],
-                       players=[_resolve_player(repo, n) for n in config['team_a']['players']])
+                       players=[resolve_player(repo, n) for n in config['team_a']['players']])
     team_b = MatchTeam(id=2, name=config['team_b']['name'],
-                       players=[_resolve_player(repo, n) for n in config['team_b']['players']])
+                       players=[resolve_player(repo, n) for n in config['team_b']['players']])
 
-    venue = _resolve_venue(repo, config.get('venue'))
+    venue = resolve_venue(repo, config.get('venue'))
 
-    fmt_settings = dict(_FORMAT_SETTINGS[fmt])
+    fmt_settings = dict(FORMAT_SETTINGS[fmt])
     match = SimulationMatch(
         id=config.get('match_id', 1),
         home_team=team_a,
@@ -172,8 +135,7 @@ def run_one_inning(config, capturing_strategy, inning_number):
         **fmt_settings,
     )
 
-    outcome_cls    = _OUTCOME_STRATEGIES[fmt]
-    ball_outcomes  = outcome_cls()
+    ball_outcomes = OutcomeStrategyFactory.for_name('historical', fmt)
 
     print(f'Initialising models ({fmt}, {gender})…')
     ball_outcomes.init_model(match)

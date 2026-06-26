@@ -334,21 +334,22 @@ class SimulationValidator:
         Loads the match config, runs N simulations, and compares against
         historical data at the configured venue.
         """
-        from simulator.simulate_driver import (
-            _load_config, _build_match, _OUTCOME_STRATEGIES, _BOWLING_STRATEGY_FACTORIES,
-        )
+        import json
+        from simulator.match_runner import MatchRunner
+        from simulator.strategies.factory import OutcomeStrategyFactory, BowlingStrategyFactory
         from simulator.engines.engine_factory import EngineFactory
         from simulator.entities.team import MatchTeam
         from simulator.entities.match import SimulationMatch
 
-        config = _load_config(config_path)
+        with open(config_path, encoding="utf-8") as _f:
+            config = json.load(_f)
         match_format = config.get('match_format', config.get('format', 'T20'))
         match_fmt = MatchRules.get_unified_format(match_format)
 
         t_start = time.perf_counter()
 
         # Resolve players and venue once; use template as the init_model target.
-        template_match = _build_match(config, self.repo)
+        template_match = MatchRunner.build_match(config, self.repo)
         venue = getattr(template_match, 'venue', None)
         venue_id   = venue.id if venue else None
         venue_name = venue.name if venue else 'Unknown'
@@ -372,8 +373,8 @@ class SimulationValidator:
             n_historical = sum(s.n for s in historical.values())
 
         # Create and initialise strategies once — all N simulations share the same caches.
-        outcome_strat = _OUTCOME_STRATEGIES[outcome_strategy_type][match_fmt]()
-        bowling_strat = _BOWLING_STRATEGY_FACTORIES[bowling_strategy_type](match_fmt)
+        outcome_strat = OutcomeStrategyFactory.for_name(outcome_strategy_type, match_fmt)
+        bowling_strat = BowlingStrategyFactory.for_name(bowling_strategy_type, match_fmt)
         outcome_strat.init_model(template_match)
         bowling_strat.init_model(template_match)
 
@@ -654,9 +655,8 @@ class PlayerProfileValidator:
         outcome_strategy_type: str = 'enhanced',
         bowling_strategy_type: str = 'historical',
     ) -> PlayerProfileResult:
-        from simulator.simulate_driver import (
-            _build_match, _OUTCOME_STRATEGIES, _BOWLING_STRATEGY_FACTORIES,
-        )
+        from simulator.match_runner import MatchRunner
+        from simulator.strategies.factory import OutcomeStrategyFactory, BowlingStrategyFactory
         from simulator.engines.engine_factory import EngineFactory
 
         fmt = MatchRules.get_unified_format(match_format)
@@ -690,7 +690,7 @@ class PlayerProfileValidator:
         from simulator.entities.match import SimulationMatch
 
         # Pre-resolve all configs once — no repeated DB calls per simulation.
-        resolved_matches = [_build_match(cfg, self.repo) for cfg in configs]
+        resolved_matches = [MatchRunner.build_match(cfg, self.repo) for cfg in configs]
 
         # Collect all unique player IDs from all configs in one pass.
         all_player_ids = list({
@@ -729,10 +729,8 @@ class PlayerProfileValidator:
         )
 
         # Initialise strategies once.
-        outcome_cls   = _OUTCOME_STRATEGIES[outcome_strategy_type][fmt]
-        bowling_fn    = _BOWLING_STRATEGY_FACTORIES[bowling_strategy_type]
-        outcome_strat = outcome_cls()
-        bowling_strat = bowling_fn(fmt)
+        outcome_strat = OutcomeStrategyFactory.for_name(outcome_strategy_type, fmt)
+        bowling_strat = BowlingStrategyFactory.for_name(bowling_strategy_type, fmt)
         outcome_strat.init_model(union_match)
         bowling_strat.init_model(union_match)
 

@@ -1,2 +1,9 @@
-psycopg2-binary
-geopy
+# Runtime dependencies
+psycopg2-binary   # PostgreSQL adapter
+geopy             # Venue geocoding for populate_venue_countries.py
+
+# API
+fastapi
+uvicorn[standard]
+pydantic>=2.0
+PyJWT              # JWT verification for Supabase auth

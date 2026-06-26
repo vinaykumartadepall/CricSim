@@ -481,11 +481,10 @@ class SuperOverEngine:
         self.match.current_bowling_team = bowl_it
         # Start at the last over so the ball-prediction model sees 'death2' phase
         # and pressure math treats this as 6 balls left (not 120).
-        self.match.current_over         = death_over_0idx
-        self.match.overs_per_innings    = 1
-        self.match.current_ball         = 0
-        self.match.target_score         = target
-        self.match.is_super_over        = True
+        self.match.current_over      = death_over_0idx
+        self.match.overs_per_innings = 1
+        self.match.current_ball      = 0
+        self.match.target_score      = target
 
         self.match.event_bus.clear()
         self.match.event_bus.subscribe(bat_it)
@@ -496,6 +495,10 @@ class SuperOverEngine:
             self.match.event_bus.subscribe(ip)
 
         self.match.striker, self.match.non_striker = bat_it.get_openers()
+        if self.match.striker:
+            self.match.striker.came_to_crease = True
+        if self.match.non_striker:
+            self.match.non_striker.came_to_crease = True
 
         # Force the pre-selected bowler; fall back to first available if not found
         self.match.current_bowler = next(
@@ -509,13 +512,20 @@ class SuperOverEngine:
                 and self.match.current_batting_team.total_runs >= target
             )
 
-        sim = InningsSimulator(self.match, self.ball_outcomes, self.logger, self.bowling_strategy)
-        # max_overs must be > current_over so the loop runs exactly one over.
-        sim.run(
-            max_overs=death_over_0idx + 1,
-            max_wickets=self.MAX_WICKETS,
-            should_terminate=_target_reached if target else None,
+        sim = InningsSimulator(
+            self.match, self.ball_outcomes, self.logger, self.bowling_strategy,
+            is_super_over=True,
         )
+        # max_overs must be > current_over so the loop runs exactly one over.
+        self.match.is_super_over = True
+        try:
+            sim.run(
+                max_overs=death_over_0idx + 1,
+                max_wickets=self.MAX_WICKETS,
+                should_terminate=_target_reached if target else None,
+            )
+        finally:
+            self.match.is_super_over = False
 
         self.logger.scorecard(format_innings_scorecard(inning, is_super_over=True))
         return inning

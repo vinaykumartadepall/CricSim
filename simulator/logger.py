@@ -1,31 +1,37 @@
 """
 Application-level logger for the cricket simulator.
 
-Log levels (low → high):
-  DEBUG   10  per-ball probability tables, bowling factor breakdowns (file only)
-  INFO    20  per-cache timing detail during model init (file only)
-  CONSOLE 25  top-level lifecycle messages shown on the console AND written to file
-  WARNING 30  data issues: player not in cache, DB unavailable, fallback activated
+Log levels:
+  DEBUG   10  per-ball commentary, over summaries, probability tables, cache timing
+  INFO    20  match headlines, scorecard summaries, lifecycle events
+  WARNING 30  data issues: player not in cache, venue not found, fallback activated
   ERROR   40  unexpected failures that may affect simulation correctness
 
-Usage:
-  from simulator.logger import get_logger
-  log = get_logger()
-  log.console("Loading model…")   # console + file
-  log.info("cache took 0.3s")    # file only
-  log.warning("player missing")   # console + file
+Every log line carries [sim_id/m{match_id}] context injected automatically from
+ContextVars — safe for concurrent runs in the same process.
 
-Configuration:
-  Call configure_logger(log_file, level) once at startup to attach a file handler.
-  Console always shows CONSOLE (25) and above.
-  Set LOG_LEVEL=DEBUG in the environment to also show DEBUG on console.
+Usage:
+  from simulator.logger import get_logger, log_context
+  _log = get_logger()
+  with log_context(sim_id="abc123", match_id=5):
+      _log.info("Starting match")   # → [abc123/m5]  Starting match
+
+Runtime level switching (API):
+  from simulator.logger import set_log_level
+  set_log_level("DEBUG")   # accepts DEBUG / INFO / WARNING / ERROR
+
+Log files (server mode, set up by configure_logger()):
+  logs/simulation.log   configurable level (default INFO), 20MB × 10 = 200MB max
+  logs/errors.log       WARNING and above only,            5MB  × 5  =  25MB max
 """
 
 import logging
 import os
 import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
 from logging.handlers import RotatingFileHandler
-from typing import Optional
+from typing import Generator, Optional
 
 CONSOLE = 25
 logging.addLevelName(CONSOLE, "CONSOLE")
@@ -38,6 +44,10 @@ def _console(self: logging.Logger, message, *args, **kwargs):
 
 logging.Logger.console = _console  # type: ignore[attr-defined]
 
+# Thread-safe context — set per simulation job via log_context()
+_sim_id_var:   ContextVar[str] = ContextVar('sim_id',   default='')
+_match_id_var: ContextVar[int] = ContextVar('match_id', default=0)
+
 _logger: Optional[logging.Logger] = None
 
 _CONSOLE_FMT = logging.Formatter(
@@ -45,9 +55,59 @@ _CONSOLE_FMT = logging.Formatter(
     datefmt="%H:%M:%S",
 )
 _FILE_FMT = logging.Formatter(
-    fmt="%(asctime)s  %(levelname)-7s  %(message)s",
+    fmt="%(asctime)s  %(levelname)-7s  [%(sim_id)s/m%(match_id)s]  %(message)s",
     datefmt="%H:%M:%S",
 )
+
+
+class _ContextFilter(logging.Filter):
+    """Injects sim_id and match_id ContextVar values into every log record."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.sim_id   = _sim_id_var.get('')    # type: ignore[attr-defined]
+        record.match_id = _match_id_var.get(0)   # type: ignore[attr-defined]
+        return True
+
+
+@contextmanager
+def log_context(sim_id: Optional[str] = None, match_id: Optional[int] = None) -> Generator[None, None, None]:
+    """
+    Set per-thread sim/match context for all log lines within this block.
+    Only the vars explicitly passed are changed — others inherit the outer context.
+    Safe to nest: outer values are restored on exit.
+    """
+    tokens = []
+    if sim_id is not None:
+        tokens.append((_sim_id_var, _sim_id_var.set(sim_id)))
+    if match_id is not None:
+        tokens.append((_match_id_var, _match_id_var.set(match_id)))
+    try:
+        yield
+    finally:
+        for var, token in reversed(tokens):
+            var.reset(token)
+
+
+def set_log_level(level_name: str) -> None:
+    """
+    Change the minimum level emitted to simulation.log at runtime.
+    errors.log is always fixed at WARNING and is not affected.
+    """
+    level = getattr(logging, level_name.upper(), None)
+    if level is None:
+        raise ValueError(f"Unknown log level: {level_name!r}")
+    logger = get_logger()
+    for h in logger.handlers:
+        if isinstance(h, RotatingFileHandler) and "simulation" in getattr(h, 'baseFilename', ''):
+            h.setLevel(level)
+
+
+def get_current_log_level() -> str:
+    """Return the current minimum level of simulation.log as a string."""
+    logger = get_logger()
+    for h in logger.handlers:
+        if isinstance(h, RotatingFileHandler) and "simulation" in getattr(h, 'baseFilename', ''):
+            return logging.getLevelName(h.level)
+    return "INFO"
 
 
 def get_logger() -> logging.Logger:
@@ -57,18 +117,18 @@ def get_logger() -> logging.Logger:
         return _logger
 
     _logger = logging.getLogger("cricket_sim")
-    _logger.setLevel(logging.DEBUG)  # handlers control what they actually emit
+    _logger.setLevel(logging.DEBUG)
 
     if _logger.hasHandlers():
         return _logger
 
-    # Console: CONSOLE level and above by default; LOG_LEVEL env var can lower it
     level_name    = os.environ.get("LOG_LEVEL", "CONSOLE").upper()
     console_level = getattr(logging, level_name, CONSOLE)
 
     ch = logging.StreamHandler(sys.stderr)
     ch.setLevel(console_level)
     ch.setFormatter(_CONSOLE_FMT)
+    ch.addFilter(_ContextFilter())
     _logger.addHandler(ch)
 
     return _logger
@@ -83,32 +143,51 @@ def set_console_level(level: int) -> None:
 
 
 def configure_logger(
-    log_file: str,
-    level: int = logging.DEBUG,
-    max_bytes: int = 10 * 1024 * 1024,  # 10 MB per file
-    backup_count: int = 5,
+    log_dir: str = "logs",
+    sim_log_level: int = logging.INFO,
+    sim_log_max_bytes: int = 20 * 1024 * 1024,
+    sim_log_backup_count: int = 10,
+    err_log_max_bytes: int = 5 * 1024 * 1024,
+    err_log_backup_count: int = 5,
 ) -> logging.Logger:
     """
-    Attaches a rotating file handler to the application logger.
-    Rotates at max_bytes, keeping backup_count old files (.1, .2, …).
-    Call once at startup before simulation begins.
+    Attach rotating file handlers to the application logger. Call once at server startup.
+
+    simulation.log  default INFO, switchable via set_log_level()   20MB × 10 = 200MB max
+    errors.log      fixed at WARNING                                 5MB ×  5 =  25MB max
     """
     logger = get_logger()
+    os.makedirs(log_dir, exist_ok=True)
+    ctx_filter = _ContextFilter()
 
-    already_attached = any(
+    sim_log_path = os.path.join(log_dir, "simulation.log")
+    if not any(
         isinstance(h, RotatingFileHandler)
-        and os.path.abspath(h.baseFilename) == os.path.abspath(log_file)
+        and os.path.abspath(getattr(h, 'baseFilename', '')) == os.path.abspath(sim_log_path)
         for h in logger.handlers
-    )
-    if already_attached:
-        return logger
+    ):
+        fh = RotatingFileHandler(
+            sim_log_path, mode="a", encoding="utf-8",
+            maxBytes=sim_log_max_bytes, backupCount=sim_log_backup_count,
+        )
+        fh.setLevel(sim_log_level)
+        fh.setFormatter(_FILE_FMT)
+        fh.addFilter(ctx_filter)
+        logger.addHandler(fh)
 
-    fh = RotatingFileHandler(
-        log_file, mode="a", encoding="utf-8",
-        maxBytes=max_bytes, backupCount=backup_count,
-    )
-    fh.setLevel(level)
-    fh.setFormatter(_FILE_FMT)
-    logger.addHandler(fh)
+    err_log_path = os.path.join(log_dir, "errors.log")
+    if not any(
+        isinstance(h, RotatingFileHandler)
+        and os.path.abspath(getattr(h, 'baseFilename', '')) == os.path.abspath(err_log_path)
+        for h in logger.handlers
+    ):
+        eh = RotatingFileHandler(
+            err_log_path, mode="a", encoding="utf-8",
+            maxBytes=err_log_max_bytes, backupCount=err_log_backup_count,
+        )
+        eh.setLevel(logging.WARNING)
+        eh.setFormatter(_FILE_FMT)
+        eh.addFilter(ctx_filter)
+        logger.addHandler(eh)
 
     return logger

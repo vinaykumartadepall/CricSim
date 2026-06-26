@@ -1,75 +1,1833 @@
 {
-  "_notes": "Applied after geocoding as a final pass. Three lookup types, most-specific wins: by_venue_id > by_name_pattern > by_city.",
-
-  "by_city": {
-    "Al Amarat":   "Oman",
-    "Bangi":        "Malaysia",
-    "Mirpur":       "Bangladesh",
-    "Kirtipur":     "Nepal",
-    "Navile":       "Italy",
-    "Sano":         "Japan",
-    "Sale":         "United Kingdom",
-    "Eglinton":     "United Kingdom",
-    "Moe":          "Australia",
-    "Latrobe":      "Australia",
-    "Worcester":    "United Kingdom",
-    "Waterloo":     "Belgium",
-    "Panama City":  "Panama",
-    "Tarouba":      "Trinidad and Tobago",
-    "Kaluthara":    "Sri Lanka",
-    "St Martin":    "Jersey",
-    "Coolidge":     "Antigua and Barbuda",
-    "North Sound":  "Antigua and Barbuda",
-    "St John's":    "Antigua and Barbuda",
-    "Roseau":       "Dominica",
-    "Providence":   "Guyana",
-    "King City":    "Canada"
-  },
-
-  "by_name_pattern": [
-    {"city": "Hamilton",    "name_contains": "seddon",        "country": "New Zealand"},
-    {"city": "Hamilton",    "name_contains": "westpac",       "country": "New Zealand"},
-    {"city": "Hamilton",    "name_contains": "bermuda",       "country": "Bermuda"},
-    {"city": "Hamilton",    "name_contains": "sea breeze",    "country": "Bermuda"},
-    {"city": "Hamilton",    "name_contains": "sandys",        "country": "Bermuda"},
-    {"city": "Lincoln",     "name_contains": "bert sutcliffe","country": "New Zealand"},
-    {"city": "Lincoln",     "name_contains": "lindum",        "country": "United Kingdom"},
-    {"city": "George Town", "name_contains": "cayman",        "country": "Cayman Islands"}
+  "_doc": [
+    "Manual venue overrides applied during ingestion and after geocoding.",
+    "",
+    "SECTIONS",
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "canonical_names \u2014 Venue deduplication (same ground, different name strings).",
+    "  Each entry defines one physical venue:",
+    "    canonical  : the single name to store in the DB",
+    "    city       : optional; used in country resolution and DB insert",
+    "    country    : optional; if set, overrides geocoding for these names",
+    "    aliases    : every name variant that should map to this venue",
+    "  During ingestion any alias is silently rewritten to the canonical name before",
+    "  the DB lookup, so no duplicate rows are created.",
+    "  Run `python -m db.dedup_venues` (then --commit) to merge existing duplicates.",
+    "",
+    "  Workflow to add a new canonical group:",
+    "    SELECT venue_id, name, city, COUNT(*) FROM history.matches m",
+    "    JOIN history.venues v USING (venue_id)",
+    "    WHERE name ILIKE '%keyword%' GROUP BY 1,2,3 ORDER BY 4 DESC;",
+    "  Pick the name with the most matches as canonical (or the current official name).",
+    "",
+    "Country override tiers \u2014 most specific wins:",
+    "  1. canonical_names[].country \u2014 if set, applied to the canonical name",
+    "  2. by_name_city  \u2014 exact case-insensitive name, optional city",
+    "  3. by_name_pattern \u2014 city + name substring",
+    "  4. by_city       \u2014 exact city match",
+    "",
+    "After resolving to a raw country, west_indies_countries remaps all WI member",
+    "nations to the canonical 'West Indies' string.",
+    "",
+    "Last updated: 2026-06-04"
   ],
-
-  "by_venue_id": {
-    "5704": {"country": "Bermuda",              "note": "National Stadium, Hamilton, Bermuda"},
-    "5728": {"country": "United Arab Emirates", "note": "Dubai Sports City Cricket Stadium"},
-    "5023": {"country": "India",                "note": "Narendra Modi Stadium Ground A, Motera"},
-    "5363": {"country": "India",                "note": "Alur Cricket Stadium II, Karnataka"},
-    "5568": {"country": "India",                "note": "Alur Cricket Stadium III, Karnataka"},
-    "5532": {"country": "India",                "note": "Alembic Cricket Ground 1, Vadodara"},
-    "5651": {"country": "India",                "note": "Alembic Cricket Ground 2, Vadodara"},
-    "5563": {"country": "India",                "note": "BKC Ground, Bandra Kurla Complex, Mumbai"},
-    "5379": {"country": "India",                "note": "JU Second Campus, Salt Lake, Kolkata"},
-    "5306": {"country": "India",                "note": "Reliance Cricket Stadium, Vadodara/Jamnagar"},
-    "5237": {"country": "India",                "note": "Jawaharlal Nehru Stadium"},
-    "5350": {"country": "India",                "note": "Greenfield International Stadium, Thiruvananthapuram"},
-    "5466": {"country": "Italy",                "note": "San Albano, northern Italy"},
-    "5209": {"country": "New Zealand",          "note": "Saxton Oval, Nelson"},
-    "5194": {"country": "Guyana",               "note": "Guyana National Stadium, Providence"},
-    "5013": {"country": "Japan",                "note": "Sano International Cricket Ground"},
-    "5784": {"country": "New Zealand",          "note": "Cobham Oval, Whangarei"},
-    "5852": {"country": "Sri Lanka",            "note": "FTZ Sports Complex, Chilaw"},
-    "5313": {"country": "Romania",              "note": "Moara Vlasiei Cricket Ground, Ilfov County"},
-    "5652": {"country": "United Arab Emirates", "note": "Al Dhaid Cricket Village, Sharjah Emirate"},
-    "5715": {"country": "India",                "note": "Ekana Cricket Stadium B, Lucknow"},
-    "5469": {"country": "New Zealand",          "note": "Cello Basin Reserve, Wellington"},
-    "5474": {"country": "India",                "note": "Chaudhry Bansi Lal Cricket Stadium, Bhiwani"},
-    "5598": {"country": "India",                "note": "Dr P.V.G. Raju ACA Sports Complex, Vizianagaram"},
-    "5376": {"country": "India",                "note": "Dr Y.S. Rajasekhara Reddy ACA VDCA Stadium, Visakhapatnam"},
-    "5506": {"country": "India",                "note": "DRIEMS Ground, Tangi, Cuttack"},
-    "5068": {"country": "India",                "note": "Gurugram Cricket Ground (SRNCC), Gurgaon"},
-    "5764": {"country": "India",                "note": "IC-Gurunanak College Ground"},
-    "5369": {"country": "India",                "note": "St Pauls College Ground, Kalamassery, Kerala"},
-    "5586": {"country": "India",                "note": "St Xavier's KCA Cricket Ground, Kerala"},
-    "5632": {"country": "South Africa",         "note": "Stellenbosch University Ground 1"},
-    "5752": {"country": "South Africa",         "note": "Stellenbosch University Ground 2"},
-    "5682": {"country": "India",                "note": "T.I. Murugappa Ground, Chennai"}
-  }
+  "canonical_names": [
+    {
+      "canonical": "M Chinnaswamy Stadium",
+      "city": "Bengaluru",
+      "country": "India",
+      "aliases": [
+        "M.Chinnaswamy Stadium",
+        "M Chinnaswamy Stadium, Bengaluru",
+        "M Chinnaswamy Stadium, Bangalore"
+      ]
+    },
+    {
+      "canonical": "Eden Gardens",
+      "city": "Kolkata",
+      "country": "India",
+      "aliases": [
+        "Eden Gardens, Kolkata"
+      ]
+    },
+    {
+      "canonical": "Lord's",
+      "city": "London",
+      "country": "United Kingdom",
+      "aliases": [
+        "Lord's, London"
+      ]
+    },
+    {
+      "canonical": "Wankhede Stadium",
+      "city": "Mumbai",
+      "country": "India",
+      "aliases": [
+        "Wankhede Stadium, Mumbai"
+      ]
+    },
+    {
+      "canonical": "Arun Jaitley Stadium",
+      "city": "Delhi",
+      "country": "India",
+      "aliases": [
+        "Arun Jaitley Stadium, Delhi",
+        "Feroz Shah Kotla"
+      ]
+    },
+    {
+      "canonical": "Himachal Pradesh Cricket Association Stadium",
+      "city": "Dharamsala",
+      "country": "India",
+      "aliases": [
+        "Himachal Pradesh Cricket Association Stadium, Dharamsala"
+      ]
+    },
+    {
+      "canonical": "Narendra Modi Stadium",
+      "city": "Ahmedabad",
+      "country": "India",
+      "aliases": [
+        "Narendra Modi Stadium, Ahmedabad",
+        "Sardar Patel Stadium",
+        "Sardar Patel Stadium, Motera",
+        "Sardar Patel (Gujarat) Stadium, Motera"
+      ]
+    },
+    {
+      "canonical": "Punjab Cricket Association IS Bindra Stadium",
+      "city": "Chandigarh",
+      "country": "India",
+      "aliases": [
+        "Punjab Cricket Association IS Bindra Stadium, Mohali",
+        "Punjab Cricket Association IS Bindra Stadium, Mohali, Chandigarh",
+        "Punjab Cricket Association Stadium, Mohali",
+        "Punjab Cricket Association Stadium, Mohali, Chandigarh"
+      ]
+    },
+    {
+      "canonical": "Rajiv Gandhi International Stadium",
+      "city": "Hyderabad",
+      "country": "India",
+      "aliases": [
+        "Rajiv Gandhi International Stadium, Uppal",
+        "Rajiv Gandhi International Stadium, Uppal, Hyderabad"
+      ]
+    },
+    {
+      "canonical": "MA Chidambaram Stadium, Chepauk",
+      "city": "Chennai",
+      "country": "India",
+      "aliases": [
+        "MA Chidambaram Stadium",
+        "MA Chidambaram Stadium, Chepauk, Chennai"
+      ]
+    },
+    {
+      "canonical": "Barabati Stadium",
+      "city": "Cuttack",
+      "country": "India",
+      "aliases": [
+        "Barabati Stadium, Cuttack"
+      ]
+    },
+    {
+      "canonical": "Barsapara Cricket Stadium",
+      "city": "Guwahati",
+      "country": "India",
+      "aliases": [
+        "Barsapara Cricket Stadium, Guwahati"
+      ]
+    },
+    {
+      "canonical": "Captain Roop Singh Stadium",
+      "city": "Gwalior",
+      "country": "India",
+      "aliases": [
+        "Captain Roop Singh Stadium, Gwalior",
+        "Shrimant Madhavrao Scindia Cricket Stadium, Gwalior"
+      ]
+    },
+    {
+      "canonical": "Holkar Cricket Stadium",
+      "city": "Indore",
+      "country": "India",
+      "aliases": [
+        "Holkar Cricket Stadium, Indore"
+      ]
+    },
+    {
+      "canonical": "Sawai Mansingh Stadium",
+      "city": "Jaipur",
+      "country": "India",
+      "aliases": [
+        "Sawai Mansingh Stadium, Jaipur"
+      ]
+    },
+    {
+      "canonical": "Green Park",
+      "city": "Kanpur",
+      "country": "India",
+      "aliases": [
+        "Green Park, Kanpur"
+      ]
+    },
+    {
+      "canonical": "Bharat Ratna Shri Atal Bihari Vajpayee Ekana Cricket Stadium",
+      "city": "Lucknow",
+      "country": "India",
+      "aliases": [
+        "Bharat Ratna Shri Atal Bihari Vajpai Ekana Cricket Stadium",
+        "Bharat Ratna Shri Atal Bihari Vajpayee Ekana Cricket Stadium, Lucknow"
+      ]
+    },
+    {
+      "canonical": "Brabourne Stadium",
+      "city": "Mumbai",
+      "country": "India",
+      "aliases": [
+        "Brabourne Stadium, Mumbai"
+      ]
+    },
+    {
+      "canonical": "Dr DY Patil Sports Academy",
+      "city": "Navi Mumbai",
+      "country": "India",
+      "aliases": [
+        "Dr DY Patil Sports Academy, Mumbai",
+        "Dr DY Patil Sports Academy, Navi Mumbai"
+      ]
+    },
+    {
+      "canonical": "Vidarbha Cricket Association Ground",
+      "city": "Nagpur",
+      "country": "India",
+      "aliases": [
+        "Vidarbha C.A. Ground"
+      ]
+    },
+    {
+      "canonical": "Vidarbha Cricket Association Stadium, Jamtha",
+      "city": "Nagpur",
+      "country": "India",
+      "aliases": [
+        "Vidarbha Cricket Association Stadium, Jamtha, Nagpur"
+      ]
+    },
+    {
+      "canonical": "Maharashtra Cricket Association Stadium",
+      "city": "Pune",
+      "country": "India",
+      "aliases": [
+        "Maharashtra Cricket Association Stadium, Pune",
+        "Subrata Roy Sahara Stadium"
+      ]
+    },
+    {
+      "canonical": "Shaheed Veer Narayan Singh International Stadium",
+      "city": "Raipur",
+      "country": "India",
+      "aliases": [
+        "Shaheed Veer Narayan Singh International Stadium, Raipur"
+      ]
+    },
+    {
+      "canonical": "Saurashtra Cricket Association Stadium",
+      "city": "Rajkot",
+      "country": "India",
+      "aliases": [
+        "Saurashtra Cricket Association Stadium, Rajkot"
+      ]
+    },
+    {
+      "canonical": "JSCA International Stadium Complex",
+      "city": "Ranchi",
+      "country": "India",
+      "aliases": [
+        "JSCA International Stadium Complex, Ranchi"
+      ]
+    },
+    {
+      "canonical": "Greenfield International Stadium",
+      "city": "Thiruvananthapuram",
+      "country": "India",
+      "aliases": [
+        "Greenfield International Stadium, Thiruvananthapuram"
+      ]
+    },
+    {
+      "canonical": "Dr. Y.S. Rajasekhara Reddy ACA-VDCA Cricket Stadium",
+      "city": "Visakhapatnam",
+      "country": "India",
+      "aliases": [
+        "Dr. Y.S. Rajasekhara Reddy ACA-VDCA Cricket Stadium, Visakhapatnam",
+        "Andhra Cricket Association-Visakhapatnam District Cricket Association Stadium"
+      ]
+    },
+    {
+      "canonical": "Nahar Singh Stadium",
+      "city": "Faridabad",
+      "country": "India",
+      "aliases": [
+        "Nahar Singh Stadium, Faridabad"
+      ]
+    },
+    {
+      "canonical": "Karen Rolton Oval",
+      "city": "Adelaide",
+      "country": "Australia",
+      "aliases": [
+        "Karen Rolton Oval, Adelaide",
+        "Gliderol Stadium",
+        "Gliderol Stadium, Adelaide"
+      ]
+    },
+    {
+      "canonical": "Traeger Park",
+      "city": "Alice Springs",
+      "country": "Australia",
+      "aliases": [
+        "Traeger Park, Alice Springs"
+      ]
+    },
+    {
+      "canonical": "Lavington Sports Oval",
+      "city": "Albury",
+      "country": "Australia",
+      "aliases": [
+        "Lavington Sports Oval, Albury"
+      ]
+    },
+    {
+      "canonical": "Eastern Oval",
+      "city": "Ballarat",
+      "country": "Australia",
+      "aliases": [
+        "Eastern Oval, Ballarat"
+      ]
+    },
+    {
+      "canonical": "Bradman Oval",
+      "city": "Bowral",
+      "country": "Australia",
+      "aliases": [
+        "Bradman Oval, Bowral"
+      ]
+    },
+    {
+      "canonical": "Brisbane Cricket Ground, Woolloongabba",
+      "city": "Brisbane",
+      "country": "Australia",
+      "aliases": [
+        "Brisbane Cricket Ground, Woolloongabba, Brisbane",
+        "Brisbane Cricket Ground"
+      ]
+    },
+    {
+      "canonical": "Cazaly's Stadium",
+      "city": "Cairns",
+      "country": "Australia",
+      "aliases": [
+        "Cazaly's Stadium, Cairns"
+      ]
+    },
+    {
+      "canonical": "Manuka Oval",
+      "city": "Canberra",
+      "country": "Australia",
+      "aliases": [
+        "Manuka Oval, Canberra"
+      ]
+    },
+    {
+      "canonical": "International Sports Stadium",
+      "city": "Coffs Harbour",
+      "country": "Australia",
+      "aliases": [
+        "International Sports Stadium, Coffs Harbour"
+      ]
+    },
+    {
+      "canonical": "Marrara Cricket Ground",
+      "city": "Darwin",
+      "country": "Australia",
+      "aliases": [
+        "Marrara Cricket Ground, Darwin",
+        "Marrara Stadium, Darwin"
+      ]
+    },
+    {
+      "canonical": "Bellerive Oval",
+      "city": "Hobart",
+      "country": "Australia",
+      "aliases": [
+        "Bellerive Oval, Hobart"
+      ]
+    },
+    {
+      "canonical": "Aurora Stadium",
+      "city": "Launceston",
+      "country": "Australia",
+      "aliases": [
+        "Aurora Stadium, Launceston"
+      ]
+    },
+    {
+      "canonical": "Invermay Park",
+      "city": "Launceston",
+      "country": "Australia",
+      "aliases": [
+        "Invermay Park, Launceston"
+      ]
+    },
+    {
+      "canonical": "Harrup Park",
+      "city": "Mackay",
+      "country": "Australia",
+      "aliases": [
+        "Ray Mitchell Oval, Harrup Park, Mackay"
+      ]
+    },
+    {
+      "canonical": "Junction Oval",
+      "city": "Melbourne",
+      "country": "Australia",
+      "aliases": [
+        "Junction Oval, Melbourne"
+      ]
+    },
+    {
+      "canonical": "Docklands Stadium",
+      "city": "Melbourne",
+      "country": "Australia",
+      "aliases": [
+        "Docklands Stadium, Melbourne"
+      ]
+    },
+    {
+      "canonical": "Western Australia Cricket Association Ground",
+      "city": "Perth",
+      "country": "Australia",
+      "aliases": [
+        "Western Australia Cricket Association Ground, Perth",
+        "W.A.C.A. Ground"
+      ]
+    },
+    {
+      "canonical": "Bankstown Oval",
+      "city": "Sydney",
+      "country": "Australia",
+      "aliases": [
+        "Bankstown Oval, Sydney"
+      ]
+    },
+    {
+      "canonical": "Blacktown International Sportspark",
+      "city": "Sydney",
+      "country": "Australia",
+      "aliases": [
+        "Blacktown International Sportspark, Sydney"
+      ]
+    },
+    {
+      "canonical": "Drummoyne Oval",
+      "city": "Sydney",
+      "country": "Australia",
+      "aliases": [
+        "Drummoyne Oval, Sydney"
+      ]
+    },
+    {
+      "canonical": "North Sydney Oval",
+      "city": "Sydney",
+      "country": "Australia",
+      "aliases": [
+        "North Sydney Oval, Sydney"
+      ]
+    },
+    {
+      "canonical": "Ted Summerton Reserve",
+      "city": "Moe",
+      "country": "Australia",
+      "aliases": [
+        "Ted Summerton Reserve, Moe"
+      ]
+    },
+    {
+      "canonical": "Tony Ireland Stadium",
+      "city": "Townsville",
+      "country": "Australia",
+      "aliases": [
+        "Tony Ireland Stadium, Townsville"
+      ]
+    },
+    {
+      "canonical": "North Dalton Park",
+      "city": "Wollongong",
+      "country": "Australia",
+      "aliases": [
+        "North Dalton Park, Wollongong"
+      ]
+    },
+    {
+      "canonical": "Eden Park",
+      "city": "Auckland",
+      "country": "New Zealand",
+      "aliases": [
+        "Eden Park, Auckland"
+      ]
+    },
+    {
+      "canonical": "Eden Park Outer Oval",
+      "city": "Auckland",
+      "country": "New Zealand",
+      "aliases": [
+        "Eden Park Outer Oval, Auckland"
+      ]
+    },
+    {
+      "canonical": "Eden Park No 2",
+      "city": "Auckland",
+      "country": "New Zealand",
+      "aliases": [
+        "Eden Park No 2, Auckland"
+      ]
+    },
+    {
+      "canonical": "Molyneux Park",
+      "city": "Alexandra",
+      "country": "New Zealand",
+      "aliases": [
+        "Molyneux Park, Alexandra"
+      ]
+    },
+    {
+      "canonical": "Hagley Oval",
+      "city": "Christchurch",
+      "country": "New Zealand",
+      "aliases": [
+        "Hagley Oval, Christchurch"
+      ]
+    },
+    {
+      "canonical": "Jade Stadium",
+      "city": "Christchurch",
+      "country": "New Zealand",
+      "aliases": [
+        "Jade Stadium, Christchurch",
+        "AMI Stadium"
+      ]
+    },
+    {
+      "canonical": "University Oval",
+      "city": "Dunedin",
+      "country": "New Zealand",
+      "aliases": [
+        "University Oval, Dunedin"
+      ]
+    },
+    {
+      "canonical": "Seddon Park",
+      "city": "Hamilton",
+      "country": "New Zealand",
+      "aliases": [
+        "Seddon Park, Hamilton",
+        "Westpac Park, Hamilton"
+      ]
+    },
+    {
+      "canonical": "Bert Sutcliffe Oval",
+      "city": "Lincoln",
+      "country": "New Zealand",
+      "aliases": [
+        "Bert Sutcliffe Oval, Lincoln"
+      ]
+    },
+    {
+      "canonical": "Bay Oval",
+      "city": "Mount Maunganui",
+      "country": "New Zealand",
+      "aliases": [
+        "Bay Oval, Mount Maunganui"
+      ]
+    },
+    {
+      "canonical": "McLean Park",
+      "city": "Napier",
+      "country": "New Zealand",
+      "aliases": [
+        "McLean Park, Napier"
+      ]
+    },
+    {
+      "canonical": "Pukekura Park",
+      "city": "New Plymouth",
+      "country": "New Zealand",
+      "aliases": [
+        "Pukekura Park, New Plymouth"
+      ]
+    },
+    {
+      "canonical": "John Davies Oval",
+      "city": "Queenstown",
+      "country": "New Zealand",
+      "aliases": [
+        "John Davies Oval, Queenstown"
+      ]
+    },
+    {
+      "canonical": "Mainpower Oval",
+      "city": "Rangiora",
+      "country": "New Zealand",
+      "aliases": [
+        "Mainpower Oval, Rangiora"
+      ]
+    },
+    {
+      "canonical": "Basin Reserve",
+      "city": "Wellington",
+      "country": "New Zealand",
+      "aliases": [
+        "Basin Reserve, Wellington"
+      ]
+    },
+    {
+      "canonical": "Sky Stadium",
+      "city": "Wellington",
+      "country": "New Zealand",
+      "aliases": [
+        "Sky Stadium, Wellington",
+        "Westpac Stadium",
+        "Westpac Stadium, Wellington"
+      ]
+    },
+    {
+      "canonical": "Cobham Oval (New)",
+      "city": "Whangarei",
+      "country": "New Zealand",
+      "aliases": [
+        "Cobham Oval (New), Whangarei"
+      ]
+    },
+    {
+      "canonical": "Mannofield Park",
+      "city": "Aberdeen",
+      "country": "United Kingdom",
+      "aliases": [
+        "Mannofield Park, Aberdeen"
+      ]
+    },
+    {
+      "canonical": "Cambusdoon New Ground",
+      "city": "Ayr",
+      "country": "United Kingdom",
+      "aliases": [
+        "Cambusdoon New Ground, Ayr"
+      ]
+    },
+    {
+      "canonical": "Kent County Cricket Ground",
+      "city": "Beckenham",
+      "country": "United Kingdom",
+      "aliases": [
+        "Kent County Cricket Ground, Beckenham",
+        "The Kent County Cricket Ground"
+      ]
+    },
+    {
+      "canonical": "County Ground, Bristol",
+      "city": "Bristol",
+      "country": "United Kingdom",
+      "aliases": [
+        "County Ground",
+        "The Royal & Sun Alliance County Ground, Bristol"
+      ]
+    },
+    {
+      "canonical": "St Lawrence Ground",
+      "city": "Canterbury",
+      "country": "United Kingdom",
+      "aliases": [
+        "St Lawrence Ground, Canterbury"
+      ]
+    },
+    {
+      "canonical": "Sophia Gardens",
+      "city": "Cardiff",
+      "country": "United Kingdom",
+      "aliases": [
+        "Sophia Gardens, Cardiff"
+      ]
+    },
+    {
+      "canonical": "King George V Sports Ground",
+      "city": "Castel",
+      "country": "United Kingdom",
+      "aliases": [
+        "King George V Sports Ground, Castel"
+      ]
+    },
+    {
+      "canonical": "Riverside Ground",
+      "city": "Chester-le-Street",
+      "country": "United Kingdom",
+      "aliases": [
+        "Riverside Ground, Chester-le-Street"
+      ]
+    },
+    {
+      "canonical": "Queen's Park",
+      "city": "Chesterfield",
+      "country": "United Kingdom",
+      "aliases": [
+        "Queen's Park, Chesterfield"
+      ]
+    },
+    {
+      "canonical": "Castle Park Cricket Ground",
+      "city": "Colchester",
+      "country": "United Kingdom",
+      "aliases": [
+        "Castle Park Cricket Ground, Colchester"
+      ]
+    },
+    {
+      "canonical": "Forthill",
+      "city": "Dundee",
+      "country": "United Kingdom",
+      "aliases": [
+        "Forthill, Dundee"
+      ]
+    },
+    {
+      "canonical": "Goldenacre",
+      "city": "Edinburgh",
+      "country": "United Kingdom",
+      "aliases": [
+        "Goldenacre, Edinburgh"
+      ]
+    },
+    {
+      "canonical": "Grange Cricket Club Ground, Raeburn Place",
+      "city": "Edinburgh",
+      "country": "United Kingdom",
+      "aliases": [
+        "Grange Cricket Club Ground, Raeburn Place, Edinburgh",
+        "Grange Cricket Club, Raeburn Place"
+      ]
+    },
+    {
+      "canonical": "Titwood",
+      "city": "Glasgow",
+      "country": "United Kingdom",
+      "aliases": [
+        "Titwood, Glasgow"
+      ]
+    },
+    {
+      "canonical": "Grace Road",
+      "city": "Leicester",
+      "country": "United Kingdom",
+      "aliases": [
+        "Grace Road, Leicester"
+      ]
+    },
+    {
+      "canonical": "Aigburth",
+      "city": "Liverpool",
+      "country": "United Kingdom",
+      "aliases": [
+        "Aigburth, Liverpool"
+      ]
+    },
+    {
+      "canonical": "Kennington Oval",
+      "city": "London",
+      "country": "United Kingdom",
+      "aliases": [
+        "Kennington Oval, London"
+      ]
+    },
+    {
+      "canonical": "Haslegrave Ground",
+      "city": "Loughborough",
+      "country": "United Kingdom",
+      "aliases": [
+        "Haslegrave Ground, Loughborough"
+      ]
+    },
+    {
+      "canonical": "Merchant Taylors' School Ground",
+      "city": "Northwood",
+      "country": "United Kingdom",
+      "aliases": [
+        "Merchant Taylors' School Ground, Northwood"
+      ]
+    },
+    {
+      "canonical": "Trent Bridge",
+      "city": "Nottingham",
+      "country": "United Kingdom",
+      "aliases": [
+        "Trent Bridge, Nottingham"
+      ]
+    },
+    {
+      "canonical": "North Marine Road Ground",
+      "city": "Scarborough",
+      "country": "United Kingdom",
+      "aliases": [
+        "North Marine Road Ground, Scarborough"
+      ]
+    },
+    {
+      "canonical": "The Rose Bowl",
+      "city": "Southampton",
+      "country": "United Kingdom",
+      "aliases": [
+        "The Rose Bowl, Southampton"
+      ]
+    },
+    {
+      "canonical": "The Cooper Associates County Ground",
+      "city": "Taunton",
+      "country": "United Kingdom",
+      "aliases": [
+        "The Cooper Associates County Ground, Taunton",
+        "County Ground, Taunton"
+      ]
+    },
+    {
+      "canonical": "Nevill Ground",
+      "city": "Tunbridge Wells",
+      "country": "United Kingdom",
+      "aliases": [
+        "Nevill Ground, Tunbridge Wells"
+      ]
+    },
+    {
+      "canonical": "County Ground, New Road",
+      "city": "Worcester",
+      "country": "United Kingdom",
+      "aliases": [
+        "County Ground, New Road, Worcester"
+      ]
+    },
+    {
+      "canonical": "Sir Paul Getty's Ground",
+      "city": "Wormsley",
+      "country": "United Kingdom",
+      "aliases": [
+        "Sir Paul Getty's Ground, Wormsley"
+      ]
+    },
+    {
+      "canonical": "Headingley",
+      "city": "Leeds",
+      "country": "United Kingdom",
+      "aliases": [
+        "Headingley, Leeds"
+      ]
+    },
+    {
+      "canonical": "Edgbaston",
+      "city": "Birmingham",
+      "country": "United Kingdom",
+      "aliases": [
+        "Edgbaston, Birmingham"
+      ]
+    },
+    {
+      "canonical": "Old Trafford",
+      "city": "Manchester",
+      "country": "United Kingdom",
+      "aliases": [
+        "Old Trafford, Manchester"
+      ]
+    },
+    {
+      "canonical": "Willowmoore Park",
+      "city": "Benoni",
+      "country": "South Africa",
+      "aliases": [
+        "Willowmoore Park, Benoni"
+      ]
+    },
+    {
+      "canonical": "Mangaung Oval",
+      "city": "Bloemfontein",
+      "country": "South Africa",
+      "aliases": [
+        "Mangaung Oval, Bloemfontein",
+        "Chevrolet Park",
+        "Chevrolet Park, Bloemfontein",
+        "Goodyear Park",
+        "Goodyear Park, Bloemfontein",
+        "OUTsurance Oval"
+      ]
+    },
+    {
+      "canonical": "Newlands",
+      "city": "Cape Town",
+      "country": "South Africa",
+      "aliases": [
+        "Newlands, Cape Town"
+      ]
+    },
+    {
+      "canonical": "SuperSport Park",
+      "city": "Centurion",
+      "country": "South Africa",
+      "aliases": [
+        "SuperSport Park, Centurion"
+      ]
+    },
+    {
+      "canonical": "Kingsmead",
+      "city": "Durban",
+      "country": "South Africa",
+      "aliases": [
+        "Kingsmead, Durban"
+      ]
+    },
+    {
+      "canonical": "Buffalo Park",
+      "city": "East London",
+      "country": "South Africa",
+      "aliases": [
+        "Buffalo Park, East London"
+      ]
+    },
+    {
+      "canonical": "The Wanderers Stadium",
+      "city": "Johannesburg",
+      "country": "South Africa",
+      "aliases": [
+        "The Wanderers Stadium, Johannesburg",
+        "New Wanderers Stadium",
+        "New Wanderers Stadium, Johannesburg"
+      ]
+    },
+    {
+      "canonical": "Diamond Oval",
+      "city": "Kimberley",
+      "country": "South Africa",
+      "aliases": [
+        "Diamond Oval, Kimberley",
+        "De Beers Diamond Oval",
+        "De Beers Diamond Oval, Kimberley"
+      ]
+    },
+    {
+      "canonical": "Boland Park",
+      "city": "Paarl",
+      "country": "South Africa",
+      "aliases": [
+        "Boland Park, Paarl",
+        "Boland Bank Park",
+        "Boland Bank Park, Paarl"
+      ]
+    },
+    {
+      "canonical": "City Oval",
+      "city": "Pietermaritzburg",
+      "country": "South Africa",
+      "aliases": [
+        "City Oval, Pietermaritzburg"
+      ]
+    },
+    {
+      "canonical": "St George's Park",
+      "city": "Port Elizabeth",
+      "country": "South Africa",
+      "aliases": [
+        "St George's Park, Port Elizabeth"
+      ]
+    },
+    {
+      "canonical": "Senwes Park",
+      "city": "Potchefstroom",
+      "country": "South Africa",
+      "aliases": [
+        "Senwes Park, Potchefstroom",
+        "Sedgars Park",
+        "Sedgars Park, Potchefstroom",
+        "North West Cricket Stadium, Potchefstroom"
+      ]
+    },
+    {
+      "canonical": "Queens Sports Club",
+      "city": "Bulawayo",
+      "country": "Zimbabwe",
+      "aliases": [
+        "Queens Sports Club, Bulawayo"
+      ]
+    },
+    {
+      "canonical": "Old Hararians Sports Club",
+      "city": "Harare",
+      "country": "Zimbabwe",
+      "aliases": [
+        "Old Hararians",
+        "Old Hararians, Harare"
+      ]
+    },
+    {
+      "canonical": "Takashinga Sports Club",
+      "city": "Harare",
+      "country": "Zimbabwe",
+      "aliases": [
+        "Takashinga Sports Club, Highfield, Harare"
+      ]
+    },
+    {
+      "canonical": "Kensington Oval",
+      "city": "Bridgetown",
+      "country": "Barbados",
+      "aliases": [
+        "Kensington Oval, Barbados",
+        "Kensington Oval, Bridgetown",
+        "Kensington Oval, Bridgetown, Barbados"
+      ]
+    },
+    {
+      "canonical": "Warner Park, Basseterre, St Kitts",
+      "city": "Basseterre",
+      "country": "Saint Kitts and Nevis",
+      "aliases": [
+        "Warner Park, St Kitts"
+      ]
+    },
+    {
+      "canonical": "Daren Sammy National Cricket Stadium",
+      "city": "Gros Islet",
+      "country": "Saint Lucia",
+      "aliases": [
+        "Daren Sammy National Cricket Stadium, Gros Islet, St Lucia",
+        "Daren Sammy National Cricket Stadium, St Lucia",
+        "Darren Sammy National Cricket Stadium, St Lucia",
+        "Daren Sammy National Cricket Stadium, Gros Islet",
+        "Darren Sammy National Cricket Stadium, Gros Islet",
+        "Beausejour Stadium, Gros Islet"
+      ]
+    },
+    {
+      "canonical": "Sabina Park, Kingston, Jamaica",
+      "city": "Kingston",
+      "country": "Jamaica",
+      "aliases": [
+        "Sabina Park, Jamaica"
+      ]
+    },
+    {
+      "canonical": "Arnos Vale Ground",
+      "city": "Kingstown",
+      "country": "Saint Vincent and the Grenadines",
+      "aliases": [
+        "Arnos Vale Ground, Kingstown, St Vincent"
+      ]
+    },
+    {
+      "canonical": "Sir Vivian Richards Stadium, North Sound, Antigua",
+      "city": "North Sound",
+      "country": "Antigua and Barbuda",
+      "aliases": [
+        "Sir Vivian Richards Stadium",
+        "Sir Vivian Richards Stadium, Antigua"
+      ]
+    },
+    {
+      "canonical": "Antigua Recreation Ground",
+      "city": "St John's",
+      "country": "Antigua and Barbuda",
+      "aliases": [
+        "Antigua Recreation Ground, St John's, Antigua"
+      ]
+    },
+    {
+      "canonical": "Queen's Park Oval",
+      "city": "Port of Spain",
+      "country": "Trinidad and Tobago",
+      "aliases": [
+        "Queen's Park Oval, Port of Spain, Trinidad",
+        "Queen's Park Oval, Trinidad",
+        "Queen's Park Oval, Port of Spain"
+      ]
+    },
+    {
+      "canonical": "National Cricket Stadium, Grenada",
+      "city": "St George's",
+      "country": "Grenada",
+      "aliases": [
+        "National Cricket Stadium",
+        "National Cricket Stadium, St George's, Grenada"
+      ]
+    },
+    {
+      "canonical": "Iqbal Stadium",
+      "city": "Faisalabad",
+      "country": "Pakistan",
+      "aliases": [
+        "Iqbal Stadium, Faisalabad"
+      ]
+    },
+    {
+      "canonical": "National Stadium, Karachi",
+      "city": "Karachi",
+      "country": "Pakistan",
+      "aliases": [
+        "National Stadium"
+      ]
+    },
+    {
+      "canonical": "Southend Club Cricket Stadium",
+      "city": "Karachi",
+      "country": "Pakistan",
+      "aliases": [
+        "Southend Club Cricket Stadium, Karachi"
+      ]
+    },
+    {
+      "canonical": "Gaddafi Stadium",
+      "city": "Lahore",
+      "country": "Pakistan",
+      "aliases": [
+        "Gaddafi Stadium, Lahore"
+      ]
+    },
+    {
+      "canonical": "R Premadasa Stadium",
+      "city": "Colombo",
+      "country": "Sri Lanka",
+      "aliases": [
+        "R Premadasa Stadium, Colombo",
+        "R.Premadasa Stadium",
+        "R.Premadasa Stadium, Khettarama",
+        "Khettarama Stadium"
+      ]
+    },
+    {
+      "canonical": "Nondescripts Cricket Club Ground",
+      "city": "Colombo",
+      "country": "Sri Lanka",
+      "aliases": [
+        "Nondescripts Cricket Club Ground, Colombo"
+      ]
+    },
+    {
+      "canonical": "P Sara Oval",
+      "city": "Colombo",
+      "country": "Sri Lanka",
+      "aliases": [
+        "P Sara Oval, Colombo"
+      ]
+    },
+    {
+      "canonical": "Sinhalese Sports Club Ground",
+      "city": "Colombo",
+      "country": "Sri Lanka",
+      "aliases": [
+        "Sinhalese Sports Club Ground, Colombo",
+        "Sinhalese Sports Club"
+      ]
+    },
+    {
+      "canonical": "Colts Cricket Club Ground",
+      "city": "Colombo",
+      "country": "Sri Lanka",
+      "aliases": [
+        "Colts Cricket Club Ground, Colombo"
+      ]
+    },
+    {
+      "canonical": "Mahinda Rajapaksa International Cricket Stadium, Sooriyawewa",
+      "city": "Hambantota",
+      "country": "Sri Lanka",
+      "aliases": [
+        "Mahinda Rajapaksa International Cricket Stadium, Sooriyawewa, Hambantota"
+      ]
+    },
+    {
+      "canonical": "Welagedara Stadium",
+      "city": "Kurunegala",
+      "country": "Sri Lanka",
+      "aliases": [
+        "Welagedara Stadium, Kurunegala"
+      ]
+    },
+    {
+      "canonical": "Zahur Ahmed Chowdhury Stadium, Chattogram",
+      "city": "Chattogram",
+      "country": "Bangladesh",
+      "aliases": [
+        "Zahur Ahmed Chowdhury Stadium, Chittagong",
+        "Zahur Ahmed Chowdhury Stadium",
+        "Zohur Ahmed Chowdhury Stadium"
+      ]
+    },
+    {
+      "canonical": "Bangabandhu National Stadium",
+      "city": "Dhaka",
+      "country": "Bangladesh",
+      "aliases": [
+        "Bangabandhu National Stadium, Dhaka"
+      ]
+    },
+    {
+      "canonical": "Sher-e-Bangla National Cricket Stadium",
+      "city": "Mirpur",
+      "country": "Bangladesh",
+      "aliases": [
+        "Shere Bangla National Stadium",
+        "Shere Bangla National Stadium, Mirpur"
+      ]
+    },
+    {
+      "canonical": "Sheikh Abu Naser Stadium",
+      "city": "Khulna",
+      "country": "Bangladesh",
+      "aliases": [
+        "Sheikh Abu Naser Stadium, Khulna"
+      ]
+    },
+    {
+      "canonical": "Sheikh Zayed Stadium",
+      "city": "Abu Dhabi",
+      "country": "United Arab Emirates",
+      "aliases": [
+        "Sheikh Zayed Stadium, Abu Dhabi",
+        "Zayed Cricket Stadium",
+        "Zayed Cricket Stadium, Abu Dhabi"
+      ]
+    },
+    {
+      "canonical": "Tolerance Oval",
+      "city": "Abu Dhabi",
+      "country": "United Arab Emirates",
+      "aliases": [
+        "Tolerance Oval, Abu Dhabi"
+      ]
+    },
+    {
+      "canonical": "Desert Springs Cricket Ground",
+      "city": "Almeria",
+      "country": "Spain",
+      "aliases": [
+        "Desert Springs Cricket Ground, Almeria"
+      ]
+    },
+    {
+      "canonical": "VRA Ground",
+      "city": "Amstelveen",
+      "country": "Netherlands",
+      "aliases": [
+        "VRA Ground, Amstelveen",
+        "VRA Cricket Ground"
+      ]
+    },
+    {
+      "canonical": "Faleata Oval No 2",
+      "city": "Apia",
+      "country": "Samoa",
+      "aliases": [
+        "Faleata Oval No 2, Apia"
+      ]
+    },
+    {
+      "canonical": "Terdthai Cricket Ground",
+      "city": "Bangkok",
+      "country": "Thailand",
+      "aliases": [
+        "Terdthai Cricket Ground, Bangkok"
+      ]
+    },
+    {
+      "canonical": "Asian Institute of Technology Ground",
+      "city": "Bangkok",
+      "country": "Thailand",
+      "aliases": [
+        "Asian Institute of Technology Ground, Bangkok"
+      ]
+    },
+    {
+      "canonical": "UKM-YSD Cricket Oval",
+      "city": "Bangi",
+      "country": "Malaysia",
+      "aliases": [
+        "UKM-YSD Cricket Oval, Bangi",
+        "YSD-UKM Cricket Oval, Bangi"
+      ]
+    },
+    {
+      "canonical": "Civil Service Cricket Club, Stormont",
+      "city": "Belfast",
+      "country": "United Kingdom",
+      "aliases": [
+        "Civil Service Cricket Club, Stormont, Belfast"
+      ]
+    },
+    {
+      "canonical": "Botswana Cricket Association Oval 1",
+      "city": "Gaborone",
+      "country": "Botswana",
+      "aliases": [
+        "Botswana Cricket Association Oval 1, Gaborone"
+      ]
+    },
+    {
+      "canonical": "Botswana Cricket Association Oval 2",
+      "city": "Gaborone",
+      "country": "Botswana",
+      "aliases": [
+        "Botswana Cricket Association Oval 2, Gaborone"
+      ]
+    },
+    {
+      "canonical": "Sportpark Het Schootsveld",
+      "city": "Deventer",
+      "country": "Netherlands",
+      "aliases": [
+        "Sportpark Het Schootsveld, Deventer"
+      ]
+    },
+    {
+      "canonical": "West End Park International Cricket Stadium",
+      "city": "Doha",
+      "country": "Qatar",
+      "aliases": [
+        "West End Park International Cricket Stadium, Doha"
+      ]
+    },
+    {
+      "canonical": "ICC Academy",
+      "city": "Dubai",
+      "country": "United Arab Emirates",
+      "aliases": [
+        "ICC Academy, Dubai",
+        "ICC Global Cricket Academy"
+      ]
+    },
+    {
+      "canonical": "ICC Academy Ground No 2",
+      "city": "Dubai",
+      "country": "United Arab Emirates",
+      "aliases": [
+        "ICC Academy Ground No 2, Dubai"
+      ]
+    },
+    {
+      "canonical": "Castle Avenue",
+      "city": "Dublin",
+      "country": "Ireland",
+      "aliases": [
+        "Castle Avenue, Dublin"
+      ]
+    },
+    {
+      "canonical": "Clontarf Cricket Club Ground",
+      "city": "Dublin",
+      "country": "Ireland",
+      "aliases": [
+        "Clontarf Cricket Club Ground, Dublin"
+      ]
+    },
+    {
+      "canonical": "Malahide",
+      "city": "Dublin",
+      "country": "Ireland",
+      "aliases": [
+        "Malahide, Dublin"
+      ]
+    },
+    {
+      "canonical": "Merrion Cricket Club Ground",
+      "city": "Dublin",
+      "country": "Ireland",
+      "aliases": [
+        "Merrion Cricket Club Ground, Dublin"
+      ]
+    },
+    {
+      "canonical": "Observatory Lane, Rathmines",
+      "city": "Dublin",
+      "country": "Ireland",
+      "aliases": [
+        "Observatory Lane, Rathmines, Dublin"
+      ]
+    },
+    {
+      "canonical": "Pembroke Cricket Club, Sandymount",
+      "city": "Dublin",
+      "country": "Ireland",
+      "aliases": [
+        "Pembroke Cricket Club, Sandymount, Dublin"
+      ]
+    },
+    {
+      "canonical": "The Village, Malahide",
+      "city": "Dublin",
+      "country": "Ireland",
+      "aliases": [
+        "The Village, Malahide, Dublin"
+      ]
+    },
+    {
+      "canonical": "The Vineyard",
+      "city": "Dublin",
+      "country": "Ireland",
+      "aliases": [
+        "The Vineyard, Dublin"
+      ]
+    },
+    {
+      "canonical": "Yeonhui Cricket Ground",
+      "city": "Incheon",
+      "country": "South Korea",
+      "aliases": [
+        "Yeonhui Cricket Ground, Incheon"
+      ]
+    },
+    {
+      "canonical": "Lugogo Cricket Oval",
+      "city": "Kampala",
+      "country": "Uganda",
+      "aliases": [
+        "Lugogo Cricket Oval, Kampala"
+      ]
+    },
+    {
+      "canonical": "Kyambogo Cricket Oval",
+      "city": "Kampala",
+      "country": "Uganda",
+      "aliases": [
+        "Kyambogo Cricket Ground, Kampala"
+      ]
+    },
+    {
+      "canonical": "Tribhuvan University International Cricket Ground",
+      "city": "Kirtipur",
+      "country": "Nepal",
+      "aliases": [
+        "Tribhuvan University International Cricket Ground, Kirtipur"
+      ]
+    },
+    {
+      "canonical": "Bayuemas Oval",
+      "city": "Kuala Lumpur",
+      "country": "Malaysia",
+      "aliases": [
+        "Bayuemas Oval, Kuala Lumpur"
+      ]
+    },
+    {
+      "canonical": "Kinrara Academy Oval",
+      "city": "Kuala Lumpur",
+      "country": "Malaysia",
+      "aliases": [
+        "Kinrara Academy Oval, Kuala Lumpur",
+        "Kinrara Oval"
+      ]
+    },
+    {
+      "canonical": "Royal Selangor Club",
+      "city": "Kuala Lumpur",
+      "country": "Malaysia",
+      "aliases": [
+        "Royal Selangor Club, Kuala Lumpur"
+      ]
+    },
+    {
+      "canonical": "Selangor Turf Club",
+      "city": "Kuala Lumpur",
+      "country": "Malaysia",
+      "aliases": [
+        "Selangor Turf Club, Kuala Lumpur"
+      ]
+    },
+    {
+      "canonical": "Tafawa Balewa Square Cricket Oval",
+      "city": "Lagos",
+      "country": "Nigeria",
+      "aliases": [
+        "Tafawa Balewa Square Cricket Oval, Lagos"
+      ]
+    },
+    {
+      "canonical": "Central Broward Regional Park Stadium Turf Ground",
+      "city": "Lauderhill",
+      "country": "United States of America",
+      "aliases": [
+        "Central Broward Regional Park Stadium Turf Ground, Lauderhill"
+      ]
+    },
+    {
+      "canonical": "Seebarn Cricket Centre",
+      "city": "Lower Austria",
+      "country": "Austria",
+      "aliases": [
+        "Seebarn Cricket Centre, Lower Austria"
+      ]
+    },
+    {
+      "canonical": "Church Street Park",
+      "city": "Morrisville",
+      "country": "United States of America",
+      "aliases": [
+        "Church Street Park, Morrisville"
+      ]
+    },
+    {
+      "canonical": "Grand Prairie Stadium",
+      "city": "Dallas",
+      "country": "United States of America",
+      "aliases": [
+        "Grand Prairie Stadium, Dallas"
+      ]
+    },
+    {
+      "canonical": "Gymkhana Club Ground",
+      "city": "Nairobi",
+      "country": "Kenya",
+      "aliases": [
+        "Gymkhana Club Ground, Nairobi"
+      ]
+    },
+    {
+      "canonical": "Ruaraka Sports Club Ground",
+      "city": "Nairobi",
+      "country": "Kenya",
+      "aliases": [
+        "Ruaraka Sports Club Ground, Nairobi"
+      ]
+    },
+    {
+      "canonical": "Amini Park",
+      "city": "Port Moresby",
+      "country": "Papua New Guinea",
+      "aliases": [
+        "Amini Park, Port Moresby"
+      ]
+    },
+    {
+      "canonical": "Hazelaarweg",
+      "city": "Rotterdam",
+      "country": "Netherlands",
+      "aliases": [
+        "Hazelaarweg, Rotterdam"
+      ]
+    },
+    {
+      "canonical": "Sharjah Cricket Association Stadium",
+      "city": "Sharjah",
+      "country": "United Arab Emirates",
+      "aliases": [
+        "Sharjah Cricket Stadium"
+      ]
+    },
+    {
+      "canonical": "Indian Association Ground",
+      "city": "Singapore",
+      "country": "Singapore",
+      "aliases": [
+        "Indian Association Ground, Singapore"
+      ]
+    },
+    {
+      "canonical": "Vassil Levski National Sports Academy, Sofia",
+      "city": "Sofia",
+      "country": "Bulgaria",
+      "aliases": [
+        "National Sports Academy, Sofia"
+      ]
+    },
+    {
+      "canonical": "Grainville",
+      "city": "St Saviour",
+      "country": "Jersey",
+      "aliases": [
+        "Grainville, St Saviour",
+        "Grainville, St Saviour, Jersey"
+      ]
+    },
+    {
+      "canonical": "Sportpark Westvliet",
+      "city": "The Hague",
+      "country": "Netherlands",
+      "aliases": [
+        "Sportpark Westvliet, The Hague",
+        "Sportpark Westvliet, Voorburg"
+      ]
+    },
+    {
+      "canonical": "Sportpark Maarschalkerweerd",
+      "city": "Utrecht",
+      "country": "Netherlands",
+      "aliases": [
+        "Sportpark Maarschalkerweerd, Utrecht"
+      ]
+    },
+    {
+      "canonical": "Wanderers Cricket Ground",
+      "city": "Windhoek",
+      "country": "Namibia",
+      "aliases": [
+        "Wanderers",
+        "Wanderers Cricket Ground, Windhoek"
+      ]
+    },
+    {
+      "canonical": "United Cricket Club Ground",
+      "city": "Windhoek",
+      "country": "Namibia",
+      "aliases": [
+        "United Cricket Club Ground, Windhoek"
+      ]
+    }
+  ],
+  "by_name_city": [
+    {
+      "name": "Sano International Cricket Ground",
+      "country": "Japan"
+    },
+    {
+      "name": "Narendra Modi Stadium Ground 'A', Motera",
+      "country": "India"
+    },
+    {
+      "name": "Gurugram Cricket Ground (SRNCC)",
+      "country": "India"
+    },
+    {
+      "name": "Guyana National Stadium, Providence",
+      "country": "Guyana"
+    },
+    {
+      "name": "Saxton Oval",
+      "city": "Nelson",
+      "country": "New Zealand"
+    },
+    {
+      "name": "Jawaharlal Nehru Stadium",
+      "city": "Delhi",
+      "country": "India"
+    },
+    {
+      "name": "Jawaharlal Nehru Stadium",
+      "country": "India"
+    },
+    {
+      "name": "Reliance Cricket Stadium",
+      "city": "Vadodara",
+      "country": "India"
+    },
+    {
+      "name": "Moara Vlasiei Cricket Ground, Ilfov County",
+      "city": "Ilfov County",
+      "country": "Romania"
+    },
+    {
+      "name": "Greenfield Stadium",
+      "country": "India"
+    },
+    {
+      "name": "Alur Cricket Stadium II",
+      "country": "India"
+    },
+    {
+      "name": "St  Pauls college ground  Kalamassery",
+      "country": "India"
+    },
+    {
+      "name": "Dr. Y.S. Rajasekhara Reddy ACA VDCA Cricket Stadium",
+      "country": "India"
+    },
+    {
+      "name": "JU Second Campus, Salt Lake",
+      "country": "India"
+    },
+    {
+      "name": "San Albano",
+      "country": "Italy"
+    },
+    {
+      "name": "Cello Basin Reserve",
+      "city": "Wellington",
+      "country": "New Zealand"
+    },
+    {
+      "name": "Chaudhry Bansi Lal Cricket Stadium",
+      "city": "Bhiwani",
+      "country": "India"
+    },
+    {
+      "name": "DRIEMS Ground",
+      "country": "India"
+    },
+    {
+      "name": "Alembic 1 Cricket Ground",
+      "city": "Vadodara",
+      "country": "India"
+    },
+    {
+      "name": "BKC Ground",
+      "country": "India"
+    },
+    {
+      "name": "Alur Cricket Stadium III",
+      "country": "India"
+    },
+    {
+      "name": "St'Xavier's KCA Cricket Ground",
+      "country": "India"
+    },
+    {
+      "name": "Dr P.V.G. Raju ACA Sports Complex",
+      "city": "Vizianagaram",
+      "country": "India"
+    },
+    {
+      "name": "Stellenbosch University 1",
+      "city": "Stellenbosch",
+      "country": "South Africa"
+    },
+    {
+      "name": "Alembic 2  Cricket Ground",
+      "city": "Vadodara",
+      "country": "India"
+    },
+    {
+      "name": "Al Dhaid Cricket Village",
+      "city": "Sharjah",
+      "country": "United Arab Emirates"
+    },
+    {
+      "name": "T I Murugappa Ground",
+      "city": "Chennai",
+      "country": "India"
+    },
+    {
+      "name": "National Stadium, Hamilton",
+      "city": "Hamilton",
+      "country": "Bermuda"
+    },
+    {
+      "name": "Bharat Ratna Shri Atal Bihari Vajpayee Ekana Cricket Stadium B",
+      "country": "India"
+    },
+    {
+      "name": "Dubai Sports City Cricket Stadium",
+      "city": "Dubai",
+      "country": "United Arab Emirates"
+    },
+    {
+      "name": "Stellenbosch University 2",
+      "city": "Stellenbosch",
+      "country": "South Africa"
+    },
+    {
+      "name": "IC-Gurunanak College Ground",
+      "city": "Hyderabad",
+      "country": "India"
+    },
+    {
+      "name": "Cobham Oval",
+      "city": "Whangarei",
+      "country": "New Zealand"
+    },
+    {
+      "name": "Chilaw Marians Cricket Club Ground",
+      "country": "Sri Lanka"
+    }
+  ],
+  "by_name_pattern": [
+    {
+      "city": "George Town",
+      "name_contains": "cayman",
+      "country": "Cayman Islands"
+    },
+    {
+      "city": "Hamilton",
+      "name_contains": "bermuda",
+      "country": "Bermuda"
+    },
+    {
+      "city": "Hamilton",
+      "name_contains": "sandys",
+      "country": "Bermuda"
+    },
+    {
+      "city": "Hamilton",
+      "name_contains": "sea breeze",
+      "country": "Bermuda"
+    },
+    {
+      "city": "Hamilton",
+      "name_contains": "seddon",
+      "country": "New Zealand"
+    },
+    {
+      "city": "Hamilton",
+      "name_contains": "westpac",
+      "country": "New Zealand"
+    },
+    {
+      "city": "Lincoln",
+      "name_contains": "bert sutcliffe",
+      "country": "New Zealand"
+    },
+    {
+      "city": "Lincoln",
+      "name_contains": "lindum",
+      "country": "United Kingdom"
+    }
+  ],
+  "by_city": {
+    "Al Amarat": "Oman",
+    "Bangi": "Malaysia",
+    "Coolidge": "Antigua and Barbuda",
+    "Eglinton": "Ireland",
+    "Kaluthara": "Sri Lanka",
+    "King City": "Canada",
+    "Kirtipur": "Nepal",
+    "Latrobe": "Australia",
+    "Mirpur": "Bangladesh",
+    "Moe": "Australia",
+    "Navile": "Italy",
+    "Nisshin": "Japan",
+    "North Sound": "Antigua and Barbuda",
+    "Panama City": "Panama",
+    "Providence": "Guyana",
+    "Rajshahi": "Bangladesh",
+    "Roseau": "Dominica",
+    "Sale": "United Kingdom",
+    "Sano": "Japan",
+    "St John's": "Antigua and Barbuda",
+    "St Martin": "Jersey",
+    "Tarouba": "Trinidad and Tobago",
+    "Waterloo": "Belgium",
+    "Worcester": "United Kingdom",
+    "Edinburgh": "Scotland",
+    "Dundee": "Scotland",
+    "Belfast": "Ireland",
+    "Comber": "Ireland",
+    "Londonderry": "Ireland"
+  },
+  "west_indies_countries": [
+    "Antigua and Barbuda",
+    "Barbados",
+    "Dominica",
+    "Grenada",
+    "Guyana",
+    "Jamaica",
+    "Saint Kitts and Nevis",
+    "Saint Lucia",
+    "Saint Vincent and the Grenadines",
+    "Trinidad and Tobago",
+    "St Kitts and Nevis",
+    "St Lucia",
+    "St Vincent and the Grenadines",
+    "St. Kitts and Nevis",
+    "St. Lucia",
+    "St. Vincent and the Grenadines"
+  ]
 }

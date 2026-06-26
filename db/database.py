@@ -22,7 +22,6 @@ def get_db_connection(autocommit=True):
 
 def create_database():
     try:
-        # Connect to default 'postgres' db to create new db
         conn = psycopg2.connect(
             dbname='postgres',
             user=DB_USER,
@@ -32,11 +31,10 @@ def create_database():
         )
         conn.autocommit = True
         cur = conn.cursor()
-        
-        # Check if exists
+
         cur.execute("SELECT 1 FROM pg_catalog.pg_database WHERE datname = %s", (DB_NAME,))
         exists = cur.fetchone()
-        
+
         if not exists:
             cur.execute(sql.SQL("CREATE DATABASE {}").format(
                 sql.Identifier(DB_NAME))
@@ -44,24 +42,29 @@ def create_database():
             print(f"Database {DB_NAME} created successfully.")
         else:
             print(f"Database {DB_NAME} already exists.")
-            
+
         cur.close()
         conn.close()
     except Exception as e:
         print(f"Error creating database: {e}")
 
 def initialize_schema():
+    """Apply schema DDL then seed reference data. Idempotent."""
     conn = get_db_connection()
     cur = conn.cursor()
-    
-    # Read schema.sql
+
     schema_path = os.path.join(os.path.dirname(__file__), 'schema.sql')
     with open(schema_path, 'r') as f:
-        schema_sql = f.read()
-        
-    cur.execute(schema_sql)
+        cur.execute(f.read())
     conn.commit()
     print("Schema initialized.")
+
+    seed_path = os.path.join(os.path.dirname(__file__), 'seed_data.sql')
+    with open(seed_path, 'r') as f:
+        cur.execute(f.read())
+    conn.commit()
+    print("Seed data applied.")
+
     cur.close()
     conn.close()
 

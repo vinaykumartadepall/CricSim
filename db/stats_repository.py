@@ -29,6 +29,52 @@ _FORMAT_ALIASES: Dict[str, List[str]] = {
     "T20":  ["T20",  "IT20"],
 }
 
+# ── Precomputed-table helpers ──────────────────────────────────────────────────
+
+# Process-level cache: keyed by ('pos', fmt, stat_type) or ('pcs_venue', fmt, venue_id)
+_PRECOMPUTED_CACHE: Dict[Tuple, Any] = {}
+
+_PHASE_STAT_TYPES: Dict[str, List[str]] = {
+    'T20':  ['phase_pp1', 'phase_pp2', 'phase_mid1', 'phase_mid2', 'phase_death1', 'phase_death2'],
+    'ODI':  ['phase_pp1', 'phase_pp2', 'phase_mid1', 'phase_mid2', 'phase_mid3', 'phase_death1', 'phase_death2'],
+    'Test': ['phase_new', 'phase_early', 'phase_middle', 'phase_late'],
+}
+_MILESTONE_STAT_TYPES = [f'milestone_m{i * 10}' for i in range(11)]  # milestone_m0 .. milestone_m100
+
+
+def _json_to_prob_dict(d: Optional[dict]) -> Optional[Dict[Tuple, float]]:
+    """Decode precomputed JSONB probs: {'rb|re|ot|ok': v} → {(rb, re, ot, ok): v}."""
+    if not d:
+        return None
+    result = {}
+    for k, v in d.items():
+        parts = k.split('|', 3)
+        result[(int(parts[0]), int(parts[1]), parts[2], parts[3] or None)] = float(v)
+    return result or None
+
+
+def _decay_weight_per_year(
+    per_year: Dict[int, Dict[Tuple, int]], half_life: float = 5.0
+) -> Optional[Dict[Tuple, float]]:
+    """Collapse per-year raw count dict into a single decay-weighted probability distribution."""
+    import math
+    from datetime import date as _date
+    current_year = _date.today().year
+    weighted: Dict[Tuple, float] = {}
+    total_w = 0.0
+    for year, counts in per_year.items():
+        age = max(0, current_year - int(year))
+        decay = math.exp(-math.log(2) / half_life * age)
+        yr_total = sum(counts.values())
+        if yr_total == 0:
+            continue
+        for key, cnt in counts.items():
+            weighted[key] = weighted.get(key, 0.0) + decay * cnt
+        total_w += decay * yr_total
+    if total_w < 1e-9:
+        return None
+    return {k: v / total_w for k, v in weighted.items()}
+
 
 def _fine_grained_phase(over_1indexed: int, match_format: str) -> str:
     """Map an over (1-indexed) to a fine-grained phase bucket."""
@@ -59,32 +105,73 @@ try:
 except ImportError:
     HAS_DB = False
 
+import logging as _logging
+import threading
+
+_repo_log = _logging.getLogger(__name__)
+
 class StatsRepository:
+    """
+    Singleton DB connection shared across all instances in the process.
+
+    The first StatsRepository() call opens one psycopg2 connection and stores it
+    at the class level. Every subsequent StatsRepository() reuses that connection —
+    no new DB handshake, no TCP overhead.
+
+    After the process-level _PRECOMPUTED_CACHE is warm, _run_query is almost never
+    called (all reads return from the dict). The _query_lock serialises the rare
+    cases where an actual DB round-trip is still needed (venue lookups, etc.) because
+    psycopg2 connections are not thread-safe.
+    """
+
+    _conn = None
+    _conn_lock  = threading.Lock()   # guards singleton initialisation
+    _query_lock = threading.Lock()   # serialises actual DB round-trips
+
     def __init__(self):
-        self.conn = None
-        if HAS_DB:
-            try:
-                self.conn = get_db_connection(autocommit=True)
-            except Exception as e:
-                print(f"Warning: Could not connect to DB for stats: {e}")
+        if StatsRepository._conn is None:
+            with StatsRepository._conn_lock:
+                if StatsRepository._conn is None:   # double-checked
+                    if HAS_DB:
+                        try:
+                            StatsRepository._conn = get_db_connection(autocommit=True)
+                        except Exception as e:
+                            print(f"Warning: Could not connect to DB for stats: {e}")
+        self.conn = StatsRepository._conn
             
     def get_player_by_name(self, name: str) -> Optional[Tuple[int, str]]:
         if not self.conn: return None
         # Use exact identity matching since driver scripts have been mapped to proper nomenclature!
         query = "SELECT player_id, name FROM history.players WHERE name = %s LIMIT 1"
         rows = self._run_query(query, (name,))
-        
+
         if not rows:
             print(f"[DB] Lookup failed: No history found for exact player name '{name}'")
             return None
         return (rows[0][0], rows[0][1])
 
-    def get_venue_by_name(self, name: str) -> Optional[Tuple[int, str, Optional[str]]]:
-        """Returns (venue_id, name, country) or None."""
+    def get_player_by_id(self, player_id: int) -> Optional[Tuple[int, str]]:
         if not self.conn: return None
-        search_str = '%' + '%'.join(name.split()) + '%'
+        rows = self._run_query(
+            "SELECT player_id, COALESCE(display_name, name) FROM history.players WHERE player_id = %s LIMIT 1",
+            (player_id,),
+        )
+        return (rows[0][0], rows[0][1]) if rows else None
+
+    def get_venue_by_name(self, name: str) -> Optional[Tuple[int, str, Optional[str]]]:
+        """Returns (venue_id, name, country) or None.
+        Tries the full name first; if not found, strips any ', City' suffix and retries.
+        """
+        if not self.conn: return None
         query = "SELECT venue_id, name, country FROM history.venues WHERE name ILIKE %s LIMIT 1"
-        rows = self._run_query(query, (search_str,))
+
+        def _search(n: str):
+            s = '%' + '%'.join(n.split()) + '%'
+            return self._run_query(query, (s,))
+
+        rows = _search(name)
+        if not rows and ',' in name:
+            rows = _search(name.split(',')[0].strip())
         if not rows:
             print(f"[DB] Lookup failed: Venue '{name}' not found.")
             return None
@@ -108,15 +195,16 @@ class StatsRepository:
     def _run_query(self, query: str, params: tuple = ()) -> List[tuple]:
         if not self.conn:
             return []
-        try:
-            cur = self.conn.cursor()
-            cur.execute(query, params)
-            res = cur.fetchall()
-            cur.close()
-            return res
-        except Exception as e:
-            print(f"DB Query failed: {e}")
-            return []
+        with StatsRepository._query_lock:
+            try:
+                cur = self.conn.cursor()
+                cur.execute(query, params)
+                res = cur.fetchall()
+                cur.close()
+                return res
+            except Exception as e:
+                print(f"DB Query failed: {e}")
+                return []
             
     def _parse_rows_to_probs(self, rows) -> Dict[Tuple[int, int, str, Optional[str]], float]:
         # Rows format expected: (runs_batter, runs_extras, outcome_type, outcome_kind, count)
@@ -173,6 +261,18 @@ class StatsRepository:
         return res
 
     def get_venue_distribution(self, venue_id: int, match_format: str, gender: str = 'male') -> Dict[Tuple, float]:
+        cache_key = ('vs', venue_id, match_format, gender)
+        if cache_key not in _PRECOMPUTED_CACHE:
+            if self.conn:
+                rows = self._run_query(
+                    "SELECT probs FROM history.venue_stats WHERE venue_id=%s AND match_format=%s AND gender=%s",
+                    (venue_id, match_format, gender),
+                )
+                _PRECOMPUTED_CACHE[cache_key] = _json_to_prob_dict(rows[0][0]) if rows and rows[0][0] else None
+            else:
+                _PRECOMPUTED_CACHE[cache_key] = None
+        if _PRECOMPUTED_CACHE[cache_key]:
+            return _PRECOMPUTED_CACHE[cache_key]
         if not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
         query = f"""
@@ -188,6 +288,18 @@ class StatsRepository:
 
     def get_country_distribution(self, country: str, match_format: str, gender: str = 'male') -> Dict[Tuple, float]:
         """Outcome distribution across all venues in a country. Used as fallback when venue data is sparse."""
+        cache_key = ('cs', country, match_format, gender)
+        if cache_key not in _PRECOMPUTED_CACHE:
+            if self.conn:
+                rows = self._run_query(
+                    "SELECT probs FROM history.country_stats WHERE country=%s AND match_format=%s AND gender=%s",
+                    (country, match_format, gender),
+                )
+                _PRECOMPUTED_CACHE[cache_key] = _json_to_prob_dict(rows[0][0]) if rows and rows[0][0] else None
+            else:
+                _PRECOMPUTED_CACHE[cache_key] = None
+        if _PRECOMPUTED_CACHE[cache_key]:
+            return _PRECOMPUTED_CACHE[cache_key]
         if not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
         query = f"""
@@ -243,9 +355,30 @@ class StatsRepository:
         """
         if not player_ids or not self.conn:
             return {}
-        raw_fmts       = self._raw_formats(match_format)
-        c_list         = countries if countries else [country]
-        venue_exclude  = "AND m.venue_id != %s" if exclude_venue_id is not None else ""
+
+        c_list = countries if countries else [country]
+
+        if exclude_venue_id is None:
+            cached = self._load_player_country_stats_cache(match_format)
+            if cached:
+                result: Dict[int, Tuple[Dict[Tuple, float], int]] = {}
+                for pid in player_ids:
+                    combined: Dict[Tuple, float] = {}
+                    total_count = 0
+                    for c in c_list:
+                        entry = cached.get((pid, c))
+                        if entry:
+                            raw, _, count = entry
+                            for key, prob in raw.items():
+                                combined[key] = combined.get(key, 0.0) + prob * count
+                            total_count += count
+                    if total_count > 0 and combined:
+                        merged = {k: v / total_count for k, v in combined.items()}
+                        result[pid] = (merged, total_count)
+                return result
+
+        raw_fmts      = self._raw_formats(match_format)
+        venue_exclude = "AND m.venue_id != %s" if exclude_venue_id is not None else ""
         query = f"""
         SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
                SUM({_D6Y})
@@ -281,6 +414,12 @@ class StatsRepository:
         Position is derived from each batter's first appearance (by over/ball) in each innings.
         Used as a fallback when a batter has no personal career history in the cache.
         """
+        agg = self._load_aggregate_cache(match_format, gender)
+        if agg:
+            prefix = 'batting_position_'
+            result = {k[len(prefix):]: v for k, v in agg.items() if k.startswith(prefix)}
+            if result:
+                return result
         if not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
         query = """
@@ -329,6 +468,17 @@ class StatsRepository:
         return res
 
     def get_innings_distribution(self, match_format: str, gender: str = 'male') -> Dict[int, Dict[Tuple, float]]:
+        agg = self._load_aggregate_cache(match_format, gender)
+        if agg:
+            result = {}
+            for k, v in agg.items():
+                if k.startswith('innings_'):
+                    try:
+                        result[int(k[len('innings_'):])] = v
+                    except ValueError:
+                        pass
+            if result:
+                return result
         if not self.conn: return {}
         raw_fmts = self._raw_formats(match_format)
         query = """
@@ -369,6 +519,18 @@ class StatsRepository:
         return res
         
     def get_tournament_distribution(self, tournament_id: int) -> Dict[Tuple, float]:
+        cache_key = ('ts', tournament_id)
+        if cache_key not in _PRECOMPUTED_CACHE:
+            if self.conn:
+                rows = self._run_query(
+                    "SELECT probs FROM history.tournament_outcome_stats WHERE tournament_id=%s",
+                    (tournament_id,),
+                )
+                _PRECOMPUTED_CACHE[cache_key] = _json_to_prob_dict(rows[0][0]) if rows and rows[0][0] else None
+            else:
+                _PRECOMPUTED_CACHE[cache_key] = None
+        if _PRECOMPUTED_CACHE[cache_key]:
+            return _PRECOMPUTED_CACHE[cache_key]
         if not self.conn: return {}
         query = f"""
         SELECT d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
@@ -491,10 +653,180 @@ class StatsRepository:
             for r in rows
         }
 
+    def _load_roles_cache(self) -> Dict[int, dict]:
+        """Load player roles (is_keeper, is_spinner) from player_scalar_stats; process-level cache."""
+        cache_key = ('roles',)
+        if cache_key in _PRECOMPUTED_CACHE:
+            return _PRECOMPUTED_CACHE[cache_key]
+        if not self.conn:
+            _PRECOMPUTED_CACHE[cache_key] = {}
+            return {}
+        rows = self._run_query(
+            "SELECT player_id, data FROM history.player_scalar_stats "
+            "WHERE stat_type = 'roles' AND match_format = 'any'",
+            (),
+        )
+        result: Dict[int, dict] = {int(pid): data for pid, data in rows if data}
+        _PRECOMPUTED_CACHE[cache_key] = result
+        return result
+
+    # ── Bowling-strategy precomputed read methods ──────────────────────────────
+
+    def _load_workload_cache(self, match_format: str) -> Dict[int, dict]:
+        """All workload scalars for this format; process-level cache."""
+        cache_key = ('workload_pc', match_format)
+        if cache_key in _PRECOMPUTED_CACHE:
+            return _PRECOMPUTED_CACHE[cache_key]
+        if not self.conn:
+            _PRECOMPUTED_CACHE[cache_key] = {}
+            return {}
+        rows = self._run_query(
+            "SELECT player_id, data FROM history.player_scalar_stats "
+            "WHERE match_format = %s AND stat_type = 'workload'",
+            (match_format,),
+        )
+        result: Dict[int, dict] = {int(pid): data for pid, data in rows if data}
+        _PRECOMPUTED_CACHE[cache_key] = result
+        return result
+
+    def _load_bowler_order_cache(self, match_format: str, dist_type: str) -> Dict[Tuple, Dict[int, dict]]:
+        """
+        Loads all non-venue/non-country rows from bowler_order_stats for this
+        (format, dist_type) and returns {(match_type, inning_number): {pid: probs_dict}}.
+        Process-level cache.
+        """
+        cache_key = ('bowler_order_pc', match_format, dist_type)
+        if cache_key in _PRECOMPUTED_CACHE:
+            return _PRECOMPUTED_CACHE[cache_key]
+        if not self.conn:
+            _PRECOMPUTED_CACHE[cache_key] = {}
+            return {}
+        rows = self._run_query(
+            "SELECT player_id, match_type, inning_number, probs "
+            "FROM history.bowler_order_stats "
+            "WHERE match_format = %s AND dist_type = %s "
+            "AND venue_id IS NULL AND country IS NULL",
+            (match_format, dist_type),
+        )
+        result: Dict[Tuple, Dict[int, dict]] = {}
+        for pid, mt, inn, probs in rows:
+            if probs:
+                result.setdefault((mt, int(inn)), {})[int(pid)] = probs
+        _PRECOMPUTED_CACHE[cache_key] = result
+        return result
+
+    def _load_matchup_aggregate_cache(self, match_format: str) -> Dict[Tuple, dict]:
+        """
+        Derives {(batter_id, bowler_id): {economy, wicket_rate, balls}} from
+        batter_bowler_matchups.probs_raw for this format. Loaded once per process.
+        """
+        cache_key = ('matchup_agg', match_format)
+        if cache_key in _PRECOMPUTED_CACHE:
+            return _PRECOMPUTED_CACHE[cache_key]
+        if not self.conn:
+            _PRECOMPUTED_CACHE[cache_key] = {}
+            return {}
+        rows = self._run_query(
+            "SELECT batter_id, bowler_id, ball_count, probs_raw "
+            "FROM history.batter_bowler_matchups "
+            "WHERE match_format = %s AND ball_count >= 6",
+            (match_format,),
+        )
+        result: Dict[Tuple, dict] = {}
+        for batter_id, bowler_id, ball_count, probs_raw in rows:
+            if not probs_raw:
+                continue
+            economy = 0.0
+            wicket_rate = 0.0
+            for k, p in probs_raw.items():
+                parts = k.split('|', 3)
+                economy += (int(parts[0]) + int(parts[1])) * p * 6.0
+                if parts[2] == 'Wicket':
+                    wicket_rate += p
+            result[(int(batter_id), int(bowler_id))] = {
+                'economy':     economy,
+                'wicket_rate': wicket_rate,
+                'balls':       int(ball_count),
+            }
+        _PRECOMPUTED_CACHE[cache_key] = result
+        return result
+
+    def get_bowler_workload_precomputed(
+        self, player_ids: List[int], match_format: str
+    ) -> Dict[int, dict]:
+        """Precomputed workload stats filtered to player_ids. Never queries deliveries."""
+        full = self._load_workload_cache(match_format)
+        pid_set = set(player_ids)
+        return {pid: data for pid, data in full.items() if pid in pid_set}
+
+    def get_bowler_over_frequency_precomputed(
+        self, player_ids: List[int], match_format: str,
+        match_type: str = 'all', inning_number: int = 0,
+    ) -> Dict[int, Dict[int, float]]:
+        """Precomputed over-frequency for T20/ODI. Returns {pid: {over_key: frac}}."""
+        full = self._load_bowler_order_cache(match_format, 'over_freq')
+        pid_set = set(player_ids)
+        slot = full.get((match_type, inning_number), {})
+        return {pid: {int(k): float(v) for k, v in data.items()}
+                for pid, data in slot.items() if pid in pid_set}
+
+    def get_bowler_phase_dist_precomputed(
+        self, player_ids: List[int], match_format: str,
+        match_type: str = 'all', inning_number: int = 0,
+    ) -> Dict[int, Dict[str, float]]:
+        """Precomputed phase-overs distribution for T20/ODI. Returns {pid: {pp/mid/death: avg}}."""
+        full = self._load_bowler_order_cache(match_format, 'phase_dist')
+        pid_set = set(player_ids)
+        slot = full.get((match_type, inning_number), {})
+        return {pid: {str(k): float(v) for k, v in data.items()}
+                for pid, data in slot.items() if pid in pid_set}
+
+    def get_batter_bowler_matchups_aggregate(
+        self, batter_ids: List[int], bowler_ids: List[int], match_format: str
+    ) -> Dict[Tuple, dict]:
+        """Aggregate H2H scalars from precomputed matchups. Never queries deliveries."""
+        full = self._load_matchup_aggregate_cache(match_format)
+        b_set  = set(batter_ids)
+        bw_set = set(bowler_ids)
+        return {k: v for k, v in full.items() if k[0] in b_set and k[1] in bw_set}
+
+    @classmethod
+    def warm_all_caches(cls) -> None:
+        """
+        Pre-populate _PRECOMPUTED_CACHE for all formats and genders at server startup.
+        After this runs, every init_model call in EnhancedStrategy and the bowling
+        model returns from dict — no DB round-trip on any subsequent request.
+        """
+        import time
+        repo = cls()
+        if not repo.conn:
+            return
+        t0 = time.perf_counter()
+        formats = ('T20', 'ODI', 'Test')
+        genders = ('male', 'female')
+        for fmt in formats:
+            for gender in genders:
+                repo._load_aggregate_cache(fmt, gender)
+                repo.get_batter_milestone_distribution(fmt, gender)
+                for st in (['batting', 'bowling']
+                           + _PHASE_STAT_TYPES.get(fmt, [])
+                           + _MILESTONE_STAT_TYPES):
+                    repo._load_player_stat_cache(fmt, st)
+            repo._load_workload_cache(fmt)
+            repo._load_matchup_aggregate_cache(fmt)
+        for fmt in ('T20', 'ODI'):
+            for dist_type in ('over_freq', 'phase_dist'):
+                repo._load_bowler_order_cache(fmt, dist_type)
+        from simulator.logger import get_logger
+        get_logger().warning("[StartupWarm] All caches loaded in %.2fs", time.perf_counter() - t0)
+
     def get_wicket_keepers(self, player_ids: List[int], gender: str = 'male') -> set:
-        """Returns player_ids who have taken stumping dismissals — i.e., are wicket-keepers."""
+        """Returns player_ids who are wicket-keepers, using precomputed roles."""
         if not player_ids or not self.conn:
             return set()
+        roles = self._load_roles_cache()
+        if roles:
+            return {pid for pid in player_ids if roles.get(pid, {}).get('is_keeper', False)}
         query = """
         SELECT d.outcome_player_id
         FROM history.deliveries d
@@ -511,17 +843,12 @@ class StatsRepository:
 
     def get_spinner_ids(self, bowler_ids: List[int], gender: str = 'male',
                         match_format: str = None) -> set:
-        """
-        Returns the set of player_ids who are spinners, inferred from having
-        at least 3 stumped dismissals (stumpings only occur off spin/slow bowling).
-        A minimum threshold prevents pace bowlers with a single freak stumping
-        from being mis-classified as spinners.
-        When match_format is given, stumpings are counted only in that format
-        so a bowler who turns their arm over occasionally in one format doesn't
-        bleed classification into another.
-        """
+        """Returns spinners from precomputed roles, falling back to delivery stumping counts."""
         if not bowler_ids or not self.conn:
             return set()
+        roles = self._load_roles_cache()
+        if roles:
+            return {pid for pid in bowler_ids if roles.get(pid, {}).get('is_spinner', False)}
         format_filter = ""
         params: list = [bowler_ids, gender]
         if match_format:
@@ -547,43 +874,31 @@ class StatsRepository:
         self, batter_ids: List[int], match_format: str, gender: str = 'male'
     ) -> Dict[int, Dict[str, float]]:
         """
-        Returns {player_id: {'death_sr': float, 'boundary_rate': float, 'balls': int}}
-        for deliveries bowled in death overs (T20 ov ≥ 17, ODI ov ≥ 41; 1-indexed).
-        Only players with at least 6 death-over balls are included.
+        Returns {player_id: {'death_sr': float, 'boundary_rate': float, 'balls': int}}.
+        Derived from precomputed player_outcome_stats death phases — zero deliveries access.
+        Bulk-loaded once per process per (format, gender) and cached.
         """
-        if not batter_ids or not self.conn:
-            return {}
-        raw_fmts = self._raw_formats(match_format)
-        query = """
-        SELECT
-            d.batter_id,
-            SUM(d.runs_batter) * 100.0 /
-                NULLIF(SUM(CASE WHEN d.outcome_type != 'Extras' THEN 1 ELSE 0 END), 0)
-                AS death_sr,
-            SUM(CASE WHEN d.runs_batter >= 4 THEN 1 ELSE 0 END)::float /
-                NULLIF(COUNT(*), 0) AS boundary_rate,
-            COUNT(*) AS balls
-        FROM history.deliveries d
-        JOIN history.matches m ON d.match_id = m.match_id
-        WHERE d.batter_id = ANY(%s)
-          AND m.match_format = ANY(%s)
-          AND m.gender = %s
-          AND (
-                (m.match_format = ANY(ARRAY['T20','IT20'])          AND d.over_number >= 17)
-             OR (m.match_format = ANY(ARRAY['ODI','ODM','ONE DAY']) AND d.over_number >= 41)
-          )
-        GROUP BY d.batter_id
-        HAVING COUNT(*) >= 6
-        """
-        rows = self._run_query(query, (batter_ids, raw_fmts, gender))
-        return {
-            r[0]: {
-                'death_sr':      float(r[1] or 0),
-                'boundary_rate': float(r[2] or 0),
-                'balls':         int(r[3]),
-            }
-            for r in rows
-        }
+        cache_key = ('batter_death_stats', match_format, gender)
+        if cache_key not in _PRECOMPUTED_CACHE:
+            death_phases = [t for t in ('phase_death1', 'phase_death2')
+                            if t in _PHASE_STAT_TYPES.get(match_format, [])]
+            merged: Dict[int, Dict[str, float]] = {}
+            for st in death_phases:
+                for pid, (probs, _, balls) in self._load_player_stat_cache(match_format, st).items():
+                    if balls < 6 or not probs:
+                        continue
+                    non_extra_prob = sum(p for (rb, re, ot, _), p in probs.items() if ot != 'Extras')
+                    if non_extra_prob <= 0:
+                        continue
+                    exp_rb = sum(rb * p for (rb, re, ot, _), p in probs.items())
+                    death_sr = (exp_rb / non_extra_prob) * 100.0
+                    boundary_rate = sum(p for (rb, re, ot, _), p in probs.items() if rb >= 4)
+                    existing = merged.get(pid)
+                    if existing is None or balls > existing['balls']:
+                        merged[pid] = {'death_sr': death_sr, 'boundary_rate': boundary_rate, 'balls': balls}
+            _PRECOMPUTED_CACHE[cache_key] = merged
+        full = _PRECOMPUTED_CACHE[cache_key]
+        return {pid: full[pid] for pid in batter_ids if pid in full}
 
     def get_bowler_career_stats(
         self, bowler_ids: List[int], match_format: str, gender: str = 'male'
@@ -609,41 +924,46 @@ class StatsRepository:
             for r in rows
         }
 
+    # Maps fine-grained phase stat_type keys → broad super-over phase names
+    _SUPER_OVER_PHASE_MAP: Dict[str, str] = {
+        'phase_pp1': 'powerplay', 'phase_pp2': 'powerplay',
+        'phase_mid1': 'middle',   'phase_mid2': 'middle',   'phase_mid3': 'middle',
+        'phase_new': 'middle',    'phase_early': 'middle',  'phase_late': 'middle',
+        'phase_death1': 'death',  'phase_death2': 'death',
+    }
+
     def get_bowler_phase_stats(
         self, bowler_ids: List[int], match_format: str, gender: str = 'male'
     ) -> Dict[int, Dict[str, Dict[str, float]]]:
-        """Returns {player_id: {phase: {'economy': float, 'wicket_rate': float, 'balls': int}}}
-        Phases: 'powerplay', 'middle', 'death' (Test returns only 'middle').
         """
-        if not bowler_ids or not self.conn:
-            return {}
-        query = """
-        SELECT
-            d.bowler_id,
-            CASE
-                WHEN m.match_format = 'T20' AND d.over_number <= 6  THEN 'powerplay'
-                WHEN m.match_format = 'T20' AND d.over_number >= 17 THEN 'death'
-                WHEN m.match_format = 'ODI' AND d.over_number <= 10 THEN 'powerplay'
-                WHEN m.match_format = 'ODI' AND d.over_number >= 41 THEN 'death'
-                ELSE 'middle'
-            END AS phase,
-            SUM(d.runs_batter + d.runs_extras) * 6.0 / NULLIF(COUNT(*), 0) AS economy,
-            SUM(CASE WHEN d.outcome_type = 'Wicket' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS wicket_rate,
-            COUNT(*) AS balls
-        FROM history.deliveries d
-        JOIN history.matches m ON d.match_id = m.match_id
-        WHERE d.bowler_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
-        GROUP BY d.bowler_id, phase
+        Returns {player_id: {phase: {'economy': float, 'wicket_rate': float, 'balls': int}}}.
+        Phases: 'powerplay', 'middle', 'death'.
+        Derived from precomputed player_outcome_stats bowling-role phases — zero deliveries access.
+        Bulk-loaded once per process per (format, gender) and cached.
         """
-        rows = self._run_query(query, (bowler_ids, self._raw_formats(match_format), gender))
-        result: Dict[int, Dict[str, Dict[str, float]]] = defaultdict(dict)
-        for bowler_id, phase, economy, wicket_rate, balls in rows:
-            result[bowler_id][phase] = {
-                'economy': float(economy or 0),
-                'wicket_rate': float(wicket_rate or 0),
-                'balls': int(balls),
-            }
-        return dict(result)
+        cache_key = ('bowler_phase_stats', match_format, gender)
+        if cache_key not in _PRECOMPUTED_CACHE:
+            # Use the bowling stat type from player_outcome_stats to derive per-phase aggregates.
+            # Economy = E[runs_batter + runs_extras] * 6; wicket_rate = P(Wicket).
+            stat_types = _PHASE_STAT_TYPES.get(match_format, [])
+            merged: Dict[int, Dict[str, Dict[str, float]]] = {}
+            for st in stat_types:
+                broad_phase = self._SUPER_OVER_PHASE_MAP.get(st)
+                if not broad_phase:
+                    continue
+                for pid, (probs, _, balls) in self._load_player_stat_cache(match_format, st).items():
+                    if balls < 6 or not probs:
+                        continue
+                    economy = sum((rb + re) * p for (rb, re, ot, _), p in probs.items()) * 6.0
+                    wicket_rate = sum(p for (rb, re, ot, _), p in probs.items() if ot == 'Wicket')
+                    existing = merged.setdefault(pid, {}).get(broad_phase)
+                    if existing is None or balls > existing['balls']:
+                        merged[pid][broad_phase] = {
+                            'economy': economy, 'wicket_rate': wicket_rate, 'balls': balls,
+                        }
+            _PRECOMPUTED_CACHE[cache_key] = merged
+        full = _PRECOMPUTED_CACHE[cache_key]
+        return {pid: full[pid] for pid in bowler_ids if pid in full}
 
     def get_batter_bowler_matchups(
         self,
@@ -716,6 +1036,9 @@ class StatsRepository:
         Denominator is total matches played (from match_players), not just matches bowled.
         When `country` is provided, only matches at venues in that country are counted.
 
+        NOTE: No live callers found — superseded by get_bowler_phase_dist_precomputed.
+        Queries history.deliveries; do not call at simulation runtime.
+
         T20 phases  — 'powerplay_early' (ov 1-4), 'powerplay_late' (ov 5-6),
                        'middle' (ov 7-15), 'death_early' (ov 16-17), 'death_late' (ov 18-20)
         ODI phases  — 'powerplay' (ov 1-10), 'middle' (ov 11-39),
@@ -724,6 +1047,7 @@ class StatsRepository:
 
         Phase keys that don't apply to a format will be 0 (e.g. 'powerplay_early' is 0 for ODI).
         """
+        _repo_log.warning("get_bowler_phase_frequency: no live callers — superseded by precomputed tables. Querying history.deliveries.")
         if not bowler_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
@@ -1029,7 +1353,9 @@ class StatsRepository:
         Economy and wicket rate for each bowler at this specific venue.
         Returns {player_id: {'economy': float, 'wicket_rate': float, 'balls': int}}
         Only bowlers with at least 18 balls at the venue are included.
+        NOTE: No live callers found. Queries history.deliveries; do not call at simulation runtime.
         """
+        _repo_log.warning("get_bowler_venue_stats: no live callers — queries history.deliveries.")
         if not bowler_ids or not self.conn:
             return {}
         query = """
@@ -1061,7 +1387,9 @@ class StatsRepository:
         Economy and wicket rate for each bowler across all venues in a country.
         Used as a fallback when venue-specific sample is too small.
         Returns {player_id: {'economy': float, 'wicket_rate': float, 'balls': int}}
+        NOTE: No live callers found. Queries history.deliveries; do not call at simulation runtime.
         """
+        _repo_log.warning("get_bowler_country_stats: no live callers — queries history.deliveries.")
         if not bowler_ids or not self.conn:
             return {}
         query = """
@@ -1093,7 +1421,9 @@ class StatsRepository:
         """
         Economy and wicket rate across a bowler's last N matches in this format.
         Returns {player_id: {'economy': float, 'wicket_rate': float, 'balls': int}}
+        NOTE: No live callers found. Queries history.deliveries; do not call at simulation runtime.
         """
+        _repo_log.warning("get_bowler_recent_form: no live callers — queries history.deliveries.")
         if not bowler_ids or not self.conn:
             return {}
         query = """
@@ -1388,7 +1718,18 @@ class StatsRepository:
 
         Returns {milestone: {outcome_key: prob}}.
         """
+        cache_key = ('milestone_global', match_format, gender)
+        if cache_key in _PRECOMPUTED_CACHE:
+            return _PRECOMPUTED_CACHE[cache_key]
+        agg = self._load_aggregate_cache(match_format, gender)
+        if agg:
+            prefix = 'milestone_'
+            result = {k[len(prefix):]: v for k, v in agg.items() if k.startswith(prefix)}
+            if result:
+                _PRECOMPUTED_CACHE[cache_key] = result
+                return result
         if not self.conn:
+            _PRECOMPUTED_CACHE[cache_key] = {}
             return {}
         raw_fmts = self._raw_formats(match_format)
         query = """
@@ -1425,6 +1766,7 @@ class StatsRepository:
             probs = self._parse_rows_to_probs(metrics)
             if probs:
                 result[milestone] = probs
+        _PRECOMPUTED_CACHE[cache_key] = result
         return result
 
     def get_player_milestone_distributions(
@@ -1684,12 +2026,65 @@ class StatsRepository:
         """, (player_ids, raw_fmts, gender))
         return {pid: int(cnt) for pid, cnt in rows}
 
+    def _load_player_country_stats_cache(self, match_format: str) -> Dict[Tuple, Tuple]:
+        """Bulk-load player_context_stats for country context; keyed by (player_id, country)."""
+        cache_key = ('pcs_country', match_format)
+        if cache_key in _PRECOMPUTED_CACHE:
+            return _PRECOMPUTED_CACHE[cache_key]
+        if not self.conn:
+            _PRECOMPUTED_CACHE[cache_key] = {}
+            return {}
+        rows = self._run_query(
+            "SELECT player_id, country, probs_raw, probs_era, ball_count "
+            "FROM history.player_context_stats "
+            "WHERE match_format = %s AND context_type = 'country'",
+            (match_format,),
+        )
+        result: Dict[Tuple, tuple] = {}
+        for pid, country, raw_j, era_j, count in rows:
+            raw = _json_to_prob_dict(raw_j)
+            if raw:
+                result[(int(pid), country)] = (raw, _json_to_prob_dict(era_j), int(count))
+        _PRECOMPUTED_CACHE[cache_key] = result
+        return result
+
+    def _load_aggregate_cache(self, match_format: str, gender: str) -> Dict[str, Any]:
+        """Bulk-load history.aggregate_stats for a format/gender; cached at process level.
+
+        Most keys store outcome-probability dicts decoded by _json_to_prob_dict.
+        'fielding_counts' is stored raw as {str(player_id): count} and kept as-is.
+        """
+        cache_key = ('agg', match_format, gender)
+        if cache_key in _PRECOMPUTED_CACHE:
+            return _PRECOMPUTED_CACHE[cache_key]
+        if not self.conn:
+            _PRECOMPUTED_CACHE[cache_key] = {}
+            return {}
+        rows = self._run_query(
+            "SELECT stat_key, probs FROM history.aggregate_stats WHERE match_format = %s AND gender = %s",
+            (match_format, gender),
+        )
+        result: Dict[str, Any] = {}
+        for row in rows:
+            stat_key, raw_json = row[0], row[1]
+            if stat_key == 'fielding_counts':
+                result[stat_key] = raw_json  # already a dict {str: int}
+            else:
+                probs = _json_to_prob_dict(raw_json)
+                if probs:
+                    result[stat_key] = probs
+        _PRECOMPUTED_CACHE[cache_key] = result
+        return result
+
     def get_full_aggregate_distribution(self, match_format: str, gender: str = 'male') -> Dict[Tuple, float]:
         """
         Overall delivery outcome probability distribution across all deliveries for this format.
         Used as the baseline anchor in the enhanced strategy — derived from raw counts rather
         than by averaging per-innings distributions.
         """
+        agg = self._load_aggregate_cache(match_format, gender)
+        if agg and 'baseline' in agg:
+            return agg['baseline']
         if not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
@@ -1715,6 +2110,11 @@ class StatsRepository:
 
         Returns {phase_name: {outcome_key: prob}}.
         """
+        agg = self._load_aggregate_cache(match_format, gender)
+        if agg:
+            result = {k[len('phase_'):]: v for k, v in agg.items() if k.startswith('phase_')}
+            if result:
+                return result
         if not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
@@ -1813,7 +2213,17 @@ class StatsRepository:
         return result
 
     def get_fielding_distribution(self, match_format: str, gender: str = 'male') -> Dict[int, int]:
-        if not self.conn: return {}
+        cache_key = ('fielding', match_format, gender)
+        if cache_key in _PRECOMPUTED_CACHE:
+            return _PRECOMPUTED_CACHE[cache_key]
+        agg = self._load_aggregate_cache(match_format, gender)
+        if agg and 'fielding_counts' in agg:
+            result = {int(pid): int(cnt) for pid, cnt in agg['fielding_counts'].items()}
+            _PRECOMPUTED_CACHE[cache_key] = result
+            return result
+        if not self.conn:
+            _PRECOMPUTED_CACHE[cache_key] = {}
+            return {}
         query = """
         SELECT d.outcome_player_id, COUNT(*)
         FROM history.deliveries d
@@ -1822,7 +2232,9 @@ class StatsRepository:
         GROUP BY d.outcome_player_id
         """
         rows = self._run_query(query, (self._raw_formats(match_format), gender))
-        return {r[0]: r[1] for r in rows}
+        result = {r[0]: r[1] for r in rows}
+        _PRECOMPUTED_CACHE[cache_key] = result
+        return result
 
     def get_batter_phase_distribution(
         self, batter_ids: List[int], match_format: str, gender: str = 'male'
@@ -1832,7 +2244,10 @@ class StatsRepository:
         Returns (phase_dists, phase_ball_counts):
           phase_dists       = {batter_id: {phase: {outcome_key: prob}}}
           phase_ball_counts = {batter_id: {phase: approx_ball_count}}
+        NOTE: No live callers found — superseded by get_batter_phase_probs_precomputed.
+        Queries history.deliveries; do not call at simulation runtime.
         """
+        _repo_log.warning("get_batter_phase_distribution: no live callers — superseded by precomputed tables. Querying history.deliveries.")
         if not batter_ids or not self.conn:
             return {}, {}
         raw_fmts = self._raw_formats(match_format)
@@ -1868,3 +2283,564 @@ class StatsRepository:
                     phase_ball_counts[batter_id][phase] = int(round(total))
 
         return phase_dists, phase_ball_counts
+
+    # ── Era normalization — per-year raw count queries ────────────────────────
+
+    def get_global_yearly_baseline(
+        self, match_format: str, gender: str = 'male',
+        use_precomputed: bool = True,
+    ) -> Dict[int, Dict[Tuple, float]]:
+        """
+        Returns {year: {outcome_key: probability}} — the global outcome distribution
+        per calendar year. Used as the era denominator in era normalization.
+
+        When use_precomputed=True (default), reads from history.global_yearly_baseline
+        (populated by db/precompute.py). Falls back to computing from raw deliveries
+        if the table is empty or use_precomputed=False.
+        NOTE: No live callers found in simulation or API code.
+        """
+        _repo_log.warning("get_global_yearly_baseline: no live callers — use precompute.py directly.")
+        if not self.conn:
+            return {}
+
+        if use_precomputed:
+            # Map raw format aliases (e.g. "IT20") to the canonical name used in the table
+            unified = next((k for k, vs in _FORMAT_ALIASES.items() if match_format in vs), match_format)
+            query = """
+            SELECT year, runs_batter, runs_extras, outcome_type, outcome_kind, probability
+            FROM history.global_yearly_baseline
+            WHERE match_format = %s AND gender = %s
+            ORDER BY year
+            """
+            rows = self._run_query(query, (unified, gender))
+            if rows:
+                result: Dict[int, Dict[Tuple, float]] = {}
+                for row in rows:
+                    year = int(row[0])
+                    key  = (row[1], row[2], row[3], row[4])
+                    if year not in result:
+                        result[year] = {}
+                    result[year][key] = float(row[5])
+                return result
+
+        # Fallback: compute from raw deliveries (slow on large datasets)
+        raw_fmts = self._raw_formats(match_format)
+        query = """
+        SELECT EXTRACT(YEAR FROM m.date)::INTEGER AS year,
+               d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+               COUNT(*)
+        FROM history.deliveries d
+        JOIN history.matches m ON d.match_id = m.match_id
+        WHERE m.match_format = ANY(%s) AND m.gender = %s AND m.date IS NOT NULL
+        GROUP BY year, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
+        ORDER BY year
+        """
+        rows = self._run_query(query, (raw_fmts, gender))
+        year_counts: Dict[int, Dict[Tuple, int]] = defaultdict(lambda: defaultdict(int))
+        for row in rows:
+            year_counts[int(row[0])][(row[1], row[2], row[3], row[4])] += int(row[5])
+        result = {}
+        for year, counts in year_counts.items():
+            total = sum(counts.values())
+            if total > 0:
+                result[year] = {k: v / total for k, v in counts.items()}
+        return result
+
+    def get_matchup_distribution_per_year(
+        self,
+        batter_ids: List[int],
+        bowler_ids: List[int],
+        match_format: str,
+        gender: str = 'male',
+        min_balls: int = 12,
+    ) -> Dict[Tuple[int, int], Dict[int, Dict[Tuple, int]]]:
+        """
+        Per-year raw delivery counts for qualified batter-bowler pairs.
+        Only pairs with total >= min_balls (across all years) are included.
+        Returns {(batter_id, bowler_id): {year: {outcome_key: count}}}.
+        NOTE: No live callers found. Used by precompute.py logic only.
+        """
+        _repo_log.warning("get_matchup_distribution_per_year: no live callers — queries history.deliveries.")
+        if not batter_ids or not bowler_ids or not self.conn:
+            return {}
+        raw_fmts = self._raw_formats(match_format)
+        query = """
+        WITH qualified_pairs AS (
+            SELECT d.batter_id, d.bowler_id
+            FROM history.deliveries d
+            JOIN history.matches m ON d.match_id = m.match_id
+            WHERE d.batter_id = ANY(%s) AND d.bowler_id = ANY(%s)
+              AND m.match_format = ANY(%s) AND m.gender = %s
+            GROUP BY d.batter_id, d.bowler_id
+            HAVING COUNT(*) >= %s
+        )
+        SELECT d.batter_id, d.bowler_id,
+               EXTRACT(YEAR FROM m.date)::INTEGER AS year,
+               d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        FROM history.deliveries d
+        JOIN history.matches m ON d.match_id = m.match_id
+        JOIN qualified_pairs qp ON d.batter_id = qp.batter_id AND d.bowler_id = qp.bowler_id
+        WHERE m.match_format = ANY(%s) AND m.gender = %s AND m.date IS NOT NULL
+        GROUP BY d.batter_id, d.bowler_id, year,
+                 d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
+        """
+        rows = self._run_query(query, (batter_ids, bowler_ids, raw_fmts, gender, min_balls, raw_fmts, gender))
+        result: Dict[Tuple, Dict[int, Dict[Tuple, int]]] = {}
+        for row in rows:
+            pair = (row[0], row[1])
+            year = int(row[2])
+            key  = (row[3], row[4], row[5], row[6])
+            cnt  = int(row[7])
+            if pair not in result:
+                result[pair] = {}
+            if year not in result[pair]:
+                result[pair][year] = {}
+            result[pair][year][key] = result[pair][year].get(key, 0) + cnt
+        return result
+
+    def get_batters_distribution_per_year(
+        self, batter_ids: List[int], match_format: str, gender: str = 'male'
+    ) -> Dict[int, Dict[int, Dict[Tuple, int]]]:
+        """
+        Per-year raw delivery counts for each batter.
+        Returns {batter_id: {year: {outcome_key: count}}}.
+        NOTE: No live callers found. Used by precompute.py logic only.
+        """
+        _repo_log.warning("get_batters_distribution_per_year: no live callers — queries history.deliveries.")
+        if not batter_ids or not self.conn:
+            return {}
+        raw_fmts = self._raw_formats(match_format)
+        query = """
+        SELECT d.batter_id, EXTRACT(YEAR FROM m.date)::INTEGER AS year,
+               d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        FROM history.deliveries d
+        JOIN history.matches m ON d.match_id = m.match_id
+        WHERE d.batter_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
+          AND m.date IS NOT NULL
+        GROUP BY d.batter_id, year,
+                 d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
+        """
+        rows = self._run_query(query, (batter_ids, raw_fmts, gender))
+        result: Dict[int, Dict[int, Dict[Tuple, int]]] = {}
+        for row in rows:
+            pid  = row[0]
+            year = int(row[1])
+            key  = (row[2], row[3], row[4], row[5])
+            cnt  = int(row[6])
+            if pid not in result:
+                result[pid] = {}
+            if year not in result[pid]:
+                result[pid][year] = {}
+            result[pid][year][key] = result[pid][year].get(key, 0) + cnt
+        return result
+
+    def get_bowlers_distribution_per_year(
+        self, bowler_ids: List[int], match_format: str, gender: str = 'male'
+    ) -> Dict[int, Dict[int, Dict[Tuple, int]]]:
+        """
+        Per-year raw delivery counts for each bowler.
+        Returns {bowler_id: {year: {outcome_key: count}}}.
+        NOTE: No live callers found. Used by precompute.py logic only.
+        """
+        _repo_log.warning("get_bowlers_distribution_per_year: no live callers — queries history.deliveries.")
+        if not bowler_ids or not self.conn:
+            return {}
+        raw_fmts = self._raw_formats(match_format)
+        query = """
+        SELECT d.bowler_id, EXTRACT(YEAR FROM m.date)::INTEGER AS year,
+               d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        FROM history.deliveries d
+        JOIN history.matches m ON d.match_id = m.match_id
+        WHERE d.bowler_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
+          AND m.date IS NOT NULL
+        GROUP BY d.bowler_id, year,
+                 d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
+        """
+        rows = self._run_query(query, (bowler_ids, raw_fmts, gender))
+        result: Dict[int, Dict[int, Dict[Tuple, int]]] = {}
+        for row in rows:
+            pid  = row[0]
+            year = int(row[1])
+            key  = (row[2], row[3], row[4], row[5])
+            cnt  = int(row[6])
+            if pid not in result:
+                result[pid] = {}
+            if year not in result[pid]:
+                result[pid][year] = {}
+            result[pid][year][key] = result[pid][year].get(key, 0) + cnt
+        return result
+
+    def get_batter_phase_distribution_per_year(
+        self, batter_ids: List[int], match_format: str, gender: str = 'male'
+    ) -> Dict[int, Dict[str, Dict[int, Dict[Tuple, int]]]]:
+        """
+        Per-batter, per-phase, per-year raw delivery counts.
+        Returns {batter_id: {phase: {year: {outcome_key: count}}}}.
+        NOTE: No live callers found. Used by precompute.py logic only.
+        """
+        _repo_log.warning("get_batter_phase_distribution_per_year: no live callers — queries history.deliveries.")
+        if not batter_ids or not self.conn:
+            return {}
+        raw_fmts = self._raw_formats(match_format)
+        if match_format == 'T20':
+            phase_expr = """
+            CASE
+                WHEN d.over_number <= 3  THEN 'pp1'
+                WHEN d.over_number <= 6  THEN 'pp2'
+                WHEN d.over_number <= 11 THEN 'mid1'
+                WHEN d.over_number <= 15 THEN 'mid2'
+                WHEN d.over_number <= 17 THEN 'death1'
+                ELSE 'death2'
+            END"""
+        elif match_format == 'ODI':
+            phase_expr = """
+            CASE
+                WHEN d.over_number <= 5  THEN 'pp1'
+                WHEN d.over_number <= 10 THEN 'pp2'
+                WHEN d.over_number <= 20 THEN 'mid1'
+                WHEN d.over_number <= 30 THEN 'mid2'
+                WHEN d.over_number <= 40 THEN 'mid3'
+                WHEN d.over_number <= 45 THEN 'death1'
+                ELSE 'death2'
+            END"""
+        else:
+            phase_expr = """
+            CASE
+                WHEN d.over_number <= 10 THEN 'new'
+                WHEN d.over_number <= 30 THEN 'early'
+                WHEN d.over_number <= 80 THEN 'middle'
+                ELSE 'late'
+            END"""
+        query = f"""
+        SELECT d.batter_id, {phase_expr} AS phase,
+               EXTRACT(YEAR FROM m.date)::INTEGER AS year,
+               d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        FROM history.deliveries d
+        JOIN history.matches m ON d.match_id = m.match_id
+        WHERE d.batter_id = ANY(%s) AND m.match_format = ANY(%s) AND m.gender = %s
+          AND m.date IS NOT NULL
+        GROUP BY d.batter_id, phase, year,
+                 d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
+        """
+        rows = self._run_query(query, (batter_ids, raw_fmts, gender))
+        result: Dict[int, Dict[str, Dict[int, Dict[Tuple, int]]]] = {}
+        for row in rows:
+            pid   = row[0]
+            phase = row[1]
+            year  = int(row[2])
+            key   = (row[3], row[4], row[5], row[6])
+            cnt   = int(row[7])
+            if pid not in result:
+                result[pid] = {}
+            if phase not in result[pid]:
+                result[pid][phase] = {}
+            if year not in result[pid][phase]:
+                result[pid][phase][year] = {}
+            result[pid][phase][year][key] = result[pid][phase][year].get(key, 0) + cnt
+        return result
+
+    def get_player_venue_distribution_per_year(
+        self, player_ids: List[int], venue_id: int, match_format: str, gender: str = 'male'
+    ) -> Dict[int, Dict[int, Dict[Tuple, int]]]:
+        """
+        Per-player, per-year raw delivery counts at a specific venue.
+        Returns {player_id: {year: {outcome_key: count}}}.
+        NOTE: No live callers found. Used by precompute.py logic only.
+        """
+        _repo_log.warning("get_player_venue_distribution_per_year: no live callers — queries history.deliveries.")
+        if not player_ids or not self.conn:
+            return {}
+        raw_fmts = self._raw_formats(match_format)
+        query = """
+        SELECT d.batter_id, EXTRACT(YEAR FROM m.date)::INTEGER AS year,
+               d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind, COUNT(*)
+        FROM history.deliveries d
+        JOIN history.matches m ON d.match_id = m.match_id
+        WHERE d.batter_id = ANY(%s) AND m.venue_id = %s
+          AND m.match_format = ANY(%s) AND m.gender = %s AND m.date IS NOT NULL
+        GROUP BY d.batter_id, year,
+                 d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
+        """
+        rows = self._run_query(query, (player_ids, venue_id, raw_fmts, gender))
+        result: Dict[int, Dict[int, Dict[Tuple, int]]] = {}
+        for row in rows:
+            pid  = row[0]
+            year = int(row[1])
+            key  = (row[2], row[3], row[4], row[5])
+            cnt  = int(row[6])
+            if pid not in result:
+                result[pid] = {}
+            if year not in result[pid]:
+                result[pid][year] = {}
+            result[pid][year][key] = result[pid][year].get(key, 0) + cnt
+        return result
+
+    def get_player_milestone_distributions_per_year(
+        self, player_ids: List[int], match_format: str, gender: str = 'male'
+    ) -> Dict[int, Dict[str, Dict[int, Dict[Tuple, int]]]]:
+        """
+        Per-player, per-milestone (10-run bucket), per-year raw delivery counts.
+        Returns {player_id: {milestone: {year: {outcome_key: count}}}}.
+        NOTE: No live callers found. Used by precompute.py logic only.
+        """
+        _repo_log.warning("get_player_milestone_distributions_per_year: no live callers — queries history.deliveries.")
+        if not player_ids or not self.conn:
+            return {}
+        raw_fmts = self._raw_formats(match_format)
+        query = """
+        WITH delivery_running AS (
+            SELECT
+                d.batter_id,
+                d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
+                m.date,
+                COALESCE(
+                    SUM(d.runs_batter) OVER (
+                        PARTITION BY d.batter_id, d.match_id, d.inning_number
+                        ORDER BY d.over_number, d.ball_number
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                    ), 0
+                ) AS score_before
+            FROM history.deliveries d
+            JOIN history.matches m ON d.match_id = m.match_id
+            WHERE m.match_format = ANY(%s) AND m.gender = %s
+              AND d.batter_id = ANY(%s) AND m.date IS NOT NULL
+        )
+        SELECT
+            batter_id,
+            CASE
+                WHEN score_before >= 100 THEN 'm100'
+                ELSE 'm' || ((score_before / 10) * 10)::text
+            END AS milestone,
+            EXTRACT(YEAR FROM date)::INTEGER AS year,
+            runs_batter, runs_extras, outcome_type, outcome_kind,
+            COUNT(*) AS cnt
+        FROM delivery_running
+        GROUP BY batter_id, milestone, year,
+                 runs_batter, runs_extras, outcome_type, outcome_kind
+        """
+        rows = self._run_query(query, (raw_fmts, gender, player_ids))
+        result: Dict[int, Dict[str, Dict[int, Dict[Tuple, int]]]] = {}
+        for row in rows:
+            pid       = row[0]
+            milestone = row[1]
+            year      = int(row[2])
+            key       = (row[3], row[4], row[5], row[6])
+            cnt       = int(row[7])
+            if pid not in result:
+                result[pid] = {}
+            if milestone not in result[pid]:
+                result[pid][milestone] = {}
+            if year not in result[pid][milestone]:
+                result[pid][milestone][year] = {}
+            result[pid][milestone][year][key] = result[pid][milestone][year].get(key, 0) + cnt
+        return result
+
+    # ── Precomputed read paths ─────────────────────────────────────────────────
+
+    def _load_player_stat_cache(self, match_format: str, stat_type: str) -> Dict[int, tuple]:
+        """
+        Bulk-load history.player_outcome_stats for a (format, stat_type) pair.
+        Cached in the module-level _PRECOMPUTED_CACHE so subsequent calls within the
+        same process are pure dict lookups — no DB round-trip.
+        """
+        cache_key = ('pos', match_format, stat_type)
+        if cache_key in _PRECOMPUTED_CACHE:
+            return _PRECOMPUTED_CACHE[cache_key]
+        if not self.conn:
+            _PRECOMPUTED_CACHE[cache_key] = {}
+            return {}
+        rows = self._run_query(
+            "SELECT player_id, probs_raw, probs_era, ball_count "
+            "FROM history.player_outcome_stats "
+            "WHERE match_format = %s AND stat_type = %s",
+            (match_format, stat_type),
+        )
+        result: Dict[int, tuple] = {}
+        for row in rows:
+            pid, raw_json, era_json, count = row[0], row[1], row[2], row[3]
+            raw = _json_to_prob_dict(raw_json)
+            if raw:
+                result[int(pid)] = (raw, _json_to_prob_dict(era_json), int(count))
+        _PRECOMPUTED_CACHE[cache_key] = result
+        return result
+
+    def get_batters_probs_precomputed(
+        self, batter_ids: List[int], match_format: str, gender: str = 'male'
+    ) -> Dict[int, Tuple]:
+        """
+        Returns {player_id: (probs_raw, probs_era, ball_count)} from precomputed table.
+        probs_era is None for Test or when era data wasn't computed.
+        Falls back to decay-weighted distribution if the precomputed table is empty.
+        """
+        cached = self._load_player_stat_cache(match_format, 'batting')
+        if cached:
+            return {pid: cached[pid] for pid in batter_ids if pid in cached}
+        data = self.get_batters_distribution_with_counts(batter_ids, match_format, gender)
+        return {pid: (probs, None, count) for pid, (probs, count) in data.items()}
+
+    def get_bowlers_probs_precomputed(
+        self, bowler_ids: List[int], match_format: str, gender: str = 'male'
+    ) -> Dict[int, Tuple]:
+        """
+        Returns {player_id: (probs_raw, probs_era, ball_count)} from precomputed table.
+        Falls back to decay-weighted distribution if the precomputed table is empty.
+        """
+        cached = self._load_player_stat_cache(match_format, 'bowling')
+        if cached:
+            return {pid: cached[pid] for pid in bowler_ids if pid in cached}
+        data = self.get_bowlers_distribution_with_counts(bowler_ids, match_format, gender)
+        return {pid: (probs, None, count) for pid, (probs, count) in data.items()}
+
+    def get_batter_phase_probs_precomputed(
+        self, batter_ids: List[int], match_format: str, gender: str = 'male'
+    ) -> Dict[int, Dict[str, Tuple]]:
+        """
+        Returns {player_id: {phase: (probs_raw, probs_era, ball_count)}}.
+        Phase keys use the short form without 'phase_' prefix (e.g. 'pp1', 'mid1').
+        Falls back to the decay-weighted phase query if precomputed table is empty.
+        """
+        stat_types = _PHASE_STAT_TYPES.get(match_format, [])
+        if not stat_types:
+            return {}
+
+        result: Dict[int, Dict[str, tuple]] = {}
+        any_data = False
+        for st in stat_types:
+            cached = self._load_player_stat_cache(match_format, st)
+            if cached:
+                any_data = True
+                phase = st[len('phase_'):]
+                for pid in batter_ids:
+                    if pid in cached:
+                        result.setdefault(pid, {})[phase] = cached[pid]
+
+        if any_data:
+            return result
+
+        phase_dists, phase_counts = self.get_batter_phase_distribution(batter_ids, match_format, gender)
+        fb: Dict[int, Dict[str, tuple]] = {}
+        for pid in batter_ids:
+            if pid in phase_dists:
+                fb[pid] = {
+                    phase: (probs, None, phase_counts.get(pid, {}).get(phase, 0))
+                    for phase, probs in phase_dists[pid].items()
+                }
+        return fb
+
+    def get_player_milestone_probs_precomputed(
+        self, player_ids: List[int], match_format: str, gender: str = 'male'
+    ) -> Dict[int, Dict[str, Tuple]]:
+        """
+        Returns {player_id: {milestone: (probs_raw, probs_era, ball_count)}}.
+        Milestone keys use the short form without 'milestone_' prefix (e.g. 'm0', 'm10').
+        Falls back to the raw milestone query if the precomputed table is empty.
+        """
+        result: Dict[int, Dict[str, tuple]] = {}
+        any_data = False
+        for st in _MILESTONE_STAT_TYPES:
+            cached = self._load_player_stat_cache(match_format, st)
+            if cached:
+                any_data = True
+                milestone = st[len('milestone_'):]
+                for pid in player_ids:
+                    if pid in cached:
+                        result.setdefault(pid, {})[milestone] = cached[pid]
+
+        if any_data:
+            return result
+
+        raw_dists = self.get_player_milestone_distributions(player_ids, match_format, gender)
+        return {pid: {m: (probs, None, 0) for m, probs in milestones.items()}
+                for pid, milestones in raw_dists.items()}
+
+    def get_matchup_probs_precomputed(
+        self,
+        batter_ids: List[int],
+        bowler_ids: List[int],
+        match_format: str,
+        gender: str = 'male',
+    ) -> Dict[Tuple[int, int], Tuple]:
+        """
+        Returns {(batter_id, bowler_id): (probs_raw, probs_era, ball_count)}.
+        Queries batter_bowler_matchups for the requested pairs directly.
+        When the table is populated for this format, pairs not present simply have no
+        qualifying head-to-head data — returns empty dict rather than falling back to
+        a full deliveries scan.  Only falls back when the table itself is empty
+        (i.e. precompute.py hasn't been run yet).
+        """
+        if not batter_ids or not bowler_ids or not self.conn:
+            return {}
+
+        table_key = ('matchup_table_populated', match_format)
+        if table_key not in _PRECOMPUTED_CACHE:
+            check = self._run_query(
+                "SELECT 1 FROM history.batter_bowler_matchups WHERE match_format = %s LIMIT 1",
+                (match_format,),
+            )
+            _PRECOMPUTED_CACHE[table_key] = bool(check)
+
+        rows = self._run_query(
+            "SELECT batter_id, bowler_id, probs_raw, probs_era, ball_count "
+            "FROM history.batter_bowler_matchups "
+            "WHERE match_format = %s AND batter_id = ANY(%s) AND bowler_id = ANY(%s)",
+            (match_format, batter_ids, bowler_ids),
+        )
+        if rows or _PRECOMPUTED_CACHE[table_key]:
+            result: Dict[Tuple[int, int], tuple] = {}
+            for row in rows:
+                bid, bowid, raw_j, era_j, count = row
+                raw = _json_to_prob_dict(raw_j)
+                if raw:
+                    result[(int(bid), int(bowid))] = (raw, _json_to_prob_dict(era_j), int(count))
+            return result
+
+        if match_format != 'Test':
+            per_year = self.get_matchup_distribution_per_year(
+                batter_ids, bowler_ids, match_format, gender
+            )
+            fb: Dict[Tuple[int, int], tuple] = {}
+            for pair, py in per_year.items():
+                raw = _decay_weight_per_year(py, 5.0)
+                total = sum(sum(y.values()) for y in py.values())
+                if raw:
+                    fb[pair] = (raw, None, total)
+            return fb
+
+        data = self.get_matchup_distribution_with_counts(
+            batter_ids, bowler_ids, match_format, gender
+        )
+        return {pair: (probs, None, count) for pair, (probs, count) in data.items()}
+
+    def get_player_venue_probs_precomputed(
+        self, player_ids: List[int], venue_id: int, match_format: str, gender: str = 'male'
+    ) -> Dict[int, Tuple]:
+        """
+        Returns {player_id: (probs_raw, probs_era, ball_count)} from precomputed table.
+        Caches per venue so subsequent matches at the same venue are zero-query.
+        Falls back to the decay-weighted venue query if precomputed table is empty.
+        """
+        cache_key = ('pcs_venue', match_format, venue_id)
+        if cache_key not in _PRECOMPUTED_CACHE:
+            if not self.conn:
+                _PRECOMPUTED_CACHE[cache_key] = {}
+            else:
+                rows = self._run_query(
+                    "SELECT player_id, probs_raw, probs_era, ball_count "
+                    "FROM history.player_context_stats "
+                    "WHERE match_format = %s AND context_type = 'venue' AND venue_id = %s",
+                    (match_format, venue_id),
+                )
+                cached: Dict[int, tuple] = {}
+                for row in rows:
+                    pid, raw_j, era_j, count = row
+                    raw = _json_to_prob_dict(raw_j)
+                    if raw:
+                        cached[int(pid)] = (raw, _json_to_prob_dict(era_j), int(count))
+                _PRECOMPUTED_CACHE[cache_key] = cached
+
+        cached = _PRECOMPUTED_CACHE[cache_key]
+        if cached:
+            return {pid: cached[pid] for pid in player_ids if pid in cached}
+
+        raw_venue = self.get_player_venue_distribution(player_ids, venue_id, match_format, gender)
+        return {pid: (probs, None, count) for pid, (probs, count) in raw_venue.items()}

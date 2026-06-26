@@ -47,12 +47,10 @@ Additional improvements:
 import logging
 import math
 import random
-import time
 from abc import abstractmethod
 from dataclasses import dataclass
+from datetime import date
 from typing import Dict, List, Optional, Tuple
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from db.stats_repository import StatsRepository
 from enums.constants import ExtraType
@@ -89,6 +87,13 @@ def _batting_position_group(wickets_fallen: int) -> str:
         return 'middle_order'
     return 'lower_order'
 
+
+# All supported era-normalization contexts.  Used as the default when the config
+# does not specify era_normalize_contexts.  Test cricket ignores this list entirely
+# (normalization is disabled in init_model regardless of what is passed).
+ERA_NORMALIZE_ALL: List[str] = [
+    "batter", "bowler", "batter_phase", "player_milestone", "player_venue", "matchup",
+]
 
 # ── Minimum balls before a context is considered reliable (linear ramp) ────────
 _RELIABILITY_THRESHOLDS: Dict[str, Dict[str, int]] = {
@@ -236,6 +241,68 @@ def _outcome_category(outcome_key: tuple) -> str:
     return 'default'
 
 
+def _era_normalize_probs(
+    per_year_counts: Dict[int, Dict[Tuple, int]],
+    global_yearly_baseline: Dict[int, Dict[Tuple, float]],
+    current_baseline: Dict[Tuple, float],
+    half_life: float = 5.0,
+) -> Optional[Dict[Tuple, float]]:
+    """
+    Converts per-year raw delivery counts into a current-era probability distribution.
+
+    For each calendar year in the player's data, we compute how the player's outcome
+    distribution *deviated from the era average* (global_yearly_baseline for that year).
+    Those per-year ratios are aggregated with exponential time decay (same half-life as
+    the existing decay parameters so that old data receives less weight).  Finally we
+    project the decay-weighted ratio onto the current baseline to produce an estimate of
+    what the player would look like under present-day conditions.
+
+    Formula:
+        ratio[outcome] = Σ_year(decay × player_prob_year / global_prob_year) / Σ_year(decay)
+        era_prob[outcome] = current_baseline[outcome] × ratio[outcome]
+        → renormalized so all outcomes sum to 1
+
+    Returns None when there is no overlap between the player's years and the global
+    baseline (no data to work with).
+    """
+    current_year = date.today().year
+    total_weight = 0.0
+    weighted_ratio: Dict[Tuple, float] = {}
+
+    for year, year_counts in per_year_counts.items():
+        global_year = global_yearly_baseline.get(year)
+        if not global_year:
+            continue
+        year_total = sum(year_counts.values())
+        if year_total == 0:
+            continue
+
+        age_years = max(0, current_year - year)
+        decay = math.exp(-math.log(2) / half_life * age_years)
+
+        for key in current_baseline:
+            player_prob = year_counts.get(key, 0) / year_total
+            global_prob = global_year.get(key, 0.0)
+            if global_prob < 1e-9:
+                continue
+            weighted_ratio[key] = weighted_ratio.get(key, 0.0) + decay * (player_prob / global_prob)
+
+        total_weight += decay
+
+    if total_weight < 1e-9:
+        return None
+
+    result: Dict[Tuple, float] = {}
+    for key, baseline_prob in current_baseline.items():
+        ratio = weighted_ratio.get(key, 0.0) / total_weight
+        result[key] = baseline_prob * ratio
+
+    total = sum(result.values())
+    if total < 1e-9:
+        return None
+    return {k: v / total for k, v in result.items()}
+
+
 def _compute_distinctiveness(dist: dict, baseline: dict) -> float:
     """
     Measures how strongly a player's distribution deviates from baseline.
@@ -301,6 +368,8 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         self.milestone_cache  = {}
         self.fielding_cache   = {}
         self.baseline_outcome_probs = {}
+        self._ordered_keys: list = []
+        self._key_categories: Dict[tuple, str] = {}
 
         self.batter_ball_counts  = {}
         self.bowler_ball_counts  = {}
@@ -319,6 +388,8 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         self.parttime_bowler_probs: dict = {}
         self.position_baseline: dict = {}
         self._initialized = False
+        self._era_normalize_contexts: set = set()
+        self._global_yearly_baseline: Dict[int, Dict[Tuple, float]] = {}
 
     @property
     @abstractmethod
@@ -366,10 +437,15 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         venue_country        = getattr(venue, 'country', None) if venue else None
         venue_country_group  = _region_countries(venue_country) if venue_country else None
 
-        def _player_venue_fn(repo):
+        era_contexts = set(getattr(match, 'era_normalize_contexts', []))
+        if match_format == 'Test':
+            era_contexts = set()  # Era normalization not applicable to Test cricket
+        self._era_normalize_contexts = era_contexts
+
+        def _player_venue_pc_fn(repo):
             if not venue or not venue.id:
                 return {}
-            return repo.get_player_venue_distribution(all_player_ids, venue.id, match_format, gender)
+            return repo.get_player_venue_probs_precomputed(all_player_ids, venue.id, match_format, gender)
 
         def _player_country_fn(repo):
             if not venue_country_group:
@@ -380,14 +456,9 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
                 exclude_venue_id=venue.id if venue and venue.id else None,
             )
 
-        tasks = [
-            ("batters",           _q("get_batters_distribution_with_counts",  all_player_ids, match_format, gender)),
-            ("bowlers",           _q("get_bowlers_distribution_with_counts",  all_player_ids, match_format, gender)),
-            ("matchups",          _q("get_matchup_distribution_with_counts",  all_player_ids, all_player_ids, match_format, gender)),
+        tasks: list = [
             ("phase",             _q("get_phase_distribution",                match_format, gender)),
-            ("batter_phase",      _q("get_batter_phase_distribution",         all_player_ids, match_format, gender)),
             ("milestone_global",  _q("get_batter_milestone_distribution",     match_format, gender)),
-            ("milestone_player",  _q("get_player_milestone_distributions",    all_player_ids, match_format, gender)),
             ("innings",           _q("get_innings_distribution",              match_format, gender)),
             ("fielding",          _q("get_fielding_distribution",             match_format, gender)),
             ("baseline",          _q("get_full_aggregate_distribution",       match_format, gender)),
@@ -396,67 +467,95 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             ("spinners",          _q("get_spinner_ids",                       all_player_ids, gender, match_format)),
             ("venue",             _venue_fn),
             ("tournament",        _tourn_fn),
-            ("player_venue",      _player_venue_fn),
             ("player_country",    _player_country_fn),
+            ("batters_pc",        _q("get_batters_probs_precomputed",         all_player_ids, match_format, gender)),
+            ("bowlers_pc",        _q("get_bowlers_probs_precomputed",         all_player_ids, match_format, gender)),
+            ("batter_phase_pc",   _q("get_batter_phase_probs_precomputed",   all_player_ids, match_format, gender)),
+            ("milestone_pc",      _q("get_player_milestone_probs_precomputed", all_player_ids, match_format, gender)),
+            ("matchups_pc",       _q("get_matchup_probs_precomputed",         all_player_ids, all_player_ids, match_format, gender)),
+            ("player_venue_pc",   _player_venue_pc_fn),
         ]
 
-        def _run(label, fn):
-            repo = StatsRepository()
-            try:
-                t = time.perf_counter()
-                result = fn(repo)
-                log.info("[EnhancedModel]   %-40s  %.2fs", label, time.perf_counter() - t)
-                return label, result
-            finally:
-                if getattr(repo, 'conn', None):
-                    try:
-                        repo.conn.close()
-                    except Exception:
-                        pass
-
+        repo = StatsRepository()
         results = {}
-        with ThreadPoolExecutor(max_workers=min(len(tasks), 8)) as pool:
-            futures = {pool.submit(_run, label, fn): label for label, fn in tasks}
-            for future in as_completed(futures):
-                task_label = futures[future]
-                try:
-                    returned_label, result = future.result()
-                    results[returned_label] = result
-                except Exception as e:
-                    log.warning("[EnhancedModel] Cache '%s' failed: %s", task_label, e)
-                    results[task_label] = {}
+        for label, fn in tasks:
+            try:
+                results[label] = fn(repo)
+            except Exception as e:
+                log.warning("[EnhancedModel] Cache '%s' failed: %s", label, e)
+                results[label] = {}
 
-        batters_data  = results["batters"]
-        bowlers_data  = results["bowlers"]
-        matchups_data = results["matchups"]
-
-        self.batter_cache        = {pid: d[0] for pid, d in batters_data.items()}
-        self.batter_ball_counts  = {pid: d[1] for pid, d in batters_data.items()}
-        self.bowler_cache        = {pid: d[0] for pid, d in bowlers_data.items()}
-        self.bowler_ball_counts  = {pid: d[1] for pid, d in bowlers_data.items()}
-        self.matchup_cache       = {pair: d[0] for pair, d in matchups_data.items()}
-        self.matchup_ball_counts = {pair: d[1] for pair, d in matchups_data.items()}
-
-        _batter_phase_data = results.get("batter_phase", ({}, {}))
-        if isinstance(_batter_phase_data, tuple) and len(_batter_phase_data) == 2:
-            self.batter_phase_cache, self.batter_phase_ball_counts = _batter_phase_data
-        else:
-            self.batter_phase_cache, self.batter_phase_ball_counts = {}, {}
-
-        self.phase_cache            = results["phase"]
-        self.milestone_cache        = results["milestone_global"]
-        self.player_milestone_cache = results["milestone_player"]
-        self.innings_cache          = results["innings"]
-        self.fielding_cache         = results["fielding"]
-        self.venue_cache            = results["venue"]
-        self.tournament_cache       = results["tournament"]
-        self.player_venue_cache     = results["player_venue"]
-        self.player_country_cache   = results["player_country"]
-
+        # Baseline must be resolved first — all era-normalization calls reference it.
         self.baseline_outcome_probs = results["baseline"]
         if not self.baseline_outcome_probs:
             log.warning("[EnhancedStrategy] No aggregate data — using empirical prior.")
             self.baseline_outcome_probs = BASELINE_FALLBACK
+        self._ordered_keys = list(self.baseline_outcome_probs.keys())
+        self._key_categories = {k: _outcome_category(k) for k in self._ordered_keys}
+
+        # ── Batter cache ────────────────────────────────────────────────────────
+        self.batter_cache = {}
+        self.batter_ball_counts = {}
+        for pid, (raw, era, count) in results.get("batters_pc", {}).items():
+            probs = era if ('batter' in era_contexts and era is not None) else raw
+            if probs:
+                self.batter_cache[pid] = probs
+                self.batter_ball_counts[pid] = count
+
+        # ── Bowler cache ────────────────────────────────────────────────────────
+        self.bowler_cache = {}
+        self.bowler_ball_counts = {}
+        for pid, (raw, era, count) in results.get("bowlers_pc", {}).items():
+            probs = era if ('bowler' in era_contexts and era is not None) else raw
+            if probs:
+                self.bowler_cache[pid] = probs
+                self.bowler_ball_counts[pid] = count
+
+        # ── Matchup cache ───────────────────────────────────────────────────────
+        self.matchup_cache = {}
+        self.matchup_ball_counts = {}
+        for pair, (raw, era, count) in results.get("matchups_pc", {}).items():
+            probs = era if ('matchup' in era_contexts and era is not None) else raw
+            if probs:
+                self.matchup_cache[pair] = probs
+                self.matchup_ball_counts[pair] = count
+
+        # ── Batter-phase cache ──────────────────────────────────────────────────
+        self.batter_phase_cache = {}
+        self.batter_phase_ball_counts = {}
+        for pid, phase_data in results.get("batter_phase_pc", {}).items():
+            self.batter_phase_cache[pid] = {}
+            self.batter_phase_ball_counts[pid] = {}
+            for phase, (raw, era, count) in phase_data.items():
+                probs = era if ('batter_phase' in era_contexts and era is not None) else raw
+                if probs:
+                    self.batter_phase_cache[pid][phase] = probs
+                    self.batter_phase_ball_counts[pid][phase] = count
+
+        # ── Player milestone cache ──────────────────────────────────────────────
+        self.player_milestone_cache = {}
+        for pid, milestones in results.get("milestone_pc", {}).items():
+            self.player_milestone_cache[pid] = {}
+            for milestone, (raw, era, count) in milestones.items():
+                probs = era if ('player_milestone' in era_contexts and era is not None) else raw
+                if probs:
+                    self.player_milestone_cache[pid][milestone] = probs
+
+        # ── Player venue cache ──────────────────────────────────────────────────
+        self.player_venue_cache = {}
+        for pid, (raw, era, count) in results.get("player_venue_pc", {}).items():
+            probs = era if ('player_venue' in era_contexts and era is not None) else raw
+            if probs:
+                self.player_venue_cache[pid] = (probs, count)
+
+        # ── Remaining caches (no era normalization) ─────────────────────────────
+        self.phase_cache            = results["phase"]
+        self.milestone_cache        = results["milestone_global"]
+        self.innings_cache          = results["innings"]
+        self.fielding_cache         = results["fielding"]
+        self.venue_cache            = results["venue"]
+        self.tournament_cache       = results["tournament"]
+        self.player_country_cache   = results["player_country"]
 
         self.position_baseline = results.get("position_baseline", {})
         self.parttime_bowler_probs = _make_parttime_probs(self.baseline_outcome_probs, match_format)
@@ -482,12 +581,15 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
 
         self.spinner_ids = results["spinners"]
 
+        era_note = (f"era_normalize={sorted(era_contexts)}" if era_contexts
+                    else "era_normalize=disabled(Test)" if match_format == 'Test'
+                    else "era_normalize=matchup_only")
         log.info(
             "[EnhancedStrategy] Loaded → batters=%d bowlers=%d matchups=%d "
-            "phases=%s milestones=%s baseline_keys=%d",
+            "phases=%s milestones=%s baseline_keys=%d | %s",
             len(self.batter_cache), len(self.bowler_cache), len(self.matchup_cache),
             list(self.phase_cache.keys()), list(self.milestone_cache.keys()),
-            len(self.baseline_outcome_probs),
+            len(self.baseline_outcome_probs), era_note,
         )
         self._initialized = True
 
@@ -499,63 +601,78 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         if not new_ids:
             return
 
-        fmt    = self._match_format
-        gender = self._gender
+        fmt      = self._match_format
+        gender   = self._gender
+        era_ctxs = self._era_normalize_contexts
 
         def _run(fn):
-            repo = StatsRepository()
-            try:
-                return fn(repo)
-            finally:
-                if getattr(repo, 'conn', None):
-                    try:
-                        repo.conn.close()
-                    except Exception:
-                        pass
+            return fn(StatsRepository())
 
         all_known_ids = list(existing_ids | set(new_ids))
 
-        tasks = {
-            "batters":          lambda repo: repo.get_batters_distribution_with_counts(new_ids, fmt, gender),
-            "bowlers":          lambda repo: repo.get_bowlers_distribution_with_counts(new_ids, fmt, gender),
-            # new as batters vs all known bowlers, and all known batters vs new as bowlers
-            "matchups_new_bat": lambda repo: repo.get_matchup_distribution_with_counts(new_ids, all_known_ids, fmt, gender),
-            "matchups_new_bow": lambda repo: repo.get_matchup_distribution_with_counts(list(existing_ids), new_ids, fmt, gender),
-            "batter_phase":     lambda repo: repo.get_batter_phase_distribution(new_ids, fmt, gender),
-            "milestone_player": lambda repo: repo.get_player_milestone_distributions(new_ids, fmt, gender),
-            "keepers":          lambda repo: repo.get_wicket_keepers(new_ids, gender),
-            "spinners":         lambda repo: repo.get_spinner_ids(new_ids, gender, fmt),
+        # The bulk precomputed tables are already process-cached from init_model's
+        # _load_player_stat_cache calls.  These calls are instant dict lookups.
+        tasks: dict = {
+            "keepers":      lambda repo: repo.get_wicket_keepers(new_ids, gender),
+            "spinners":     lambda repo: repo.get_spinner_ids(new_ids, gender, fmt),
+            "batters_pc":   lambda repo: repo.get_batters_probs_precomputed(new_ids, fmt, gender),
+            "bowlers_pc":   lambda repo: repo.get_bowlers_probs_precomputed(new_ids, fmt, gender),
+            "batter_phase_pc": lambda repo: repo.get_batter_phase_probs_precomputed(new_ids, fmt, gender),
+            "milestone_pc": lambda repo: repo.get_player_milestone_probs_precomputed(new_ids, fmt, gender),
+            "matchups_pc":  lambda repo: repo.get_matchup_probs_precomputed(new_ids, all_known_ids, fmt, gender),
+            "matchups_pc2": lambda repo: repo.get_matchup_probs_precomputed(list(existing_ids), new_ids, fmt, gender),
         }
 
+        repo = StatsRepository()
         results = {}
-        with ThreadPoolExecutor(max_workers=min(len(tasks), 8)) as pool:
-            futures = {pool.submit(_run, fn): label for label, fn in tasks.items()}
-            for future in as_completed(futures):
-                label = futures[future]
-                try:
-                    results[label] = future.result()
-                except Exception as e:
-                    log.warning("[EnhancedStrategy] Extend '%s' failed: %s", label, e)
-                    results[label] = {}
+        for label, fn in tasks.items():
+            try:
+                results[label] = fn(repo)
+            except Exception as e:
+                log.warning("[EnhancedStrategy] Extend '%s' failed: %s", label, e)
+                results[label] = {}
 
-        for pid, (probs, count) in results["batters"].items():
-            self.batter_cache[pid] = probs
-            self.batter_ball_counts[pid] = count
+        # ── Batter cache ────────────────────────────────────────────────────────
+        for pid, (raw, era, count) in results.get("batters_pc", {}).items():
+            probs = era if ('batter' in era_ctxs and era is not None) else raw
+            if probs:
+                self.batter_cache[pid] = probs
+                self.batter_ball_counts[pid] = count
 
-        for pid, (probs, count) in results["bowlers"].items():
-            self.bowler_cache[pid] = probs
-            self.bowler_ball_counts[pid] = count
+        # ── Bowler cache ────────────────────────────────────────────────────────
+        for pid, (raw, era, count) in results.get("bowlers_pc", {}).items():
+            probs = era if ('bowler' in era_ctxs and era is not None) else raw
+            if probs:
+                self.bowler_cache[pid] = probs
+                self.bowler_ball_counts[pid] = count
 
-        for pair, (probs, count) in {**results["matchups_new_bat"], **results["matchups_new_bow"]}.items():
-            self.matchup_cache[pair] = probs
-            self.matchup_ball_counts[pair] = count
+        # ── Matchup cache ───────────────────────────────────────────────────────
+        new_matchup_pairs: set = set()
+        combined_matchups = {**results.get("matchups_pc", {}), **results.get("matchups_pc2", {})}
+        for pair, (raw, era, count) in combined_matchups.items():
+            probs = era if ('matchup' in era_ctxs and era is not None) else raw
+            if probs:
+                self.matchup_cache[pair] = probs
+                self.matchup_ball_counts[pair] = count
+                new_matchup_pairs.add(pair)
 
-        phase_dists, phase_counts = results["batter_phase"] if isinstance(results["batter_phase"], tuple) else ({}, {})
-        self.batter_phase_cache.update(phase_dists)
-        self.batter_phase_ball_counts.update(phase_counts)
+        # ── Batter-phase cache ──────────────────────────────────────────────────
+        for pid, phase_data in results.get("batter_phase_pc", {}).items():
+            self.batter_phase_cache.setdefault(pid, {})
+            self.batter_phase_ball_counts.setdefault(pid, {})
+            for phase, (raw, era, count) in phase_data.items():
+                probs = era if ('batter_phase' in era_ctxs and era is not None) else raw
+                if probs:
+                    self.batter_phase_cache[pid][phase] = probs
+                    self.batter_phase_ball_counts[pid][phase] = count
 
-        if results["milestone_player"]:
-            self.player_milestone_cache.update(results["milestone_player"])
+        # ── Player milestone cache ──────────────────────────────────────────────
+        for pid, milestones in results.get("milestone_pc", {}).items():
+            self.player_milestone_cache.setdefault(pid, {})
+            for milestone, (raw, era, count) in milestones.items():
+                probs = era if ('player_milestone' in era_ctxs and era is not None) else raw
+                if probs:
+                    self.player_milestone_cache[pid][milestone] = probs
 
         keeper_ids = results["keepers"]
         for team in (match.home_team, match.away_team):
@@ -572,9 +689,9 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
                 self.batter_distinctiveness[pid] = _compute_distinctiveness(self.batter_cache[pid], self.baseline_outcome_probs)
             if pid in self.bowler_cache and self.bowler_cache[pid]:
                 self.bowler_distinctiveness[pid] = _compute_distinctiveness(self.bowler_cache[pid], self.baseline_outcome_probs)
-        for pair, (probs, _) in {**results["matchups_new_bat"], **results["matchups_new_bow"]}.items():
-            if probs:
-                self.matchup_distinctiveness[pair] = _compute_distinctiveness(probs, self.baseline_outcome_probs)
+        for pair in new_matchup_pairs:
+            if pair in self.matchup_cache:
+                self.matchup_distinctiveness[pair] = _compute_distinctiveness(self.matchup_cache[pair], self.baseline_outcome_probs)
 
         log.info(
             "[EnhancedStrategy] Extended caches for %d new players → batters=%d bowlers=%d matchups=%d",
@@ -899,23 +1016,31 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         tourn_probs: dict,
         _eff_w: Optional[Dict[str, float]] = None,
         wickets_fallen: int = 0,
+        _override_batter_probs: Optional[dict] = None,
+        _override_bowler_probs: Optional[dict] = None,
     ) -> Dict[tuple, float]:
         phase     = MatchRules.get_fine_grained_phase(over_1indexed, self._match_format)
         milestone = _get_milestone(batter_runs)
         matchup_key = (batter_id, bowler_id) if batter_id and bowler_id else None
 
-        pos_baseline   = self.position_baseline.get(_batting_position_group(wickets_fallen), self.baseline_outcome_probs)
-        batter_probs   = self.batter_cache.get(batter_id, pos_baseline) if batter_id else pos_baseline
+        pos_baseline = self.position_baseline.get(_batting_position_group(wickets_fallen), self.baseline_outcome_probs)
+        batter_probs = (
+            _override_batter_probs
+            if _override_batter_probs is not None
+            else (self.batter_cache.get(batter_id, pos_baseline) if batter_id else pos_baseline)
+        )
 
-        if bowler_id:
-            _raw_bowler    = self.bowler_cache.get(bowler_id, self.baseline_outcome_probs)
-            _pt_alpha      = _parttime_alpha(self.bowler_ball_counts.get(bowler_id, 0), self._match_format)
-            bowler_probs   = _blend_with_parttime(self.parttime_bowler_probs, _raw_bowler, _pt_alpha)
+        if _override_bowler_probs is not None:
+            bowler_probs = _override_bowler_probs
+        elif bowler_id:
+            _raw_bowler  = self.bowler_cache.get(bowler_id, self.baseline_outcome_probs)
+            _pt_alpha    = _parttime_alpha(self.bowler_ball_counts.get(bowler_id, 0), self._match_format)
+            bowler_probs = _blend_with_parttime(self.parttime_bowler_probs, _raw_bowler, _pt_alpha)
         else:
-            bowler_probs   = self.baseline_outcome_probs
+            bowler_probs = self.baseline_outcome_probs
 
         matchup_probs  = self.matchup_cache.get(matchup_key, self.baseline_outcome_probs) if matchup_key else self.baseline_outcome_probs
-        phase_probs    = self._compute_phase_probs(batter_id, bowler_id, phase)
+        phase_probs = self._compute_phase_probs(batter_id, bowler_id, phase)
         _player_ms     = self.player_milestone_cache.get(batter_id, {}) if batter_id else {}
         milestone_probs = (
             _player_ms.get(milestone)
@@ -927,7 +1052,14 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         eff_w = _eff_w if _eff_w is not None else self._compute_effective_weights(batter_id, bowler_id, matchup_key)
 
         raw_weights  = []
-        ordered_keys = list(self.baseline_outcome_probs.keys())
+        ordered_keys = self._ordered_keys
+
+        # Precompute per-category weights once (5 categories) instead of once per key (~76 keys)
+        cw_per_cat: Dict[str, Dict[str, float]] = {}
+        for cat, relevance in _CATEGORY_RELEVANCE.items():
+            adj = {k: v * relevance[k] for k, v in eff_w.items()}
+            total = sum(adj.values())
+            cw_per_cat[cat] = {k: v / total for k, v in adj.items()} if total > 0 else eff_w
 
         for outcome_key in ordered_keys:
             baseline_prob = self.baseline_outcome_probs[outcome_key]
@@ -941,7 +1073,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             venue_prob     = venue_probs.get(outcome_key,     baseline_prob)
             tourn_prob     = tourn_probs.get(outcome_key,     baseline_prob)
 
-            cw = self._apply_category_relevance(eff_w, outcome_key)
+            cw = cw_per_cat[self._key_categories[outcome_key]]
 
             raw_weights.append(
                 baseline_prob
@@ -986,6 +1118,9 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         selected_key: tuple,
         pressure: PressureContext,
     ) -> None:
+        # Logger is always at DEBUG level to not block handlers; check handler levels directly.
+        if not any(h.level <= logging.DEBUG for h in log.handlers):
+            return
         thresholds  = _RELIABILITY_THRESHOLDS.get(self._match_format, _RELIABILITY_THRESHOLDS['T20'])
         base_w      = self.WEIGHTS
 
@@ -1122,16 +1257,38 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         eff_w_matchup = None if getattr(match, 'is_free_hit', False) else matchup_key
         eff_w = self._compute_effective_weights(batter_id, bowler_id, eff_w_matchup)
 
+        # Super over: substitute all-over batter cache with the batter's own death-phase
+        # distribution so each batter's death-over tendencies drive the simulation.
+        # Only applied when the batter has at least _PHASE_BATTER_THRESHOLD balls in that
+        # phase — below the threshold the sample is too sparse and all-over stats are
+        # more reliable. Bowler is left as-is — the phase component already anchors the
+        # blend to the death phase, so overriding it too would double-count and inflate
+        # wicket probability. Matchup has no phase-specific variant so it stays as-is.
+        _override_batter: Optional[dict] = None
+        _override_bowler: Optional[dict] = None
+        if getattr(match, 'is_super_over', False) and batter_id:
+            _phase     = MatchRules.get_fine_grained_phase(over, self._match_format)
+            _bp        = self.batter_phase_cache.get(batter_id, {})
+            _bp_counts = self.batter_phase_ball_counts.get(batter_id, {})
+            _threshold = _PHASE_BATTER_THRESHOLD.get(self._match_format, 30)
+            for _ph in (_phase, 'death2', 'death1'):
+                _candidate = _bp.get(_ph)
+                if _candidate and _bp_counts.get(_ph, 0) >= _threshold:
+                    _override_batter = _candidate
+                    break
+
         distribution = self._compute_distribution(
-            batter_id      = batter_id,
-            bowler_id      = bowler_id,
-            inning         = inning,
-            over_1indexed  = over,
-            batter_runs    = batter_runs,
-            venue_probs    = venue_probs,
-            tourn_probs    = tourn_probs,
-            _eff_w         = eff_w,
-            wickets_fallen = wickets_fallen,
+            batter_id              = batter_id,
+            bowler_id              = bowler_id,
+            inning                 = inning,
+            over_1indexed          = over,
+            batter_runs            = batter_runs,
+            venue_probs            = venue_probs,
+            tourn_probs            = tourn_probs,
+            _eff_w                 = eff_w,
+            wickets_fallen         = wickets_fallen,
+            _override_batter_probs = _override_batter,
+            _override_bowler_probs = _override_bowler,
         )
 
         ordered_keys = list(distribution.keys())

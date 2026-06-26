@@ -6,10 +6,21 @@ data/
 db/*.db
 
 # Logs and output
+logs/
+tests/logs/
 simulation.log
 simulation.log.*
 match_logs/
 validation_results/
+
+# Raw data files
+people.csv
+
+# Dev scratch files
+SQLs/running.sql
+
+# Internal planning docs
+PLAN.md
 
 # Images / charts
 *.png

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from enums.constants import ExtraType
 from simulator.entities.inning import Inning
-from simulator.presentation.colors import bg, hdr, sep, dim
+from simulator.presentation.colors import bg, bold, dim, hdr, rgb, sep
 
 if TYPE_CHECKING:
     from simulator.entities.match import SimulationMatch
@@ -71,8 +71,8 @@ def _bowler_line(bowler) -> str:
     return f"{bowler.name:<20} {ov_str}-{bowler.maidens}-{bowler.runs_conceded}-{bowler.wickets_taken}"
 
 
-def format_over_summary(match: SimulationMatch, inning: Inning) -> str:
-    if getattr(match, 'is_super_over', False):
+def format_over_summary(match: SimulationMatch, inning: Inning, is_super_over: bool = False) -> str:
+    if is_super_over:
         return _format_super_over_summary(match, inning)
 
     current_over = match.current_over   # 0-indexed; formatter is called before the increment
@@ -310,3 +310,37 @@ def format_innings_scorecard(inning: Inning, is_super_over: bool = False) -> str
 
     lines.append(sep("=") if colored else "=" * 100)
     return "\n".join(lines)
+
+
+# ── Match-level presentation (moved here from SimulationMatch) ─────────────────
+
+def print_match_scorecard(match: SimulationMatch) -> None:
+    """Print all completed innings scorecards with ANSI colours when team colors are set."""
+    for inning in match.innings:
+        if not inning.batting_team or not inning.bowling_team:
+            continue
+        print(format_innings_scorecard(inning))
+
+
+def print_match_result(match: SimulationMatch, label: str = "", venue: str = "") -> None:
+    """Print the match result block: teams, winner, description."""
+    home    = match.home_team
+    away    = match.away_team
+    colored = home.primary_color is not None
+
+    h_str     = rgb(home.name, home.primary_color, bold=True) if colored else bold(home.name)
+    a_str     = rgb(away.name, away.primary_color, bold=True) if colored else bold(away.name)
+    venue_str = f"  @ {dim(venue)}" if venue else ""
+
+    print(f"\n  {bold(label) if label else ''}{venue_str}")
+    print(f"  {h_str}  vs  {a_str}")
+    if match.result and match.result.winner:
+        winner_team   = home if home.name == match.result.winner else (
+                        away if away.name == match.result.winner else None)
+        wcolor        = winner_team.primary_color if winner_team else None
+        winner_str    = "Winner: " + match.result.winner
+        colored_winner = rgb(winner_str, wcolor, bold=True) if wcolor else bold(winner_str)
+        print(f"  → {colored_winner}  {match.result.description}")
+    else:
+        desc = match.result.description if match.result else "No result"
+        print(f"  → {desc}")
