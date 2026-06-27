@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import get_current_user_id
+from db.profile_repository import ProfileRepository
 from db.simulation_repository import SimulationRepository
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/cricsimapi/auth", tags=["auth"])
 
 
 class ProfileUpsertRequest(BaseModel):
@@ -19,9 +20,9 @@ class LinkAnonymousRequest(BaseModel):
 
 @router.get("/profile")
 def get_profile(user_id: str = Depends(get_current_user_id)):
-    repo = SimulationRepository()
+    repo = ProfileRepository()
     try:
-        profile = repo.get_profile(user_id)
+        profile = repo.get(user_id)
     finally:
         repo.close()
 
@@ -35,9 +36,9 @@ def upsert_profile(
     body: ProfileUpsertRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    repo = SimulationRepository()
+    repo = ProfileRepository()
     try:
-        profile = repo.upsert_profile(user_id, body.display_name.strip())
+        profile = repo.upsert(user_id, body.display_name.strip())
         repo.commit()
     except Exception:
         repo.rollback()

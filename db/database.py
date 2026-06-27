@@ -2,20 +2,49 @@ import os
 import psycopg2
 from psycopg2 import sql
 
+# DATABASE_URL takes precedence (standard format used by all hosting platforms).
+# Falls back to individual DB_* vars for local dev without a URL.
+_DATABASE_URL = os.environ.get('DATABASE_URL')
+
+# Supabase DB — stores only the profiles table.
+# Falls back to main connection if not set (e.g. local dev).
+_SUPABASE_DATABASE_URL = os.environ.get('SUPABASE_DATABASE_URL')
+
 DB_NAME = os.environ.get('DB_NAME', 'cricket_db')
 DB_USER = os.environ.get('DB_USER', 'vnaykumart')
 DB_PASS = os.environ.get('DB_PASS', '')
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
 DB_PORT = os.environ.get('DB_PORT', '5432')
 
+def get_supabase_connection(autocommit=True):
+    """Connection to Supabase DB (profiles table only). Falls back to main DB if SUPABASE_DATABASE_URL is not set."""
+    url = _SUPABASE_DATABASE_URL or _DATABASE_URL
+    if url:
+        conn = psycopg2.connect(url)
+    else:
+        conn = psycopg2.connect(
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASS,
+            host=DB_HOST,
+            port=DB_PORT,
+        )
+    if autocommit:
+        conn.autocommit = True
+    return conn
+
+
 def get_db_connection(autocommit=True):
-    conn = psycopg2.connect(
-        dbname=DB_NAME,
-        user=DB_USER,
-        password=DB_PASS,
-        host=DB_HOST,
-        port=DB_PORT
-    )
+    if _DATABASE_URL:
+        conn = psycopg2.connect(_DATABASE_URL)
+    else:
+        conn = psycopg2.connect(
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASS,
+            host=DB_HOST,
+            port=DB_PORT,
+        )
     if autocommit:
         conn.autocommit = True
     return conn

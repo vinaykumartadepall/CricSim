@@ -9,6 +9,9 @@ Interactive docs: http://localhost:8000/docs
 
 from __future__ import annotations
 
+from dotenv import load_dotenv
+load_dotenv()  # loads .env from project root before anything else reads os.getenv()
+
 import os
 from contextlib import asynccontextmanager
 
