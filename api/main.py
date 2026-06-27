@@ -26,6 +26,7 @@ from api.routes.admin_squads import router as admin_squads_router
 from api.routes.auth import router as auth_router
 from api.routes.leaderboards import router as lb_router
 from api.routes.lov import router as lov_router
+from api.routes.multiplayer import router as multiplayer_router
 from api.routes.sim_history import router as sim_history_router
 from api.routes.simulations import router as sim_router
 from db.stats_repository import StatsRepository
@@ -87,3 +88,4 @@ app.include_router(lov_router)
 app.include_router(sim_router)
 app.include_router(lb_router)
 app.include_router(sim_history_router)
+app.include_router(multiplayer_router)
