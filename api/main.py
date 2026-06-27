@@ -13,8 +13,11 @@ from dotenv import load_dotenv
 load_dotenv()  # loads .env from project root before anything else reads os.getenv()
 
 import os
+import threading
+import time
 from contextlib import asynccontextmanager
 
+import psutil
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -26,13 +29,31 @@ from api.routes.lov import router as lov_router
 from api.routes.sim_history import router as sim_history_router
 from api.routes.simulations import router as sim_router
 from db.stats_repository import StatsRepository
-from simulator.logger import configure_logger
+from simulator.logger import configure_logger, get_logger
+
+# Clear the stats cache when available RAM drops below this threshold.
+_LOW_RAM_THRESHOLD_MB = int(os.getenv("LOW_RAM_THRESHOLD_MB", "250"))
+_RAM_CHECK_INTERVAL_S = 30
+
+
+def _memory_monitor() -> None:
+    """Daemon thread: evicts the stats cache under memory pressure."""
+    log = get_logger()
+    while True:
+        time.sleep(_RAM_CHECK_INTERVAL_S)
+        available_mb = psutil.virtual_memory().available / 1024 / 1024
+        if available_mb < _LOW_RAM_THRESHOLD_MB:
+            cleared = StatsRepository.clear_cache()
+            log.warning(
+                "[MemMonitor] Low RAM (%.0f MB free) — evicted %d cache entries",
+                available_mb, cleared,
+            )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logger(log_dir="logs")
-    StatsRepository.warm_all_caches()
+    threading.Thread(target=_memory_monitor, daemon=True, name="mem-monitor").start()
     yield
 
 

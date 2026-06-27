@@ -1,6 +1,7 @@
 # Runtime dependencies
 psycopg2-binary   # PostgreSQL adapter
 geopy             # Venue geocoding for populate_venue_countries.py
+psutil            # Memory monitoring for cache eviction
 
 # API
 fastapi

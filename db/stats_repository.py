@@ -715,16 +715,26 @@ class StatsRepository:
         _PRECOMPUTED_CACHE[cache_key] = result
         return result
 
+    @staticmethod
+    def _matchup_scalars(probs_raw: dict, ball_count: int) -> dict:
+        economy = 0.0
+        wicket_rate = 0.0
+        for k, p in probs_raw.items():
+            parts = k.split('|', 3)
+            economy += (int(parts[0]) + int(parts[1])) * p * 6.0
+            if parts[2] == 'Wicket':
+                wicket_rate += p
+        return {'economy': economy, 'wicket_rate': wicket_rate, 'balls': int(ball_count)}
+
     def _load_matchup_aggregate_cache(self, match_format: str) -> Dict[Tuple, dict]:
-        """
-        Derives {(batter_id, bowler_id): {economy, wicket_rate, balls}} from
-        batter_bowler_matchups.probs_raw for this format. Loaded once per process.
-        """
-        cache_key = ('matchup_agg', match_format)
-        if cache_key in _PRECOMPUTED_CACHE:
-            return _PRECOMPUTED_CACHE[cache_key]
+        """Full load of all matchup scalars for this format. Used by warm_all_caches."""
+        full_key = ('matchup_agg', match_format)
+        done_key = ('matchup_agg_all_loaded', match_format)
+        if _PRECOMPUTED_CACHE.get(done_key):
+            return _PRECOMPUTED_CACHE.get(full_key, {})
         if not self.conn:
-            _PRECOMPUTED_CACHE[cache_key] = {}
+            _PRECOMPUTED_CACHE[full_key] = {}
+            _PRECOMPUTED_CACHE[done_key] = True
             return {}
         rows = self._run_query(
             "SELECT batter_id, bowler_id, ball_count, probs_raw "
@@ -732,24 +742,41 @@ class StatsRepository:
             "WHERE match_format = %s AND ball_count >= 6",
             (match_format,),
         )
-        result: Dict[Tuple, dict] = {}
+        result: Dict[Tuple, dict] = _PRECOMPUTED_CACHE.get(full_key, {})
         for batter_id, bowler_id, ball_count, probs_raw in rows:
-            if not probs_raw:
-                continue
-            economy = 0.0
-            wicket_rate = 0.0
-            for k, p in probs_raw.items():
-                parts = k.split('|', 3)
-                economy += (int(parts[0]) + int(parts[1])) * p * 6.0
-                if parts[2] == 'Wicket':
-                    wicket_rate += p
-            result[(int(batter_id), int(bowler_id))] = {
-                'economy':     economy,
-                'wicket_rate': wicket_rate,
-                'balls':       int(ball_count),
-            }
-        _PRECOMPUTED_CACHE[cache_key] = result
+            if probs_raw:
+                result[(int(batter_id), int(bowler_id))] = self._matchup_scalars(probs_raw, ball_count)
+        _PRECOMPUTED_CACHE[full_key] = result
+        _PRECOMPUTED_CACHE[done_key] = True
         return result
+
+    def _ensure_in_matchup_agg_cache(self, player_ids: List[int], match_format: str) -> Dict[Tuple, dict]:
+        """Lazy-load matchup scalars for specific players only. Merges into existing cache."""
+        full_key = ('matchup_agg', match_format)
+        done_key = ('matchup_agg_all_loaded', match_format)
+        if _PRECOMPUTED_CACHE.get(done_key):
+            return _PRECOMPUTED_CACHE.get(full_key, {})
+        if not player_ids or not self.conn:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
+        loaded_key = ('matchup_agg_loaded_pids', match_format)
+        loaded_pids: set = _PRECOMPUTED_CACHE.get(loaded_key, set())
+        missing = [pid for pid in player_ids if pid not in loaded_pids]
+        if not missing:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
+        rows = self._run_query(
+            "SELECT batter_id, bowler_id, ball_count, probs_raw "
+            "FROM history.batter_bowler_matchups "
+            "WHERE match_format = %s AND ball_count >= 6 "
+            "AND (batter_id = ANY(%s) OR bowler_id = ANY(%s))",
+            (match_format, missing, missing),
+        )
+        dest = _PRECOMPUTED_CACHE.setdefault(full_key, {})
+        for batter_id, bowler_id, ball_count, probs_raw in rows:
+            if probs_raw:
+                dest[(int(batter_id), int(bowler_id))] = self._matchup_scalars(probs_raw, ball_count)
+        loaded_pids.update(missing)
+        _PRECOMPUTED_CACHE[loaded_key] = loaded_pids
+        return dest
 
     def get_bowler_workload_precomputed(
         self, player_ids: List[int], match_format: str
@@ -785,10 +812,19 @@ class StatsRepository:
         self, batter_ids: List[int], bowler_ids: List[int], match_format: str
     ) -> Dict[Tuple, dict]:
         """Aggregate H2H scalars from precomputed matchups. Never queries deliveries."""
-        full = self._load_matchup_aggregate_cache(match_format)
+        all_ids = list(set(batter_ids) | set(bowler_ids))
+        full = self._ensure_in_matchup_agg_cache(all_ids, match_format)
         b_set  = set(batter_ids)
         bw_set = set(bowler_ids)
         return {k: v for k, v in full.items() if k[0] in b_set and k[1] in bw_set}
+
+    @classmethod
+    def clear_cache(cls) -> int:
+        """Clear the entire precomputed cache. Returns the number of entries removed.
+        Safe to call at any time — lazy loading re-populates on next simulation."""
+        count = len(_PRECOMPUTED_CACHE)
+        _PRECOMPUTED_CACHE.clear()
+        return count
 
     @classmethod
     def warm_all_caches(cls) -> None:
@@ -2638,16 +2674,14 @@ class StatsRepository:
     # ── Precomputed read paths ─────────────────────────────────────────────────
 
     def _load_player_stat_cache(self, match_format: str, stat_type: str) -> Dict[int, tuple]:
-        """
-        Bulk-load history.player_outcome_stats for a (format, stat_type) pair.
-        Cached in the module-level _PRECOMPUTED_CACHE so subsequent calls within the
-        same process are pure dict lookups — no DB round-trip.
-        """
-        cache_key = ('pos', match_format, stat_type)
-        if cache_key in _PRECOMPUTED_CACHE:
-            return _PRECOMPUTED_CACHE[cache_key]
+        """Full load of all players for a (format, stat_type) pair. Used by warm_all_caches."""
+        full_key = ('pos', match_format, stat_type)
+        done_key = ('pos_all_loaded', match_format, stat_type)
+        if _PRECOMPUTED_CACHE.get(done_key):
+            return _PRECOMPUTED_CACHE.get(full_key, {})
         if not self.conn:
-            _PRECOMPUTED_CACHE[cache_key] = {}
+            _PRECOMPUTED_CACHE[full_key] = {}
+            _PRECOMPUTED_CACHE[done_key] = True
             return {}
         rows = self._run_query(
             "SELECT player_id, probs_raw, probs_era, ball_count "
@@ -2655,14 +2689,44 @@ class StatsRepository:
             "WHERE match_format = %s AND stat_type = %s",
             (match_format, stat_type),
         )
-        result: Dict[int, tuple] = {}
+        result: Dict[int, tuple] = _PRECOMPUTED_CACHE.get(full_key, {})
         for row in rows:
             pid, raw_json, era_json, count = row[0], row[1], row[2], row[3]
             raw = _json_to_prob_dict(raw_json)
             if raw:
                 result[int(pid)] = (raw, _json_to_prob_dict(era_json), int(count))
-        _PRECOMPUTED_CACHE[cache_key] = result
+        _PRECOMPUTED_CACHE[full_key] = result
+        _PRECOMPUTED_CACHE[done_key] = True
         return result
+
+    def _ensure_in_stat_cache(self, player_ids: List[int], match_format: str, stat_type: str) -> Dict[int, tuple]:
+        """Lazy-load player_outcome_stats for specific players only. Merges into existing cache."""
+        full_key = ('pos', match_format, stat_type)
+        done_key = ('pos_all_loaded', match_format, stat_type)
+        if _PRECOMPUTED_CACHE.get(done_key):
+            return _PRECOMPUTED_CACHE.get(full_key, {})
+        if not player_ids or not self.conn:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
+        loaded_key = ('pos_loaded_pids', match_format, stat_type)
+        loaded_pids: set = _PRECOMPUTED_CACHE.get(loaded_key, set())
+        missing = [pid for pid in player_ids if pid not in loaded_pids]
+        if not missing:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
+        rows = self._run_query(
+            "SELECT player_id, probs_raw, probs_era, ball_count "
+            "FROM history.player_outcome_stats "
+            "WHERE match_format = %s AND stat_type = %s AND player_id = ANY(%s)",
+            (match_format, stat_type, missing),
+        )
+        dest = _PRECOMPUTED_CACHE.setdefault(full_key, {})
+        for row in rows:
+            pid, raw_json, era_json, count = row[0], row[1], row[2], row[3]
+            raw = _json_to_prob_dict(raw_json)
+            if raw:
+                dest[int(pid)] = (raw, _json_to_prob_dict(era_json), int(count))
+        loaded_pids.update(missing)
+        _PRECOMPUTED_CACHE[loaded_key] = loaded_pids
+        return dest
 
     def get_batters_probs_precomputed(
         self, batter_ids: List[int], match_format: str, gender: str = 'male'
@@ -2672,7 +2736,7 @@ class StatsRepository:
         probs_era is None for Test or when era data wasn't computed.
         Falls back to decay-weighted distribution if the precomputed table is empty.
         """
-        cached = self._load_player_stat_cache(match_format, 'batting')
+        cached = self._ensure_in_stat_cache(batter_ids, match_format, 'batting')
         if cached:
             return {pid: cached[pid] for pid in batter_ids if pid in cached}
         data = self.get_batters_distribution_with_counts(batter_ids, match_format, gender)
@@ -2685,7 +2749,7 @@ class StatsRepository:
         Returns {player_id: (probs_raw, probs_era, ball_count)} from precomputed table.
         Falls back to decay-weighted distribution if the precomputed table is empty.
         """
-        cached = self._load_player_stat_cache(match_format, 'bowling')
+        cached = self._ensure_in_stat_cache(bowler_ids, match_format, 'bowling')
         if cached:
             return {pid: cached[pid] for pid in bowler_ids if pid in cached}
         data = self.get_bowlers_distribution_with_counts(bowler_ids, match_format, gender)
@@ -2706,7 +2770,7 @@ class StatsRepository:
         result: Dict[int, Dict[str, tuple]] = {}
         any_data = False
         for st in stat_types:
-            cached = self._load_player_stat_cache(match_format, st)
+            cached = self._ensure_in_stat_cache(batter_ids, match_format, st)
             if cached:
                 any_data = True
                 phase = st[len('phase_'):]
@@ -2738,7 +2802,7 @@ class StatsRepository:
         result: Dict[int, Dict[str, tuple]] = {}
         any_data = False
         for st in _MILESTONE_STAT_TYPES:
-            cached = self._load_player_stat_cache(match_format, st)
+            cached = self._ensure_in_stat_cache(player_ids, match_format, st)
             if cached:
                 any_data = True
                 milestone = st[len('milestone_'):]
