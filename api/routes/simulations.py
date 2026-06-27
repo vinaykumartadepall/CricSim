@@ -104,6 +104,8 @@ def create_tournament_from_id(body: TournamentFromIdRequest, background_tasks: B
         teams: list[dict] = config.get("teams", [])
         if not teams:
             raise HTTPException(status_code=422, detail="Tournament config has no teams")
+        if len(teams) < 4:
+            raise HTTPException(status_code=422, detail=f"A tournament requires at least 4 teams ({len(teams)} found)")
 
         for team in teams:
             if not team.get("players"):
@@ -138,7 +140,20 @@ def create_tournament_from_id(body: TournamentFromIdRequest, background_tasks: B
                     updated_teams.append(team)
         config = {**config, "teams": updated_teams}
 
-    # 3. Create simulation record + game session, then dispatch worker
+    # 3. Rate-limit: max 2 concurrent running simulations per client
+    if body.client_id:
+        conn2 = get_db_connection()
+        cur2  = conn2.cursor()
+        cur2.execute(
+            "SELECT COUNT(*) FROM simulation.simulations WHERE client_id = %s AND status IN ('pending','running')",
+            (body.client_id,),
+        )
+        active = cur2.fetchone()[0]
+        cur2.close(); conn2.close()
+        if active >= 2:
+            raise HTTPException(status_code=429, detail="Too many active simulations. Wait for your current simulation to finish.")
+
+    # 4. Create simulation record + game session, then dispatch worker
     config_dict = config  # already in TournamentConfig-compatible format
 
     repo = SimulationRepository()

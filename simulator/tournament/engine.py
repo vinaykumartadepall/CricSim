@@ -63,6 +63,8 @@ class TournamentEngine:
         seed: Optional[int] = None,
         silent: bool = False,
     ):
+        if len(config.teams) < 4:
+            raise ValueError(f"Tournament requires at least 4 teams, got {len(config.teams)}")
         self._config    = config
         self._repo      = repo or StatsRepository()
         self._rng       = random.Random(seed)
