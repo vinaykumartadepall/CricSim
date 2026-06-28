@@ -24,6 +24,7 @@ class SimSummaryItem(BaseModel):
     swap_count: Optional[int] = None
     winner_name: Optional[str] = None
     user_team_placement: Optional[str] = None
+    match_id: Optional[int] = None
 
 
 # ── /result ────────────────────────────────────────────────────────────────────

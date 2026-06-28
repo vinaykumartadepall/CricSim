@@ -1,20 +1,31 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, TrendingDown, Search } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useHelp } from '@/contexts/HelpContext'
 import { Spinner } from '@/components/ui/Spinner'
 import { SquadEditor } from '@/components/SquadEditor'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistoryTeamBest } from '@/types'
 
-const PLACEMENT_COLOR: Record<string, string> = {
-  'Winner':      'var(--score)',
-  'Runner-up':   'var(--text)',
-  'Playoffs':    'var(--accent)',
-  'Group stage': 'var(--text-dim)',
-}
 
 type Step = 'pick_tournament' | 'pick_team_season' | 'squad' | 'confirm'
+
+const FORMAT_BADGE_STYLES: Record<string, { bg: string; color: string }> = {
+  T20:  { bg: 'rgba(59,130,246,0.1)',  color: 'var(--accent)' },
+  ODI:  { bg: 'rgba(14,165,233,0.1)', color: '#0ea5e9' },
+  Test: { bg: 'rgba(245,158,11,0.1)', color: 'var(--score)' },
+}
+
+function FormatBadge({ format }: { format?: string | null }) {
+  if (!format) return null
+  const s = FORMAT_BADGE_STYLES[format] ?? { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold self-start" style={{ background: s.bg, color: s.color }}>
+      {format}
+    </span>
+  )
+}
 
 interface UnderdogEntry {
   team_id: number
@@ -34,9 +45,16 @@ const STEP_LABELS: Record<Step, string> = {
 }
 const STEP_ORDER: Step[] = ['pick_tournament', 'pick_team_season', 'squad', 'confirm']
 
+const CHALLENGE_STEP_SLIDE: Partial<Record<Step, number>> = {
+  pick_tournament: 0,
+  pick_team_season: 0,
+  squad: 1,
+}
+
 export function ChallengeModePage() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { openHelp } = useHelp()
   const [step, setStep] = useState<Step>('pick_tournament')
 
   // Tournament name pick
@@ -203,10 +221,51 @@ export function ChallengeModePage() {
     }
   }
 
+  const hasKeeper = useMemo(() => {
+    if (!selectedTeam) return true
+    const allPlayers = allTeams.flatMap(t => t.players)
+    const swapMap = new Map(swaps.map(s => [s.player_out_id, s]))
+    return selectedTeam.players.some(p => {
+      const swap = swapMap.get(p.player_id)
+      if (swap) {
+        const inPlayer = allPlayers.find(pl => pl.player_id === swap.player_in_id)
+        return inPlayer?.player_role === 'Keeper'
+      }
+      return p.player_role === 'Keeper'
+    })
+  }, [selectedTeam, swaps, allTeams])
+
+  const selectedTournament = useMemo(() =>
+    allTournaments.find(t => t.tournament_id === selectedEntry?.tournament_id) ?? null
+  , [allTournaments, selectedEntry])
+
+  const overseasValid = useMemo(() => {
+    if (!selectedTeam || !selectedTournament?.overseas_limit || !selectedTournament?.home_country_name) return true
+    const { overseas_limit, home_country_name } = selectedTournament
+    const allPlayers = allTeams.flatMap(t => t.players)
+    const swapMap = new Map(swaps.map(s => [s.player_out_id, s]))
+    const count = selectedTeam.players.filter(p => {
+      const swap = swapMap.get(p.player_id)
+      const effective = swap ? (allPlayers.find(pl => pl.player_id === swap.player_in_id) ?? p) : p
+      return !!effective.country_name && effective.country_name !== home_country_name
+    }).length
+    return count <= overseas_limit
+  }, [selectedTeam, swaps, allTeams, selectedTournament])
+
+  // Step-based help
+  useEffect(() => {
+    const slide = CHALLENGE_STEP_SLIDE[step]
+    if (slide !== undefined) openHelp(slide, true)
+  }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const stepIndex = STEP_ORDER.indexOf(step)
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
+      {/* Mode label */}
+      <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--score)' }}>
+        Challenge Mode
+      </div>
       {/* Breadcrumb */}
       <div className="flex items-center gap-1 mb-8 flex-wrap">
         {STEP_ORDER.map((s, i) => (
@@ -238,9 +297,9 @@ export function ChallengeModePage() {
           <button
             className="flex items-center gap-1 text-sm mb-5"
             style={{ color: 'var(--text-muted)' }}
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/play')}
           >
-            <ChevronLeft size={14} /> Home
+            <ChevronLeft size={14} /> Back
           </button>
           <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>Pick a tournament</div>
           <div className="text-sm mb-5" style={{ color: 'var(--text-muted)' }}>
@@ -272,11 +331,14 @@ export function ChallengeModePage() {
                   >
                     <div>
                       <div className="text-sm font-medium" style={{ color: 'var(--text)' }}>{name}</div>
-                      {hist && (
-                        <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-dim)' }}>
-                          {hist.completed}/{hist.total} complete
-                        </div>
-                      )}
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <FormatBadge format={grouped[name][0]?.format} />
+                        {hist && (
+                          <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-dim)' }}>
+                            {hist.completed}/{hist.total} complete
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
@@ -392,12 +454,27 @@ export function ChallengeModePage() {
                 swaps={swaps}
                 onSwapsChange={setSwaps}
                 onOrderChange={setBattingOrder}
+                overseasLimit={selectedTournament?.overseas_limit ?? undefined}
+                homeCountryName={selectedTournament?.home_country_name ?? undefined}
               />
-              <div className="mt-6">
+              {!hasKeeper && (
+                <div className="mt-4 px-3 py-2.5 rounded-lg text-sm"
+                  style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                  No wicket-keeper in your squad. Trade in a keeper before continuing.
+                </div>
+              )}
+              {!overseasValid && (
+                <div className="mt-2 px-3 py-2.5 rounded-lg text-sm"
+                  style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                  ✈ Too many overseas players ({selectedTournament?.overseas_limit} max). Trade in a local player to continue.
+                </div>
+              )}
+              <div className="mt-4">
                 <button
                   className="btn-accent w-full py-3 text-base"
-                  style={{ background: 'var(--score)', color: 'var(--bg)' }}
+                  style={{ background: (!hasKeeper || !overseasValid) ? undefined : 'var(--score)', color: 'var(--bg)', opacity: (!hasKeeper || !overseasValid) ? 0.45 : 1, cursor: (!hasKeeper || !overseasValid) ? 'not-allowed' : undefined }}
                   onClick={() => setStep('confirm')}
+                  disabled={!hasKeeper || !overseasValid}
                 >
                   Continue →
                 </button>

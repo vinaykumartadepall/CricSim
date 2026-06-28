@@ -18,6 +18,9 @@ class TournamentItem(BaseModel):
     season: str
     team_count: int
     gender: Optional[str] = None
+    format: Optional[str] = None
+    overseas_limit: Optional[int] = None
+    home_country_name: Optional[str] = None
 
 
 class PlayerItem(BaseModel):
@@ -29,6 +32,7 @@ class PlayerItem(BaseModel):
     batting_position: int
     cricinfo_id: Optional[int] = None
     headshot_url: Optional[str] = None
+    country_name: Optional[str] = None
 
 
 class TeamSquad(BaseModel):

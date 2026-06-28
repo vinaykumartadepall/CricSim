@@ -17,6 +17,7 @@ PICK_TIMEOUT_S = 60
 class Member:
     client_id: str
     display_name: str
+    team_name: str = ''
     draft_order: int = 0
     squad: List[int] = field(default_factory=list)      # player_ids in batting order
     ws: Optional[WebSocket] = field(default=None, repr=False)
@@ -36,13 +37,16 @@ class RoomState:
     mode: str                           # '1v1' or 'tournament'
     tournament_name: str
     player_count: int
-    status: str = 'waiting'             # waiting | drafting | simulating | completed
+    match_format: str = 'T20'           # 'T20' | 'ODI' | 'Test'
+    status: str = 'waiting'             # waiting | drafting | reordering | simulating | completed
     members: Dict[str, Member] = field(default_factory=dict)   # client_id → Member
     pick_sequence: List[str] = field(default_factory=list)     # client_ids in pick order
     current_pick_idx: int = 0
     drafted_ids: Set[int] = field(default_factory=set)
     keeper_ids: Set[int] = field(default_factory=set)          # populated on draft start
+    ready_members: Set[str] = field(default_factory=set)       # client_ids who clicked ready
     _timer_task: Optional[asyncio.Task] = field(default=None, repr=False)
+    _reorder_task: Optional[asyncio.Task] = field(default=None, repr=False)
     sim_id: Optional[str] = None
 
     # ── helpers ───────────────────────────────────────────────────────────────
@@ -70,7 +74,9 @@ class RoomState:
             "mode": self.mode,
             "tournament_name": self.tournament_name,
             "player_count": self.player_count,
+            "match_format": self.match_format,
             "status": self.status,
+            "ready_members": list(self.ready_members),
             "current_picker": self.current_picker_id,
             "picks_made": self.picks_made,
             "total_picks": self.total_picks,
@@ -78,6 +84,7 @@ class RoomState:
                 {
                     "client_id": m.client_id,
                     "display_name": m.display_name,
+                    "team_name": m.team_name or m.display_name,
                     "draft_order": m.draft_order,
                     "squad": m.squad,
                     "connected": m.ws is not None,
@@ -96,7 +103,8 @@ class DraftManager:
     # ── room lifecycle ─────────────────────────────────────────────────────────
 
     def create_room(self, host_id: str, display_name: str, mode: str,
-                    tournament_name: str, player_count: int) -> RoomState:
+                    tournament_name: str, player_count: int,
+                    match_format: str = 'T20', team_name: str = '') -> RoomState:
         room_id = self._unique_code()
         room = RoomState(
             room_id=room_id,
@@ -104,8 +112,9 @@ class DraftManager:
             mode=mode,
             tournament_name=tournament_name,
             player_count=player_count,
+            match_format=match_format,
         )
-        host = Member(client_id=host_id, display_name=display_name)
+        host = Member(client_id=host_id, display_name=display_name, team_name=team_name)
         room.members[host_id] = host
         self._rooms[room_id] = room
         return room
@@ -113,7 +122,7 @@ class DraftManager:
     def get_room(self, room_id: str) -> Optional[RoomState]:
         return self._rooms.get(room_id.upper())
 
-    def join_room(self, room_id: str, client_id: str, display_name: str) -> RoomState:
+    def join_room(self, room_id: str, client_id: str, display_name: str, team_name: str = '') -> RoomState:
         room = self._rooms.get(room_id.upper())
         if not room:
             raise ValueError("Room not found")
@@ -122,11 +131,21 @@ class DraftManager:
         if len(room.members) >= room.player_count:
             raise ValueError("Room is full")
         if client_id not in room.members:
-            room.members[client_id] = Member(client_id=client_id, display_name=display_name)
+            room.members[client_id] = Member(client_id=client_id, display_name=display_name, team_name=team_name)
         return room
 
     def remove_room(self, room_id: str) -> None:
         self._rooms.pop(room_id, None)
+
+    def update_team_name(self, room_id: str, client_id: str, team_name: str) -> bool:
+        room = self._rooms.get(room_id.upper())
+        if not room:
+            return False
+        m = room.members.get(client_id)
+        if not m:
+            return False
+        m.team_name = team_name
+        return True
 
     # ── WebSocket connect/disconnect ───────────────────────────────────────────
 
@@ -155,11 +174,7 @@ class DraftManager:
         for i, cid in enumerate(order):
             room.members[cid].draft_order = i
 
-        # Build pick sequence: snake draft for 1v1, round-robin for tournament
-        if room.mode == '1v1':
-            room.pick_sequence = _snake_sequence(order, SQUAD_SIZE)
-        else:
-            room.pick_sequence = _roundrobin_sequence(order, SQUAD_SIZE)
+        room.pick_sequence = _snake_sequence(order, SQUAD_SIZE)
 
         room.status = 'drafting'
         room.current_pick_idx = 0
@@ -233,6 +248,11 @@ class DraftManager:
         if room._timer_task and not room._timer_task.done():
             room._timer_task.cancel()
         room._timer_task = None
+
+    def cancel_reorder_timer(self, room: RoomState) -> None:
+        if room._reorder_task and not room._reorder_task.done():
+            room._reorder_task.cancel()
+        room._reorder_task = None
 
     def start_timer(self, room: RoomState, loop: asyncio.AbstractEventLoop,
                     on_timeout, all_player_ids: List[int]) -> None:

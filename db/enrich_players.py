@@ -46,6 +46,7 @@ POSITION_TO_ROLE: dict[str, str] = {
     "AR":  "All-rounder",
     "BTA": "All-rounder",
     "BAR": "All-rounder",
+    "BLA": "All-rounder",  # Bowling all-rounder (e.g. Narine, Ashwin, Holder)
     "BL":  "Bowler",
     # UKN (Unknown) intentionally omitted — maps to None
 }

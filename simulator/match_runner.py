@@ -23,9 +23,10 @@ from simulator.logger import set_console_level
 from simulator.match_logger import MatchLogger
 from simulator.strategies.factory import (
     FORMAT_SETTINGS, OutcomeStrategyFactory, BowlingStrategyFactory,
-    resolve_player, resolve_venue,
+    resolve_player, resolve_player_by_id, resolve_venue,
 )
 from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import ERA_NORMALIZE_ALL
+from db.entities.tournament import Tournament
 
 
 class MatchRunner:
@@ -54,7 +55,7 @@ class MatchRunner:
             config.get("ball_outcome_strategy", "historical"), fmt
         )
         self._bowling_strat = BowlingStrategyFactory.for_name(
-            config.get("bowling_strategy", "smart"), fmt
+            config.get("bowling_strategy", "historical"), fmt
         )
 
     @classmethod
@@ -87,23 +88,26 @@ class MatchRunner:
         team_a_cfg = config.get("team_a") or config.get("team1", {})
         team_b_cfg = config.get("team_b") or config.get("team2", {})
 
+        def _resolve(p):
+            return resolve_player_by_id(repo, p) if isinstance(p, int) else resolve_player(repo, p)
+
         team_a = MatchTeam(
             id=1,
             name=team_a_cfg.get("name", "Team A"),
-            players=[resolve_player(repo, n) for n in team_a_cfg.get("players", [])],
+            players=[_resolve(p) for p in team_a_cfg.get("players", [])],
             primary_color=team_a_cfg.get("primary_color"),
             secondary_color=team_a_cfg.get("secondary_color"),
         )
         team_b = MatchTeam(
             id=2,
             name=team_b_cfg.get("name", "Team B"),
-            players=[resolve_player(repo, n) for n in team_b_cfg.get("players", [])],
+            players=[_resolve(p) for p in team_b_cfg.get("players", [])],
             primary_color=team_b_cfg.get("primary_color"),
             secondary_color=team_b_cfg.get("secondary_color"),
         )
         venue = resolve_venue(repo, config.get("venue"))
         _era = config.get("era_normalize_contexts")
-        return SimulationMatch(
+        match = SimulationMatch(
             id=config.get("match_id", 1),
             home_team=team_a,
             away_team=team_b,
@@ -113,6 +117,13 @@ class MatchRunner:
             era_normalize_contexts=list(ERA_NORMALIZE_ALL) if _era is None else _era,
             **fmt_settings,
         )
+        # Default tournament context to IPL for T20 matches without explicit tournament
+        if fmt == "T20" and match.tournament is None:
+            row = repo.get_tournament_by_name("IPL")
+            if row:
+                t_id, t_name, t_season = row
+                match.tournament = Tournament(name=t_name, season=t_season or "", id=t_id)
+        return match
 
     def _build_match(self) -> SimulationMatch:
         return MatchRunner.build_match(self._config, self._repo)

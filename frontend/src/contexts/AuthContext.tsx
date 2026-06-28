@@ -45,6 +45,7 @@ interface AuthContextValue {
   clientId: string
   displayName: string
   isLoggedIn: boolean
+  authReady: boolean   // true once the initial session check + profile fetch has settled
   user: User | null
   signOut: () => Promise<void>
   updateDisplayName: (name: string) => Promise<void>
@@ -64,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   })
   const [displayName, setDisplayName] = useState<string>(() => getOrCreateAnonName())
   const [authModalOpen, setAuthModalOpen] = useState(false)
+  const [authReady, setAuthReady] = useState(!supabase)  // true immediately if no Supabase
 
   const applySession = useCallback(async (session: Session | null) => {
     if (!session?.user) {
@@ -117,7 +119,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (!supabase) return  // Supabase not configured — stay anonymous
 
-    supabase.auth.getSession().then(({ data: { session } }) => applySession(session))
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      await applySession(session)
+      setAuthReady(true)
+    })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
       applySession(session)
@@ -153,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clientId,
       displayName,
       isLoggedIn: !!user,
+      authReady,
       user,
       signOut,
       updateDisplayName,

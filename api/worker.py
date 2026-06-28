@@ -82,6 +82,7 @@ def run_tournament_job(
     sim_id: str,
     config: dict,
     user_team_name: str | None = None,
+    client_id: str | None = None,
 ) -> None:
     with log_context(sim_id=sim_id):
         repo = SimulationRepository()
@@ -113,10 +114,11 @@ def run_tournament_job(
             repo.save_tournament_teams(tournament_id, list(team_id_map.values()))
 
             # Back-fill game_sessions.user_team_id now that simulation.teams rows exist
-            if user_team_name and user_team_name in team_id_map:
+            if user_team_name and user_team_name in team_id_map and client_id:
                 repo.cur.execute(
-                    "UPDATE simulation.game_sessions SET user_team_id = %s WHERE sim_id = %s",
-                    (team_id_map[user_team_name], sim_id),
+                    "UPDATE simulation.game_sessions SET user_team_id = %s "
+                    "WHERE sim_id = %s AND client_id = %s",
+                    (team_id_map[user_team_name], sim_id, client_id),
                 )
 
             repo.commit()

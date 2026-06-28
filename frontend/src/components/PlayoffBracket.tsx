@@ -29,7 +29,7 @@ function MatchCard({
       style={{
         position: 'absolute', left: x, top: y, width: CW, height: CH,
         background: 'var(--surface)',
-        border: `1px solid ${isUser ? 'rgba(0,229,204,0.55)' : isFinal ? 'rgba(245,158,11,0.35)' : 'var(--border)'}`,
+        border: `1px solid ${isUser ? 'rgba(59,130,246,0.55)' : isFinal ? 'rgba(245,158,11,0.35)' : 'var(--border)'}`,
         borderRadius: 8, overflow: 'hidden',
         cursor: match ? 'pointer' : 'default',
         boxShadow: isFinal ? '0 0 14px rgba(245,158,11,0.07)' : undefined,
@@ -121,9 +121,9 @@ export function PlayoffBracket({ matches, simId, userTeamName }: Props) {
   let lines: string[]
 
   if (fmt === 'semis') {
-    //  SF1 (0,0)          Final (230,54)
-    //  SF2 (0,108)
-    const finY = (CH + 24) / 2                 // midpoint of gap = 54
+    //  Final (0,54)   SF1 (230,0)
+    //                 SF2 (230,108)
+    const finY = (CH + 24) / 2                 // 54
     const sf1cy = CH / 2                        // 42
     const sf2cy = CH + 24 + CH / 2             // 150
     const finCy = finY + CH / 2                // 96
@@ -132,23 +132,18 @@ export function PlayoffBracket({ matches, simId, userTeamName }: Props) {
     svgW = CW * 2 + CGAP
     svgH = CH * 2 + 24
     cards = [
-      { label: 'Semi-final 1', x: 0,          y: 0     },
-      { label: 'Semi-final 2', x: 0,          y: CH+24 },
-      { label: 'Final',        x: CW + CGAP,  y: finY  },
+      { label: 'Final',        x: 0,          y: finY  },
+      { label: 'Semi-final 1', x: CW + CGAP,  y: 0     },
+      { label: 'Semi-final 2', x: CW + CGAP,  y: CH+24 },
     ]
     lines = [
-      `M${CW},${sf1cy} H${mx} V${finCy} H${CW + CGAP}`,
-      `M${CW},${sf2cy} H${mx} V${finCy} H${CW + CGAP}`,
+      `M${CW},${finCy} H${mx} V${sf1cy} H${CW + CGAP}`,
+      `M${CW},${finCy} H${mx} V${sf2cy} H${CW + CGAP}`,
     ]
 
   } else if (fmt === 'ipl') {
-    //  Q1   (0,   0)   Q2  (230, 62)   Final (460, 0)
-    //  Elim (0, 124)
-    //
-    //  Q1 winner → horizontal straight line at y=42 to Final (passes above Q2)
-    //  Q1 loser  → forks down at x=202 to Q2
-    //  Elim win  → right then up to Q2
-    //  Q2 win    → right then up to Final
+    //  Final (0,0)   Q2 (230,62)   Q1   (460,0)
+    //                              Elim (460,124)
     const col1x = CW + CGAP             // 230
     const col2x = CW * 2 + CGAP * 2    // 460
     const mx01  = CW + CGAP / 2        // 202
@@ -159,32 +154,32 @@ export function PlayoffBracket({ matches, simId, userTeamName }: Props) {
     const elimCy = elimY + CH / 2      // 166
     const q2Y    = (q1cy + elimCy) / 2 - CH / 2  // 62
     const q2cy   = q2Y + CH / 2       // 104
-    const finCy  = CH / 2             // 42 (Final y=0)
+    const finCy  = CH / 2             // 42
 
     svgW = col2x + CW
     svgH = elimY + CH
     cards = [
-      { label: 'Qualifier 1',  x: 0,     y: 0    },
-      { label: 'Eliminator',   x: 0,     y: elimY },
+      { label: 'Final',        x: 0,     y: 0     },
       { label: 'Qualifier 2',  x: col1x, y: q2Y   },
-      { label: 'Final',        x: col2x, y: 0     },
+      { label: 'Qualifier 1',  x: col2x, y: 0     },
+      { label: 'Eliminator',   x: col2x, y: elimY },
     ]
     lines = [
-      // Q1 winner: straight horizontal to Final (above Q2 card)
-      `M${CW},${q1cy} H${col2x}`,
-      // Q1 loser: forks down from mx01 to Q2
-      `M${mx01},${q1cy} V${q2cy} H${col1x}`,
-      // Eliminator winner → Q2
-      `M${CW},${elimCy} H${mx01} V${q2cy} H${col1x}`,
-      // Q2 winner → Final
-      `M${col1x + CW},${q2cy} H${mx12} V${finCy} H${col2x}`,
+      // Final ← Q1 winner: straight horizontal
+      `M${CW},${finCy} H${col2x}`,
+      // Q2 ← Q1 loser: forks down from mx12 to Q2 right edge
+      `M${mx12},${q1cy} V${q2cy} H${col1x + CW}`,
+      // Q2 ← Eliminator winner
+      `M${col2x},${elimCy} H${mx12} V${q2cy} H${col1x + CW}`,
+      // Final ← Q2 winner
+      `M${col1x},${q2cy} H${mx01} V${finCy} H${CW}`,
     ]
 
   } else {
-    //  QF1 (0,  0)   SF1 (230,  54)   Final (460, 162)
-    //  QF2 (0,108)
-    //  QF3 (0,216)   SF2 (230, 270)
-    //  QF4 (0,324)
+    //  Final (0,162)   SF1 (230, 54)   QF1 (460,  0)
+    //                                  QF2 (460,108)
+    //                  SF2 (230,270)   QF3 (460,216)
+    //                                  QF4 (460,324)
     const col1x = CW + CGAP
     const col2x = CW * 2 + CGAP * 2
     const mx01  = CW + CGAP / 2
@@ -192,31 +187,31 @@ export function PlayoffBracket({ matches, simId, userTeamName }: Props) {
 
     const qf1cy = CH / 2;        const qf2cy = 108 + CH / 2
     const qf3cy = 216 + CH / 2;  const qf4cy = 324 + CH / 2
-    const sf1Y  = (qf1cy + qf2cy) / 2 - CH / 2   // 54
-    const sf2Y  = (qf3cy + qf4cy) / 2 - CH / 2   // 270
-    const sf1cy = sf1Y + CH / 2                   // 96
-    const sf2cy = sf2Y + CH / 2                   // 312
-    const finY  = (sf1cy + sf2cy) / 2 - CH / 2   // 162
-    const finCy = finY + CH / 2                   // 204
+    const sf1Y  = (qf1cy + qf2cy) / 2 - CH / 2
+    const sf2Y  = (qf3cy + qf4cy) / 2 - CH / 2
+    const sf1cy = sf1Y + CH / 2
+    const sf2cy = sf2Y + CH / 2
+    const finY  = (sf1cy + sf2cy) / 2 - CH / 2
+    const finCy = finY + CH / 2
 
     svgW = col2x + CW
     svgH = 324 + CH
     cards = [
-      { label: 'QF 1',  x: 0,     y: 0   },
-      { label: 'QF 2',  x: 0,     y: 108 },
-      { label: 'QF 3',  x: 0,     y: 216 },
-      { label: 'QF 4',  x: 0,     y: 324 },
+      { label: 'Final', x: 0,     y: finY },
       { label: 'SF 1',  x: col1x, y: sf1Y },
       { label: 'SF 2',  x: col1x, y: sf2Y },
-      { label: 'Final', x: col2x, y: finY },
+      { label: 'QF 1',  x: col2x, y: 0   },
+      { label: 'QF 2',  x: col2x, y: 108 },
+      { label: 'QF 3',  x: col2x, y: 216 },
+      { label: 'QF 4',  x: col2x, y: 324 },
     ]
     lines = [
-      `M${CW},${qf1cy} H${mx01} V${sf1cy} H${col1x}`,
-      `M${CW},${qf2cy} H${mx01} V${sf1cy} H${col1x}`,
-      `M${CW},${qf3cy} H${mx01} V${sf2cy} H${col1x}`,
-      `M${CW},${qf4cy} H${mx01} V${sf2cy} H${col1x}`,
-      `M${col1x + CW},${sf1cy} H${mx12} V${finCy} H${col2x}`,
-      `M${col1x + CW},${sf2cy} H${mx12} V${finCy} H${col2x}`,
+      `M${col2x},${qf1cy} H${mx12} V${sf1cy} H${col1x + CW}`,
+      `M${col2x},${qf2cy} H${mx12} V${sf1cy} H${col1x + CW}`,
+      `M${col2x},${qf3cy} H${mx12} V${sf2cy} H${col1x + CW}`,
+      `M${col2x},${qf4cy} H${mx12} V${sf2cy} H${col1x + CW}`,
+      `M${col1x},${sf1cy} H${mx01} V${finCy} H${CW}`,
+      `M${col1x},${sf2cy} H${mx01} V${finCy} H${CW}`,
     ]
   }
 

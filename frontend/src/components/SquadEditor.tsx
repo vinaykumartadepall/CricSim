@@ -59,6 +59,21 @@ function RoleBadge({ role }: { role: string | null }) {
   )
 }
 
+function OverseasBadge({ faded }: { faded?: boolean }) {
+  return (
+    <span
+      className="text-[9px] px-1.5 py-px rounded font-bold flex-shrink-0 tracking-wide"
+      style={{
+        background: faded ? 'rgba(56,189,248,0.07)' : 'rgba(56,189,248,0.15)',
+        color: faded ? 'rgba(56,189,248,0.5)' : '#38bdf8',
+        border: `1px solid ${faded ? 'rgba(56,189,248,0.15)' : 'rgba(56,189,248,0.35)'}`,
+      }}
+    >
+      ✈
+    </span>
+  )
+}
+
 interface Props {
   squad: Player[]
   allTeams: Team[]
@@ -67,13 +82,19 @@ interface Props {
   swaps: SwapEntry[]
   onSwapsChange: (swaps: SwapEntry[]) => void
   onOrderChange?: (playerIds: number[]) => void
+  overseasLimit?: number
+  homeCountryName?: string
 }
 
-export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSwapsChange, onOrderChange }: Props) {
+export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSwapsChange, onOrderChange, overseasLimit, homeCountryName }: Props) {
   const [selectingFor, setSelectingFor] = useState<Player | null>(null)
   const [activeTeamId, setActiveTeamId] = useState<number | null>(null)
   const [reorderMode, setReorderMode] = useState(false)
   const [order, setOrder] = useState<number[]>(() => squad.map(p => p.player_id))
+
+  function isOverseas(p: { country_name?: string | null } | null | undefined): boolean {
+    return !!homeCountryName && !!p?.country_name && p.country_name !== homeCountryName
+  }
 
   const currentSquad = useMemo(() => {
     const byId = Object.fromEntries(squad.map(p => [p.player_id, p]))
@@ -91,11 +112,24 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
       })
   }, [squad, swaps, order, allTeams])
 
+  const overseasCount = useMemo(() => {
+    if (!homeCountryName) return 0
+    return currentSquad.filter(p => {
+      const effective = (p._swapped && p._swapIn) ? p._swapIn : p
+      return isOverseas(effective)
+    }).length
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSquad, homeCountryName])
+
+  const overseasExceeded = overseasLimit != null && overseasCount > overseasLimit
+
   const swappedOutIds = new Set(swaps.map(s => s.player_out_id))
   const opponents = allTeams.filter(t => t.team_id !== userTeamId)
   const teamsWithSwap = new Set(swaps.map(s => s.from_team_id))
 
   const activeTeam = opponents.find(t => t.team_id === activeTeamId) ?? opponents[0] ?? null
+
+  const tradingOutOverseas = selectingFor ? isOverseas(selectingFor) : false
 
   function openDrawer(player: Player) {
     if (reorderMode) return
@@ -147,7 +181,6 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
 
   const canSwapMore = maxSwaps === undefined || swaps.length < maxSwaps
 
-  // Drawer rendered via portal so it overlays everything regardless of parent stacking context
   const drawer = selectingFor ? createPortal(
     <>
       {/* Backdrop */}
@@ -188,14 +221,17 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
             <div className="text-xs font-medium uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-dim)' }}>
               Replace with
             </div>
-            <div className="text-sm font-semibold truncate" style={{ color: 'var(--score)' }}>
-              {selectingFor.player_name}
+            <div className="flex items-center gap-1.5 min-w-0">
+              <div className="text-sm font-semibold truncate" style={{ color: 'var(--score)' }}>
+                {selectingFor.player_name}
+              </div>
+              {isOverseas(selectingFor) && <OverseasBadge />}
             </div>
           </div>
           <RoleBadge role={selectingFor.player_role} />
         </div>
 
-        {/* Team tabs — horizontal scroll */}
+        {/* Team tabs */}
         <div
           className="flex gap-2 px-3 py-2.5 overflow-x-auto flex-shrink-0"
           style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}
@@ -203,7 +239,6 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
           {opponents.map(team => {
             const hasSwap = teamsWithSwap.has(team.team_id)
             const isActive = team.team_id === (activeTeamId ?? opponents[0]?.team_id)
-            const shortName = team.team_name.split(' ').slice(-1)[0]
             return (
               <button
                 key={team.team_id}
@@ -224,20 +259,19 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
                   opacity: hasSwap && !isActive ? 0.7 : 1,
                 }}
               >
-                {shortName}{hasSwap && ' ✓'}
+                {team.team_name}{hasSwap && ' ✓'}
               </button>
             )
           })}
         </div>
 
-        {/* Player list — scrollable */}
+        {/* Player list */}
         <div className="flex-1 overflow-y-auto">
-          {/* Banner when this team's swap slot is used */}
           {activeTeam && teamsWithSwap.has(activeTeam.team_id) && (
             <div className="px-4 py-2.5 flex items-center gap-2"
               style={{ background: 'rgba(245,158,11,0.08)', borderBottom: '1px solid var(--border)' }}>
               <span className="text-xs" style={{ color: 'var(--score)' }}>
-                Already using one player from {activeTeam.team_name.split(' ').slice(-1)[0]}.
+                Already using one player from {activeTeam.team_name}.
                 Remove that trade to pick a different player.
               </span>
             </div>
@@ -246,7 +280,11 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
           {activeTeam?.players.map(p => {
             const compat = isCompatible(selectingFor.player_role, p.player_role)
             const teamUsed = teamsWithSwap.has(activeTeam.team_id)
-            const disabled = !compat || teamUsed
+            const candidateIsOverseas = isOverseas(p)
+            const resultCount = overseasCount - (tradingOutOverseas ? 1 : 0) + (candidateIsOverseas ? 1 : 0)
+            const overseasBlocked = overseasLimit != null && resultCount > overseasLimit
+            const disabled = !compat || teamUsed || overseasBlocked
+            const disabledReason = teamUsed ? 'Team used' : !compat ? 'Role mismatch' : 'Overseas limit'
 
             if (disabled) {
               return (
@@ -256,11 +294,12 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
                   style={{ borderBottom: '1px solid var(--border)', opacity: teamUsed ? 0.35 : 0.3 }}
                 >
                   <Headshot url={p.headshot_url} name={p.player_name} size={32} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm truncate" style={{ color: 'var(--text-muted)' }}>{p.player_name}</div>
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <span className="text-sm truncate" style={{ color: 'var(--text-muted)' }}>{p.player_name}</span>
+                    {candidateIsOverseas && <OverseasBadge faded />}
                   </div>
                   <span className="text-xs shrink-0" style={{ color: 'var(--text-dim)' }}>
-                    {teamUsed ? 'Team used' : 'Role mismatch'}
+                    {disabledReason}
                   </span>
                 </div>
               )
@@ -272,12 +311,15 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
                 onClick={() => handleSwapIn(p, activeTeam)}
                 className="flex items-center gap-3 px-4 py-3 w-full text-left transition-all"
                 style={{ borderBottom: '1px solid var(--border)' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(0,229,204,0.06)'}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.06)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
               >
                 <Headshot url={p.headshot_url} name={p.player_name} size={32} />
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{p.player_name}</div>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{p.player_name}</span>
+                    {candidateIsOverseas && <OverseasBadge />}
+                  </div>
                   {(p.batting_style || p.bowling_style) && (
                     <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
                       {p.batting_style}{p.bowling_style ? ` · ${p.bowling_style}` : ''}
@@ -306,16 +348,31 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
       <div className="flex flex-col gap-3">
         {/* Header controls */}
         <div className="flex items-center justify-between">
-          <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-            {maxSwaps !== undefined
-              ? `${swaps.length} / ${maxSwaps} trades used`
-              : `${swaps.length} trade${swaps.length !== 1 ? 's' : ''} made`}
+          <div className="flex items-center gap-2.5">
+            <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              {maxSwaps !== undefined
+                ? `${swaps.length} / ${maxSwaps} trades used`
+                : `${swaps.length} trade${swaps.length !== 1 ? 's' : ''} made`}
+            </div>
+            {overseasLimit != null && (
+              <div
+                className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
+                style={{
+                  background: overseasExceeded ? 'rgba(239,68,68,0.12)' : 'rgba(56,189,248,0.1)',
+                  color: overseasExceeded ? 'var(--loss)' : '#38bdf8',
+                  border: `1px solid ${overseasExceeded ? 'rgba(239,68,68,0.3)' : 'rgba(56,189,248,0.25)'}`,
+                }}
+              >
+                ✈ {overseasCount}/{overseasLimit}
+                {overseasExceeded && ' ⚠'}
+              </div>
+            )}
           </div>
           <button
             onClick={() => setReorderMode(r => !r)}
             className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-all"
             style={{
-              background: reorderMode ? 'rgba(0,229,204,0.1)' : 'var(--surface)',
+              background: reorderMode ? 'rgba(59,130,246,0.1)' : 'var(--surface)',
               color: reorderMode ? 'var(--accent)' : 'var(--text-muted)',
               border: `1px solid ${reorderMode ? 'var(--accent)' : 'var(--border)'}`,
             }}
@@ -334,56 +391,69 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
             return (
               <div
                 key={p.player_id}
-                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all"
+                className="flex items-center gap-2 px-2.5 py-2 rounded-lg transition-all"
                 style={{
                   background: isSwappedOut ? 'rgba(34,197,94,0.06)' : 'var(--surface)',
                   border: `1px solid ${isSwappedOut ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`,
                 }}
               >
                 {/* Position */}
-                <span className="text-xs font-mono w-4 text-right flex-shrink-0" style={{ color: 'var(--text-dim)' }}>
+                <span className="font-mono flex-shrink-0 tabular-nums text-right" style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 12 }}>
                   {p._position}
                 </span>
 
-                {/* Headshot */}
+                {/* Headshot — desktop */}
                 <div className="hidden md:block flex-shrink-0">
                   {isSwappedOut && p._swapIn ? (
-                    <Headshot url={p._swapIn.headshot_url} name={p._swapIn.player_name} size={32} />
+                    <Headshot url={p._swapIn.headshot_url} name={p._swapIn.player_name} size={30} />
                   ) : (
-                    <Headshot url={p.headshot_url} name={p.player_name} size={32} />
+                    <Headshot url={p.headshot_url} name={p.player_name} size={30} />
                   )}
                 </div>
 
-                {/* Name + style */}
+                {/* Name + role badge */}
                 <div className="flex-1 min-w-0">
                   {isSwappedOut && p._swapIn ? (
                     <>
-                      <div className="text-sm font-medium truncate" style={{ color: 'var(--win)' }}>
-                        {p._swapIn.player_name}
-                        <span className="ml-1.5 text-xs px-1 rounded"
-                          style={{ background: 'rgba(34,197,94,0.15)', color: 'var(--win)' }}>NEW</span>
+                      {/* Row 1: mobile headshot + new name + ✈ + role badge */}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="md:hidden flex-shrink-0">
+                          <Headshot url={p._swapIn.headshot_url} name={p._swapIn.player_name} size={22} />
+                        </div>
+                        <div className="flex-1 min-w-0 text-sm font-medium truncate" style={{ color: 'var(--win)' }}>
+                          {p._swapIn.player_name}
+                          <span className="ml-1.5 text-xs px-1 rounded"
+                            style={{ background: 'rgba(34,197,94,0.15)', color: 'var(--win)' }}>NEW</span>
+                        </div>
+                        {isOverseas(p._swapIn) && <OverseasBadge />}
+                        <div className="flex-shrink-0"><RoleBadge role={p._swapIn.player_role} /></div>
                       </div>
+                      {/* Row 2: old name strikethrough */}
                       <div className="text-xs line-through truncate" style={{ color: 'var(--text-dim)' }}>
                         {p.player_name}
                       </div>
                     </>
                   ) : (
                     <>
-                      <div className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>
-                        {p.player_name}
+                      {/* Row 1: mobile headshot + name + ✈ + role badge */}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="md:hidden flex-shrink-0">
+                          <Headshot url={p.headshot_url} name={p.player_name} size={22} />
+                        </div>
+                        <div className="flex-1 min-w-0 text-sm font-medium truncate" style={{ color: 'var(--text)' }}>
+                          {p.player_name}
+                        </div>
+                        {isOverseas(p) && <OverseasBadge />}
+                        <div className="flex-shrink-0"><RoleBadge role={p.player_role} /></div>
                       </div>
-                      {(p.batting_style || p.player_role) && (
+                      {/* Row 2: batting/bowling style */}
+                      {(p.batting_style || p.bowling_style) && (
                         <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
                           {p.batting_style}{p.bowling_style ? ` · ${p.bowling_style}` : ''}
                         </div>
                       )}
                     </>
                   )}
-                </div>
-
-                {/* Role badge */}
-                <div className="hidden sm:block flex-shrink-0">
-                  <RoleBadge role={isSwappedOut && p._swapIn ? p._swapIn.player_role : p.player_role} />
                 </div>
 
                 {/* Actions */}
@@ -413,13 +483,13 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
                     disabled={!canSwap}
                     className="text-xs px-2.5 py-1 rounded flex-shrink-0 font-semibold tracking-wide transition-all"
                     style={{
-                      background: canSwap ? 'rgba(0,229,204,0.12)' : 'transparent',
+                      background: canSwap ? 'rgba(59,130,246,0.12)' : 'transparent',
                       color: canSwap ? 'var(--accent)' : 'var(--text-dim)',
-                      border: `1px solid ${canSwap ? 'rgba(0,229,204,0.35)' : 'transparent'}`,
+                      border: `1px solid ${canSwap ? 'rgba(59,130,246,0.35)' : 'transparent'}`,
                       cursor: canSwap ? 'pointer' : 'not-allowed',
                     }}
-                    onMouseEnter={e => canSwap && ((e.currentTarget as HTMLElement).style.background = 'rgba(0,229,204,0.22)')}
-                    onMouseLeave={e => canSwap && ((e.currentTarget as HTMLElement).style.background = 'rgba(0,229,204,0.12)')}
+                    onMouseEnter={e => canSwap && ((e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.22)')}
+                    onMouseLeave={e => canSwap && ((e.currentTarget as HTMLElement).style.background = 'rgba(59,130,246,0.12)')}
                   >
                     TRADE
                   </button>

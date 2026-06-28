@@ -66,8 +66,27 @@ _PLAYOFF_LATERAL = """
     ) mpo ON true
 """
 
+_MATCH_LATERAL = """
+    LEFT JOIN LATERAL (
+        SELECT match_id, winner_id, home_team_id, away_team_id
+        FROM simulation.matches m4
+        WHERE m4.sim_id = s.sim_id
+          AND s.simulation_type = 'match'
+        LIMIT 1
+    ) mm ON true
+"""
+
 _PLACEMENT_CASE = """
     CASE
+        -- 1v1 / single match sims
+        WHEN s.simulation_type = 'match'
+         AND mm.winner_id = gs.user_team_id                         THEN 'Winner'
+        WHEN s.simulation_type = 'match'
+         AND mm.match_id IS NOT NULL
+         AND (mm.home_team_id = gs.user_team_id
+              OR mm.away_team_id = gs.user_team_id)
+         AND mm.winner_id != gs.user_team_id                        THEN 'Loser'
+        -- Tournament sims
         WHEN mf.winner_id = gs.user_team_id                        THEN 'Winner'
         WHEN mf.match_id  IS NOT NULL
          AND (mf.home_team_id = gs.user_team_id
@@ -81,6 +100,11 @@ _PLACEMENT_CASE = """
 
 _PLACEMENT_RANK = """
     CASE
+        WHEN s.simulation_type = 'match'
+         AND mm.winner_id = gs.user_team_id                         THEN 1
+        WHEN s.simulation_type = 'match'
+         AND mm.match_id IS NOT NULL
+         AND mm.winner_id != gs.user_team_id                        THEN 2
         WHEN mf.winner_id = gs.user_team_id                        THEN 1
         WHEN mf.match_id  IS NOT NULL
          AND (mf.home_team_id = gs.user_team_id
@@ -124,15 +148,17 @@ class SimulationRepository:
         config_dict: dict,
         client_id: Optional[str] = None,
         mode: Optional[str] = None,
+        participant_ids: Optional[list] = None,
     ) -> str:
         """Insert a new simulation job row and return its UUID."""
         self.cur.execute(
             """
-            INSERT INTO simulation.simulations (simulation_type, status, config, client_id, mode)
-            VALUES (%s, 'pending', %s, %s, %s)
+            INSERT INTO simulation.simulations
+                (simulation_type, status, config, client_id, mode, participant_ids)
+            VALUES (%s, 'pending', %s, %s, %s, %s)
             RETURNING sim_id
             """,
-            (sim_type, json.dumps(config_dict), client_id, mode),
+            (sim_type, json.dumps(config_dict), client_id, mode, participant_ids or []),
         )
         return str(self.cur.fetchone()[0])
 
@@ -482,72 +508,100 @@ class SimulationRepository:
                 s.created_at,
                 s.completed_at,
                 s.mode,
-                t.tournament_name,
+                COALESCE(
+                    t.tournament_name,
+                    CASE WHEN s.simulation_type = 'match' THEN
+                        (s.config->'team_a'->>'name') || ' vs ' || (s.config->'team_b'->>'name')
+                    END
+                )                                          AS tournament_name,
                 t.season,
                 ut.name                                    AS user_team_name,
                 JSONB_ARRAY_LENGTH(gs.swaps)               AS swap_count,
                 wt.name                                    AS winner_name,
-                {_PLACEMENT_CASE}                          AS user_team_placement
+                {_PLACEMENT_CASE}                          AS user_team_placement,
+                CASE WHEN s.simulation_type = 'match' THEN (
+                    SELECT m.match_id FROM simulation.matches m WHERE m.sim_id = s.sim_id LIMIT 1
+                ) END                                      AS match_id
             FROM simulation.simulations s
             LEFT JOIN simulation.tournaments t   ON t.sim_id   = s.sim_id
             LEFT JOIN simulation.game_sessions gs ON gs.sim_id  = s.sim_id
+                                                 AND gs.client_id = %s
             LEFT JOIN simulation.teams        ut  ON ut.team_id = gs.user_team_id
             {_FINAL_LATERAL}
             LEFT JOIN simulation.teams wt ON wt.team_id = mf.winner_id
             {_PLAYOFF_LATERAL}
-            WHERE (%s IS NULL OR s.client_id = %s)
+            {_MATCH_LATERAL}
+            WHERE (%s IS NULL OR s.client_id = %s OR %s = ANY(s.participant_ids))
             ORDER BY s.created_at DESC
             LIMIT %s
             """,
-            (client_id, client_id, limit),
+            (client_id, client_id, client_id, client_id, limit),
         )
         return [dict(r) for r in self._dict_cur.fetchall()]
 
     def save_game_session(
         self,
         sim_id: str,
+        client_id: str,
         mode: str | None,
         source_tournament_id: int | None,
         user_team_id: int | None,
         swaps: list,
     ) -> None:
-        """Persist game session metadata (UI context) for a simulation."""
+        """Persist game session metadata (UI context) for one participant of a simulation."""
         self.cur.execute(
             """
             INSERT INTO simulation.game_sessions
-                (sim_id, mode, source_tournament_id, user_team_id, swaps)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (sim_id) DO UPDATE
+                (sim_id, client_id, mode, source_tournament_id, user_team_id, swaps)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (sim_id, client_id) DO UPDATE
                 SET mode = EXCLUDED.mode,
                     source_tournament_id = EXCLUDED.source_tournament_id,
                     user_team_id = EXCLUDED.user_team_id,
                     swaps = EXCLUDED.swaps
             """,
-            (sim_id, mode, source_tournament_id, user_team_id, json.dumps(swaps)),
+            (sim_id, client_id, mode, source_tournament_id, user_team_id, json.dumps(swaps)),
         )
 
-    def get_game_session(self, sim_id: str) -> dict | None:
-        """Return game session metadata (mode, source_tournament_id, user_team_id).
-        Returns None if game_sessions table doesn't exist or sim has no session row.
+    def get_game_session(self, sim_id: str, client_id: str | None = None) -> dict | None:
+        """Return game session metadata for one participant of a simulation.
+
+        client_id: if provided, returns that participant's row; otherwise returns
+                   the first row (backward-compat for single-player callers that
+                   don't pass client_id, where there is exactly one row per sim).
+        Returns None if no matching row exists.
         """
         try:
-            self._dict_cur.execute(
-                """
-                SELECT gs.mode,
-                       gs.source_tournament_id,
-                       gs.user_team_id,
-                       t.name AS user_team_name
-                FROM simulation.game_sessions gs
-                LEFT JOIN simulation.teams t ON t.team_id = gs.user_team_id
-                                            AND t.sim_id  = gs.sim_id
-                WHERE gs.sim_id = %s
-                """,
-                (sim_id,),
-            )
+            if client_id is not None:
+                self._dict_cur.execute(
+                    """
+                    SELECT gs.mode,
+                           gs.source_tournament_id,
+                           gs.user_team_id,
+                           t.name AS user_team_name
+                    FROM simulation.game_sessions gs
+                    LEFT JOIN simulation.teams t ON t.team_id = gs.user_team_id
+                    WHERE gs.sim_id = %s AND gs.client_id = %s
+                    """,
+                    (sim_id, client_id),
+                )
+            else:
+                self._dict_cur.execute(
+                    """
+                    SELECT gs.mode,
+                           gs.source_tournament_id,
+                           gs.user_team_id,
+                           t.name AS user_team_name
+                    FROM simulation.game_sessions gs
+                    LEFT JOIN simulation.teams t ON t.team_id = gs.user_team_id
+                    WHERE gs.sim_id = %s
+                    LIMIT 1
+                    """,
+                    (sim_id,),
+                )
             row = self._dict_cur.fetchone()
             return dict(row) if row else None
         except Exception:
-            # Table may not exist in older DB deployments
             self.conn.rollback()
             return None
 
@@ -650,9 +704,10 @@ class SimulationRepository:
                     ),
                     done AS (
                         SELECT tn.tournament_name AS name,
-                               COUNT(DISTINCT (gs.source_tournament_id, gs.user_team_id)) AS completed
+                               COUNT(DISTINCT (gs.source_tournament_id, st.name)) AS completed
                         FROM simulation.game_sessions gs
                         JOIN simulation.simulations sim ON sim.sim_id = gs.sim_id
+                        JOIN simulation.teams st ON st.team_id = gs.user_team_id
                         JOIN history.tournaments tn ON tn.tournament_id = gs.source_tournament_id
                         WHERE sim.client_id = %s
                           AND sim.status = 'completed'
@@ -692,9 +747,10 @@ class SimulationRepository:
                     ),
                     done AS (
                         SELECT tn.tournament_name AS name,
-                               COUNT(DISTINCT (gs.source_tournament_id, gs.user_team_id)) AS completed
+                               COUNT(DISTINCT (gs.source_tournament_id, st.name)) AS completed
                         FROM simulation.game_sessions gs
                         JOIN simulation.simulations sim ON sim.sim_id = gs.sim_id
+                        JOIN simulation.teams st ON st.team_id = gs.user_team_id
                         JOIN history.tournaments tn ON tn.tournament_id = gs.source_tournament_id
                         WHERE sim.client_id = %s
                           AND sim.status = 'completed'
@@ -741,9 +797,10 @@ class SimulationRepository:
                     ),
                     done AS (
                         SELECT gs.source_tournament_id AS tournament_id,
-                               COUNT(DISTINCT gs.user_team_id) AS completed
+                               COUNT(DISTINCT st.name) AS completed
                         FROM simulation.game_sessions gs
                         JOIN simulation.simulations sim ON sim.sim_id = gs.sim_id
+                        JOIN simulation.teams st ON st.team_id = gs.user_team_id
                         WHERE sim.client_id = %s
                           AND sim.status = 'completed'
                           AND gs.source_tournament_id = ANY(%s)
@@ -773,9 +830,10 @@ class SimulationRepository:
                     ),
                     done AS (
                         SELECT gs.source_tournament_id AS tournament_id,
-                               COUNT(DISTINCT gs.user_team_id) AS completed
+                               COUNT(DISTINCT st.name) AS completed
                         FROM simulation.game_sessions gs
                         JOIN simulation.simulations sim ON sim.sim_id = gs.sim_id
+                        JOIN simulation.teams st ON st.team_id = gs.user_team_id
                         WHERE sim.client_id = %s
                           AND sim.status = 'completed'
                           AND gs.source_tournament_id = ANY(%s)

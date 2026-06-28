@@ -7,7 +7,7 @@ import { PlayoffBracket } from '@/components/PlayoffBracket'
 import { api } from '@/api/client'
 import type {
   TournamentResult, LeaderboardsDashboard,
-  MatchItem, BattingRow, BowlingRow, MvpRow,
+  MatchItem,
 } from '@/types'
 
 type Tab = 'standings' | 'leaderboards' | 'matches'
@@ -573,7 +573,7 @@ export function ResultsPage() {
           if (userTeam) {
             if (placement === 'Winner')    return { icon: '🏆', headline: 'Champions!',             sub: `${userTeam} won the title`,             border: 'var(--score)', bg: 'rgba(245,158,11,0.07)', color: 'var(--score)' }
             if (placement === 'Runner-up') return { icon: '💔', headline: 'So close…',              sub: `${userTeam} — Runner-up`,               border: 'rgba(239,68,68,0.4)', bg: 'rgba(239,68,68,0.05)', color: 'var(--loss)' }
-            if (placement === 'Playoffs')  return { icon: '✨', headline: 'You made the Playoffs!', sub: `${userTeam} reached the knockout stage`, border: 'var(--accent)', bg: 'rgba(0,229,204,0.05)', color: 'var(--accent)' }
+            if (placement === 'Playoffs')  return { icon: '✨', headline: 'You made the Playoffs!', sub: `${userTeam} reached the knockout stage`, border: 'var(--accent)', bg: 'rgba(59,130,246,0.05)', color: 'var(--accent)' }
             return { icon: '😞', headline: 'Did not qualify', sub: `${userTeam} was eliminated in the group stage`, border: 'var(--border)', bg: 'transparent', color: 'var(--text-muted)' }
           }
           return { icon: '🏆', headline: result.winner ? `${result.winner} won the tournament` : 'Tournament complete', sub: result.runner_up ? `Runner-up: ${result.runner_up}` : '', border: 'var(--score)', bg: 'rgba(245,158,11,0.07)', color: 'var(--score)' }
@@ -693,8 +693,8 @@ export function ResultsPage() {
                       borderBottom: i < pt.length - 1 ? '1px solid var(--border)' : 'none',
                       background: isWinner
                         ? 'rgba(245,158,11,0.09)'
-                        : isMyTeam ? 'rgba(0,229,204,0.07)'
-                        : i < 4 ? 'rgba(0,229,204,0.025)' : 'transparent',
+                        : isMyTeam ? 'rgba(59,130,246,0.07)'
+                        : i < 4 ? 'rgba(59,130,246,0.025)' : 'transparent',
                       boxShadow: isMyTeam && !isWinner ? 'inset 2px 0 0 var(--accent)' : undefined,
                     }}>
                       <td className="px-3 py-2.5" style={{ color: isWinner ? 'var(--score)' : i < 4 ? 'var(--accent)' : 'var(--text-dim)' }}>
@@ -708,11 +708,11 @@ export function ResultsPage() {
                         )}
                         {!isWinner && i < 4 && (
                           <span className="ml-2 text-xs px-1.5 py-px rounded font-semibold"
-                            style={{ background: 'rgba(0,229,204,0.12)', color: 'var(--accent)' }}>Q</span>
+                            style={{ background: 'rgba(59,130,246,0.12)', color: 'var(--accent)' }}>Q</span>
                         )}
                         {isMyTeam && (
                           <span className="ml-2 text-xs px-1.5 py-px rounded font-semibold"
-                            style={{ background: 'rgba(0,229,204,0.12)', color: 'var(--accent)' }}>You</span>
+                            style={{ background: 'rgba(59,130,246,0.12)', color: 'var(--accent)' }}>You</span>
                         )}
                       </td>
                       <td className="px-3 py-2.5" style={{ color: 'var(--text-muted)' }}>{row.played}</td>

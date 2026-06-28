@@ -1,25 +1,44 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useHelp } from '@/contexts/HelpContext'
 import { Spinner } from '@/components/ui/Spinner'
 import { SquadEditor } from '@/components/SquadEditor'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest } from '@/types'
 
 type Step = 'tournament' | 'season' | 'team' | 'squad' | 'confirm'
 
-const PLACEMENT_COLOR: Record<string, string> = {
-  'Winner':      'var(--score)',
-  'Runner-up':   'var(--text)',
-  'Playoffs':    'var(--accent)',
-  'Group stage': 'var(--text-dim)',
+const FORMAT_BADGE_STYLES: Record<string, { bg: string; color: string }> = {
+  T20:  { bg: 'rgba(59,130,246,0.1)',  color: 'var(--accent)' },
+  ODI:  { bg: 'rgba(14,165,233,0.1)', color: '#0ea5e9' },
+  Test: { bg: 'rgba(245,158,11,0.1)', color: 'var(--score)' },
+}
+
+function FormatBadge({ format }: { format?: string | null }) {
+  if (!format) return null
+  const s = FORMAT_BADGE_STYLES[format] ?? { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold self-start" style={{ background: s.bg, color: s.color }}>
+      {format}
+    </span>
+  )
+}
+
+
+const FUN_STEP_SLIDE: Partial<Record<Step, number>> = {
+  tournament: 0,
+  season: 1,
+  team: 2,
+  squad: 3,
 }
 
 export function FunModePage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { clientId } = useAuth()
+  const { openHelp } = useHelp()
 
   const [step, setStep] = useState<Step>('tournament')
   const [search, setSearch] = useState('')
@@ -181,12 +200,49 @@ export function FunModePage() {
     }
   }
 
+  // Step-based help: show the relevant slide when navigating to each step
+  useEffect(() => {
+    const slide = FUN_STEP_SLIDE[step]
+    if (slide !== undefined) openHelp(slide, true)
+  }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hasKeeper = useMemo(() => {
+    if (!selectedTeam) return true
+    const allPlayers = allTeams.flatMap(t => t.players)
+    const swapMap = new Map(swaps.map(s => [s.player_out_id, s]))
+    return selectedTeam.players.some(p => {
+      const swap = swapMap.get(p.player_id)
+      if (swap) {
+        const inPlayer = allPlayers.find(pl => pl.player_id === swap.player_in_id)
+        return inPlayer?.player_role === 'Keeper'
+      }
+      return p.player_role === 'Keeper'
+    })
+  }, [selectedTeam, swaps, allTeams])
+
+  const overseasValid = useMemo(() => {
+    if (!selectedTeam || !selectedSeason?.overseas_limit || !selectedSeason?.home_country_name) return true
+    const { overseas_limit, home_country_name } = selectedSeason
+    const allPlayers = allTeams.flatMap(t => t.players)
+    const swapMap = new Map(swaps.map(s => [s.player_out_id, s]))
+    const count = selectedTeam.players.filter(p => {
+      const swap = swapMap.get(p.player_id)
+      const effective = swap ? (allPlayers.find(pl => pl.player_id === swap.player_in_id) ?? p) : p
+      return !!effective.country_name && effective.country_name !== home_country_name
+    }).length
+    return count <= overseas_limit
+  }, [selectedTeam, swaps, allTeams, selectedSeason])
+
   const STEPS: Step[] = ['tournament', 'season', 'team', 'squad', 'confirm']
   const stepLabels = ['Tournament', 'Season', 'Team', 'Squad', 'Simulate']
   const stepIndex = STEPS.indexOf(step)
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
+      {/* Mode label */}
+      <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--accent)' }}>
+        Fun Mode
+      </div>
       {/* Breadcrumb */}
       <div className="flex items-center gap-1 mb-8 flex-wrap">
         {stepLabels.map((label, i) => (
@@ -198,7 +254,7 @@ export function FunModePage() {
               <span
                 className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-semibold"
                 style={{
-                  background: i < stepIndex ? 'var(--accent)' : i === stepIndex ? 'rgba(0,229,204,0.15)' : 'var(--surface-2)',
+                  background: i < stepIndex ? 'var(--accent)' : i === stepIndex ? 'rgba(59,130,246,0.15)' : 'var(--surface-2)',
                   color: i < stepIndex ? 'var(--bg)' : i === stepIndex ? 'var(--accent)' : 'var(--text-dim)',
                   border: i === stepIndex ? '1px solid var(--accent)' : 'none',
                 }}
@@ -218,9 +274,9 @@ export function FunModePage() {
           <button
             className="flex items-center gap-1 text-sm mb-5"
             style={{ color: 'var(--text-muted)' }}
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/play')}
           >
-            <ChevronLeft size={14} /> Home
+            <ChevronLeft size={14} /> Back
           </button>
           <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>Select tournament</div>
           <div className="text-sm mb-5" style={{ color: 'var(--text-muted)' }}>Choose a tournament to simulate</div>
@@ -246,11 +302,14 @@ export function FunModePage() {
                   >
                     <div className="flex flex-col gap-0.5">
                       <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{name}</span>
-                      {hist && (
-                        <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-dim)' }}>
-                          {hist.completed}/{hist.total} complete
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        <FormatBadge format={grouped[name][0]?.format} />
+                        {hist && (
+                          <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-dim)' }}>
+                            {hist.completed}/{hist.total} complete
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <span className="text-xs shrink-0" style={{ color: 'var(--text-dim)' }}>
                       {grouped[name].length} season{grouped[name].length > 1 ? 's' : ''}
@@ -289,11 +348,14 @@ export function FunModePage() {
                 >
                   <div className="flex flex-col gap-0.5">
                     <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{s.season} Season</span>
-                    {total > 0 && (
-                      <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-dim)' }}>
-                        {completed}/{total} complete
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      <FormatBadge format={s.format} />
+                      {total > 0 && (
+                        <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-dim)' }}>
+                          {completed}/{total} complete
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <span className="text-xs shrink-0" style={{ color: 'var(--text-dim)' }}>{s.team_count} teams</span>
                 </button>
@@ -366,14 +428,31 @@ export function FunModePage() {
             squad={selectedTeam.players}
             allTeams={allTeams}
             userTeamId={selectedTeam.team_id}
+            maxSwaps={3}
             swaps={swaps}
             onSwapsChange={setSwaps}
             onOrderChange={setBattingOrder}
+            overseasLimit={selectedSeason?.overseas_limit ?? undefined}
+            homeCountryName={selectedSeason?.home_country_name ?? undefined}
           />
-          <div className="mt-6 flex flex-col gap-2">
+          {!hasKeeper && (
+            <div className="mt-4 px-3 py-2.5 rounded-lg text-sm"
+              style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
+              No wicket-keeper in your squad. Trade in a keeper before continuing.
+            </div>
+          )}
+          {!overseasValid && (
+            <div className="mt-2 px-3 py-2.5 rounded-lg text-sm"
+              style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
+              ✈ Too many overseas players ({selectedSeason?.overseas_limit} max). Trade in a local player to continue.
+            </div>
+          )}
+          <div className="mt-4 flex flex-col gap-2">
             <button
               className="btn-accent w-full py-3 text-base"
               onClick={() => setStep('confirm')}
+              disabled={!hasKeeper || !overseasValid}
+              style={{ opacity: (!hasKeeper || !overseasValid) ? 0.45 : 1, cursor: (!hasKeeper || !overseasValid) ? 'not-allowed' : undefined }}
             >
               Continue →
             </button>

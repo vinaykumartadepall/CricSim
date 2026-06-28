@@ -166,6 +166,7 @@ def create_tournament_from_id(body: TournamentFromIdRequest, background_tasks: B
         )
         repo.save_game_session(
             sim_id=sim_id,
+            client_id=body.client_id,
             mode=body.mode,
             source_tournament_id=body.tournament_id,
             user_team_id=None,  # back-filled by worker after simulation.teams rows are inserted
@@ -178,6 +179,7 @@ def create_tournament_from_id(body: TournamentFromIdRequest, background_tasks: B
     background_tasks.add_task(
         run_tournament_job, sim_id, config_dict,
         user_team_name=user_team_name,
+        client_id=body.client_id,
     )
     return SimCreatedResponse(sim_id=sim_id)
 

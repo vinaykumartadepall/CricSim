@@ -5,7 +5,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { api } from '@/api/client'
 import type { Scorecard, Innings } from '@/types'
 
-type Tab = 'scorecard' | 'commentary'
+type Tab = 'result' | 'scorecard' | 'commentary'
 
 interface DeliveryItem {
   inning_number: number
@@ -194,7 +194,9 @@ function InningsPanel({ inn, defaultOpen, isSuperOver }: { inn: Innings; default
                       <div className="font-medium" style={{ color: 'var(--text)' }}>{b.name}</div>
                       <div className="mt-0.5" style={{ color: 'var(--text-dim)', fontSize: 10 }}>{b.dismissal || 'not out'}</div>
                     </td>
-                    <td className="pr-3 py-2 font-semibold" style={{ color: 'var(--score)', whiteSpace: 'nowrap' }}>{b.runs}</td>
+                    <td className="pr-3 py-2 font-semibold" style={{ color: 'var(--score)', whiteSpace: 'nowrap' }}>
+                      {b.runs}
+                    </td>
                     <td className="pr-3 py-2" style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{b.balls}</td>
                     <td className="pr-3 py-2" style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{b.fours}</td>
                     <td className="pr-3 py-2" style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{b.sixes}</td>
@@ -313,7 +315,7 @@ function OverSummaryCard({ snap, ctx, isFinalOver }: {
               </span>
             ))}
           </div>
-          <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
+          <span className="text-xs" >
             {overRuns} run{overRuns !== 1 ? 's' : ''}{overWkts > 0 ? `, ${overWkts}W` : ''}
           </span>
         </div>
@@ -325,16 +327,16 @@ function OverSummaryCard({ snap, ctx, isFinalOver }: {
           <div className="flex-1 flex flex-col gap-0.5" style={{ borderRight: '1px solid var(--border)', paddingRight: 12 }}>
             {striker && (
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{striker.name}</span>
-                <span className="text-xs font-mono shrink-0" style={{ color: 'var(--text-muted)' }}>
+                <span className="text-xs">{striker.name}</span>
+                <span className="text-xs font-mono shrink-0">
                   {striker.runs} <span style={{ color: 'var(--text-dim)' }}>({striker.balls})</span>
                 </span>
               </div>
             )}
             {nonStriker && (
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{nonStriker.name}</span>
-                <span className="text-xs font-mono shrink-0" style={{ color: 'var(--text-muted)' }}>
+                <span className="text-xs">{nonStriker.name}</span>
+                <span className="text-xs font-mono shrink-0">
                   {nonStriker.runs} <span style={{ color: 'var(--text-dim)' }}>({nonStriker.balls})</span>
                 </span>
               </div>
@@ -343,7 +345,7 @@ function OverSummaryCard({ snap, ctx, isFinalOver }: {
           {bowler && (
             <div className="flex flex-col items-end justify-center" style={{ paddingLeft: 12, minWidth: 100 }}>
               <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{bowler.name}</span>
-              <span className="text-xs font-mono" style={{ color: 'var(--text-dim)' }}>
+              <span className="text-xs font-mono">
                 {bowler.overs}-{bowler.maidens}-{bowler.runs}-{bowler.wickets}
               </span>
             </div>
@@ -358,6 +360,205 @@ function OverSummaryCard({ snap, ctx, isFinalOver }: {
   )
 }
 
+// ── Result summary tab ────────────────────────────────────────────────────────
+
+const ECO_THRESHOLD: Record<string, number> = { T20: 7.5, ODI: 5.5, Test: 3.0 }
+
+interface PlayerStat {
+  name: string
+  team: string
+  batting: { runs: number; balls: number; fours: number; sixes: number; strike_rate: number; not_out: boolean } | null
+  bowling: { overs: string; runs: number; wickets: number; economy: number; dot_balls: number } | null
+  batting_pts: number
+  bowling_pts: number
+  total: number
+}
+
+function computePOTM(scorecard: Scorecard): PlayerStat | null {
+  const fmt = scorecard.match_format ?? 'T20'
+  const ecoThreshold = ECO_THRESHOLD[fmt] ?? 7.5
+
+  const teamFor: Record<string, string> = {}
+  const batStats: Record<string, { runs: number; balls: number; fours: number; sixes: number; sr: number; dismissal: string }> = {}
+  const bwlStats: Record<string, { overs: string; runs: number; wickets: number; economy: number; dot_balls: number }> = {}
+
+  for (const inn of scorecard.innings) {
+    for (const b of inn.batters ?? []) {
+      batStats[b.name] = { runs: b.runs, balls: b.balls, fours: b.fours ?? 0, sixes: b.sixes ?? 0, sr: b.strike_rate ?? 0, dismissal: b.dismissal ?? '' }
+      teamFor[b.name] = inn.batting_team ?? ''
+    }
+    for (const bw of inn.bowlers ?? []) {
+      bwlStats[bw.name] = { overs: bw.overs, runs: bw.runs, wickets: bw.wickets, economy: bw.economy ?? 0, dot_balls: bw.dot_balls ?? 0 }
+      teamFor[bw.name] ??= inn.bowling_team ?? ''
+    }
+  }
+
+  const players = new Set([...Object.keys(batStats), ...Object.keys(bwlStats)])
+  let best: PlayerStat | null = null
+
+  for (const name of players) {
+    const bat = batStats[name] ?? null
+    const bwl = bwlStats[name] ?? null
+
+    // ── Batting points (mirrors awards.py PlayerMatchPoints) ──
+    let batPts = 0
+    if (bat) {
+      batPts += bat.runs * 0.5
+      batPts += bat.fours * 1.0
+      batPts += bat.sixes * 2.0
+      if (bat.runs >= 50) batPts += 10.0
+      if (bat.runs >= 100) batPts += 20.0
+      const notOut = bat.dismissal === 'not out'
+      if (!notOut && bat.runs < 10 && bat.balls >= 3) batPts -= 3.0  // cheap dismissal
+      if (notOut && bat.balls > 0) batPts += 2.0                     // not-out bonus
+    }
+
+    // ── Bowling points (mirrors awards.py PlayerMatchPoints) ──
+    let bwlPts = 0
+    if (bwl) {
+      bwlPts += bwl.wickets * 10.0
+      bwlPts += bwl.dot_balls * 1.0
+      // Economy bonus: requires >= 2 complete overs
+      const completeOvers = parseInt(bwl.overs.split('.')[0], 10)
+      if (completeOvers >= 2 && bwl.economy < ecoThreshold) {
+        const bonus = (ecoThreshold - bwl.economy) / ecoThreshold * 2.0 * completeOvers
+        bwlPts += Math.min(bonus, 12.0)
+      }
+    }
+
+    const stat: PlayerStat = {
+      name,
+      team: teamFor[name] ?? '',
+      batting: bat ? { runs: bat.runs, balls: bat.balls, fours: bat.fours, sixes: bat.sixes, strike_rate: bat.sr, not_out: bat.dismissal === 'not out' } : null,
+      bowling: bwl,
+      batting_pts: batPts,
+      bowling_pts: bwlPts,
+      total: batPts + bwlPts,
+    }
+    if (!best || stat.total > best.total) best = stat
+  }
+
+  return best
+}
+
+function computeFielding(scorecard: Scorecard): Record<string, number> {
+  const catches: Record<string, number> = {}
+  const add = (name: string) => { catches[name] = (catches[name] ?? 0) + 1 }
+
+  for (const inn of scorecard.innings) {
+    for (const b of inn.batters ?? []) {
+      const d = b.dismissal ?? ''
+      if (!d || d === 'not out') continue
+      if (d.startsWith('c&b ')) {
+        add(d.slice(4).trim())
+      } else if (d.startsWith('c ') && d.includes(' b ')) {
+        add(d.slice(2, d.indexOf(' b ')).trim())
+      } else if (d.startsWith('st ') && d.includes(' b ')) {
+        add(d.slice(3, d.indexOf(' b ')).trim())
+      } else if (d.startsWith('run out (') && d.endsWith(')')) {
+        const f = d.slice(9, -1).trim()
+        if (f) add(f)
+      }
+    }
+  }
+  return catches
+}
+
+function bannerText(desc: string | null): string {
+  if (!desc) return ''
+  if (desc.includes('Super Over')) {
+    const parts = desc.split('·').map(s => s.trim())
+    const soWinner = parts[1] ?? ''
+    return `Match tied! ${soWinner}`
+  }
+  if (desc === 'No result') return 'No result'
+  if (desc === 'Match tied') return 'Match tied'
+  return `${desc}!`
+}
+
+function ResultSummaryTab({ scorecard }: { scorecard: Scorecard }) {
+  const potm = computePOTM(scorecard)
+  const fielding = computeFielding(scorecard)
+  const isTest = scorecard.match_format === 'Test'
+  const banner = bannerText(scorecard.result_description)
+
+  // Group innings by team (for Test: team may have 2 innings each)
+  const teamOrder: string[] = []
+  const teamInnings: Record<string, Innings[]> = {}
+  for (const inn of scorecard.innings) {
+    if (!isTest && inn.inning_number > 2) continue  // skip super over innings here
+    const team = inn.batting_team
+    if (!teamOrder.includes(team)) teamOrder.push(team)
+    ;(teamInnings[team] ??= []).push(inn)
+  }
+
+  return (
+    <div className="fade-in flex flex-col gap-3">
+      {/* Result banner */}
+      {banner && (
+        <div
+          className="rounded-xl px-4 py-3 text-sm font-bold text-center"
+          style={{ background: 'rgba(245,158,11,0.1)', color: 'var(--score)', border: '1px solid rgba(245,158,11,0.25)' }}
+        >
+          {banner}
+        </div>
+      )}
+
+      {/* Team scores */}
+      <div className="rounded-xl overflow-hidden" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+        {teamOrder.map((team, idx) => {
+          const innings = teamInnings[team] ?? []
+          return (
+            <div
+              key={team}
+              className="flex items-center justify-between px-4 py-3"
+              style={{ borderBottom: idx < teamOrder.length - 1 ? '1px solid var(--border)' : 'none' }}
+            >
+              <span className="text-sm font-semibold flex-shrink-0 mr-3" style={{ color: 'var(--text)' }}>{team}</span>
+              <span className="text-sm font-mono text-right" style={{ color: 'var(--score)' }}>
+                {isTest
+                  ? innings.map(i => `${i.total_runs}/${i.total_wickets}`).join(' & ')
+                  : innings.map(i => (
+                    <span key={i.inning_number}>
+                      {i.total_runs}/{i.total_wickets}{' '}
+                      <span style={{ color: 'var(--text-dim)', fontSize: '0.8em' }}>({i.overs} ov)</span>
+                    </span>
+                  ))
+                }
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* POTM */}
+      {potm && (() => {
+        const catches = fielding[potm.name] ?? 0
+        const perfParts: string[] = []
+        if (potm.batting) {
+          const star = potm.batting.not_out ? '*' : ''
+          perfParts.push(`${potm.batting.runs}${star} (${potm.batting.balls}b)`)
+        }
+        if (potm.bowling) perfParts.push(`${potm.bowling.runs}/${potm.bowling.wickets}`)
+        if (catches > 0) perfParts.push(`${catches} ${catches === 1 ? 'catch' : 'catches'}`)
+
+        return (
+          <div className="rounded-xl px-4 py-3 flex flex-col gap-1.5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-2">
+              <span>🏅</span>
+              <span className="text-sm font-bold" style={{ color: 'var(--text)' }}>{potm.name}</span>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>· {potm.team}</span>
+            </div>
+            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {perfParts.join('  ·  ')}
+            </div>
+          </div>
+        )
+      })()}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function MatchDetailPage() {
@@ -365,7 +566,8 @@ export function MatchDetailPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const fromTab = ((location.state as Record<string, unknown>)?.fromTab as string) ?? 'matches'
-  const [tab, setTab] = useState<Tab>('scorecard')
+  const backPath = ((location.state as Record<string, unknown>)?.backPath as string) ?? null
+  const [tab, setTab] = useState<Tab>('result')
   const [scorecard, setScorecard] = useState<Scorecard | null>(null)
   const [commentary, setCommentary] = useState<Commentary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -377,6 +579,7 @@ export function MatchDetailPage() {
     if (!simId || mid == null) return
     setLoading(true)
     api.getMatchScorecard(simId, mid)
+      .catch(() => api.getSimScorecard(simId))
       .then(sc => setScorecard(sc))
       .catch(() => setError('Scorecard not available'))
       .finally(() => setLoading(false))
@@ -386,6 +589,7 @@ export function MatchDetailPage() {
     if (!simId || mid == null || tab !== 'commentary') return
     if (commentary !== null) return
     api.getMatchCommentary(simId, mid)
+      .catch(() => api.getSimCommentary(simId))
       .then((data: any) => setCommentary(data as Commentary))
       .catch(() => setCommentary({ match_id: mid!, match_label: '', match_format: null, overs_per_innings: null, deliveries: [] }))
   }, [simId, mid, tab, commentary])
@@ -402,8 +606,6 @@ export function MatchDetailPage() {
     )
   }
 
-  const isTest = scorecard.innings.some(i => i.inning_number === 1) &&
-                 !scorecard.innings.some(i => i.inning_number === 3 && scorecard.innings[0]?.batting_team === scorecard.innings[2]?.batting_team)
   const hasSuperOver = scorecard.innings.some(i => i.inning_number >= 3) &&
                        commentary?.match_format !== 'Test'
 
@@ -418,19 +620,25 @@ export function MatchDetailPage() {
   return (
     <div className="w-full px-1 py-6">
       <button className="flex items-center gap-1 text-sm mb-5" style={{ color: 'var(--text-muted)' }}
-        onClick={() => navigate(`/results/${simId}`, { state: { tab: fromTab, scrollTo: fromTab === 'matches' ? mid : undefined } })}>
-        <ChevronLeft size={14} /> {fromTab === 'standings' ? 'Back to standings' : 'Back to matches'}
+        onClick={() => backPath
+          ? navigate(backPath)
+          : navigate(`/results/${simId}`, { state: { tab: fromTab, scrollTo: fromTab === 'matches' ? mid : undefined } })
+        }>
+        <ChevronLeft size={14} /> {backPath ? 'Home' : fromTab === 'standings' ? 'Back to standings' : 'Back to matches'}
       </button>
 
       <div className="mb-4">
-        <div className="text-base font-semibold" style={{ color: 'var(--text)' }}>{scorecard.match_label}</div>
-        {scorecard.result_description && (
-          <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{scorecard.result_description}</div>
-        )}
+        <div className="text-base font-semibold" style={{ color: 'var(--text)' }}>
+          {scorecard.home_team} vs {scorecard.away_team}
+        </div>
+        <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+          {scorecard.match_label}
+          {scorecard.result_description ? ` · ${scorecard.result_description}` : ''}
+        </div>
       </div>
 
       <div className="flex gap-1 mb-5 p-1 rounded-lg" style={{ background: 'var(--surface)' }}>
-        {(['scorecard', 'commentary'] as Tab[]).map(t => (
+        {(['result', 'scorecard', 'commentary'] as Tab[]).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className="flex-1 py-2 rounded-md text-sm font-medium capitalize transition-all"
             style={{
@@ -442,6 +650,9 @@ export function MatchDetailPage() {
           </button>
         ))}
       </div>
+
+      {/* ── Result summary ── */}
+      {tab === 'result' && <ResultSummaryTab scorecard={scorecard} />}
 
       {/* ── Scorecard ── */}
       {tab === 'scorecard' && (

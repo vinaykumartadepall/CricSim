@@ -14,7 +14,10 @@ import psycopg2.extras
 
 from db.database import get_db_connection
 
-_HEADSHOT_URL = "https://a.espncdn.com/i/headshots/cricket/players/full/{}.png"
+def _headshot_url(cricinfo_id) -> str | None:
+    if not cricinfo_id:
+        return None
+    return f"https://a.espncdn.com/i/headshots/cricket/players/full/{cricinfo_id}.png"
 
 
 class SquadRepository:
@@ -48,7 +51,10 @@ class SquadRepository:
                 END                                                    AS name,
                 t.season,
                 jsonb_array_length(ts.config->'teams')                AS team_count,
-                (ts.config->>'gender')                                 AS gender
+                (ts.config->>'gender')                                 AS gender,
+                (ts.config->>'format')                                 AS format,
+                ts.overseas_limit,
+                ts.home_country_name
             FROM history.tournaments t
             JOIN simulation.tournament_seeded ts ON ts.tournament_id = t.tournament_id
             WHERE ts.config IS NOT NULL
@@ -93,14 +99,16 @@ class SquadRepository:
         player_meta: dict[int, dict] = {}
         if all_player_ids:
             self.cur.execute("""
-                SELECT player_id,
-                       COALESCE(display_name, name) AS player_name,
-                       player_role,
-                       batting_style,
-                       bowling_style,
-                       cricinfo_id
-                FROM history.players
-                WHERE player_id = ANY(%s)
+                SELECT p.player_id,
+                       COALESCE(p.display_name, p.name) AS player_name,
+                       p.player_role,
+                       p.batting_style,
+                       p.bowling_style,
+                       p.cricinfo_id,
+                       c.name AS country_name
+                FROM history.players p
+                LEFT JOIN history.countries c ON c.country_id = p.country_id
+                WHERE p.player_id = ANY(%s)
             """, (all_player_ids,))
             for p in self.cur.fetchall():
                 player_meta[p["player_id"]] = dict(p)
@@ -121,9 +129,8 @@ class SquadRepository:
                     "bowling_style":    meta.get("bowling_style"),
                     "batting_position": pos,
                     "cricinfo_id":      cricinfo_id,
-                    "headshot_url": (
-                        _HEADSHOT_URL.format(cricinfo_id) if cricinfo_id else None
-                    ),
+                    "country_name":     meta.get("country_name"),
+                    "headshot_url": _headshot_url(cricinfo_id),
                 })
             teams_out.append({
                 "team_id":   team.get("team_id"),

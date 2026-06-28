@@ -1,15 +1,23 @@
 SELECT * from history.venues where name LIKE '%MCG%' or name like '%Melbourne%';
-select p.NAME, group_concat(t.NAME seperator ', ') from history.players p, history.match_players mp, history.matches m, history.teams t
-WHERE p.name LIKE '%Patel%'
+select p.NAME, STRING_AGG(distinct t.NAME,', ') from history.players p, history.match_players mp, history.matches m, history.teams t
+WHERE lower(p.name) LIKE '%rana%'
 AND p.player_id = mp.player_id
 AND mp.match_id = m.match_id
 AND mp.team_id = t.team_id
 group by p.NAME;
 
+select * from history.players WHERE lower(display_name) like '%nitish rana%';
+select count(*) from history.players where player_role is null;
+select * FROM history.players where display_name is null;
+select * from history.players where country_id is null;
+select * from history.players where batting_style is null and bowling_style is not null;
+select * from history.players where bowling_style is null and batting_style is not null;
+
+
 select m.name, m.date, pl.name, d.over_number, d.ball_number, m.match_format from history.players pl, history.deliveries d, history.matches m
 WHERE pl.player_id = d.bowler_id
 AND d.match_id = m.match_id
-AND pl.name LIKE '%Green%'
+AND lower(pl.name) LIKE '%simmons%'
 AND m.match_format = 'Test'
 order by m.date desc;
 
@@ -38,7 +46,7 @@ select m.match_id, m.name, m.date, m.match_format, m.original_match_id, m.match_
 from history.matches m, history.match_players mp, history.players p
 where m.match_id = mp.match_id
 and mp.player_id = p.player_id
-and p.name like '%AJ Finch%'
+and lower(p.name) like '%simmons%'
 order by m.date desc;
 
 select distinct d.over_number
@@ -100,3 +108,57 @@ and m.match_id = d.match_id;
     WHERE outcome_player_id IS NOT NULL;
 
   COMMIT;
+
+
+select v.name, v.city, v.country, count(*)
+from history.venues v, history.matches m
+WHERE lower(v.name) like '%ekana%'
+AND v.venue_id = m.venue_id
+group by v.venue_id;
+
+select * from history.venues where lower(name) like '%chepauk%';
+
+select distinct match_type from history.matches;
+
+select * from history.teams;
+select * from history.match_players;
+select DISTINCT country FROM history.venues;
+
+select * from history.players;
+
+select t.tournament_id, t.tournament_name, t.season, config from simulation.tournament_seeded ts, history.tournaments t
+WHERE ts.tournament_id = t.tournament_id;
+
+select * from simulation.simulations ORDER BY created_at desc;
+
+select * from simulation.matches where sim_id='3ab0f604-b40a-4034-b264-1ad001346c02';
+select * from simulation.teams where team_id=10377;
+select * from simulation.match_players where match_id=1002717;
+select * from simulation.deliveries where match_id=1002716;
+
+select * from simulation.rooms;
+select * from simulation.room_members;
+delete from simulation.room_members;
+delete from simulation.rooms;
+commit;
+
+select * from simulation.game_sessions where source_tournament_id=3039;
+select * from simulation.teams where team_id in (10354,10364);
+select * from simulation.tournament_seeded;
+
+SELECT 
+    column_name, 
+    data_type, 
+    character_maximum_length AS max_length,
+    is_nullable, 
+    column_default
+FROM 
+    information_schema.columns
+WHERE 
+    table_name = 'simulations'
+ORDER BY 
+    ordinal_position;
+
+select * from history.players where display_name = 'Finn Allen' or display_name = 'Sunil Narine';
+select DISTINCT player_role from history.players;
+update history.players set player_role='Keeper' where display_name='Finn Allen';

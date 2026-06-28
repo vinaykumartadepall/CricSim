@@ -313,22 +313,29 @@ CREATE TABLE IF NOT EXISTS simulation.simulations (
     started_at      TIMESTAMPTZ,
     completed_at    TIMESTAMPTZ,
     client_id       VARCHAR(64),
-    mode            VARCHAR(16)
+    mode            VARCHAR(16),
+    participant_ids TEXT[]      NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_simulations_status_created
     ON simulation.simulations (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_simulations_client_id
     ON simulation.simulations (client_id)
     WHERE client_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_simulations_participant_ids
+    ON simulation.simulations USING GIN (participant_ids);
 
 -- UI game context (fun/challenge mode metadata, squad swaps).
 -- swaps is a JSONB array: [{"player_out_id": 123, "player_in_id": 456, "from_team_id": 789}]
+-- One row per (simulation, participant). Single-player sims have one row (client_id = simulations.client_id).
+-- Multiplayer sims have one row per participant, enabling per-user team name and placement tracking.
 CREATE TABLE IF NOT EXISTS simulation.game_sessions (
-    sim_id               UUID PRIMARY KEY REFERENCES simulation.simulations(sim_id),
+    sim_id               UUID    NOT NULL REFERENCES simulation.simulations(sim_id),
+    client_id            TEXT    NOT NULL,
     mode                 VARCHAR(16),
     source_tournament_id INT,
     user_team_id         INT,
-    swaps                JSONB NOT NULL DEFAULT '[]'
+    swaps                JSONB   NOT NULL DEFAULT '[]',
+    PRIMARY KEY (sim_id, client_id)
 );
 
 -- One row per source tournament-season; complete TournamentConfig-compatible document.
@@ -481,4 +488,28 @@ CREATE TABLE IF NOT EXISTS simulation.leaderboard_cache (
     computed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     entries          JSONB       NOT NULL,
     PRIMARY KEY (tournament_id, leaderboard_type)
+);
+
+-- Multiplayer draft rooms
+CREATE TABLE IF NOT EXISTS simulation.rooms (
+    room_id        TEXT        PRIMARY KEY,
+    host_id        TEXT        NOT NULL,
+    mode           TEXT        NOT NULL DEFAULT '1v1' CHECK (mode IN ('1v1','tournament')),
+    status         TEXT        NOT NULL DEFAULT 'waiting'
+                               CHECK (status IN ('waiting','drafting','reordering','simulating','completed')),
+    tournament_name TEXT       NOT NULL,
+    player_count   SMALLINT    NOT NULL DEFAULT 2,
+    match_format   TEXT        NOT NULL DEFAULT 'T20' CHECK (match_format IN ('T20','ODI','Test')),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_rooms_status ON simulation.rooms(status);
+
+CREATE TABLE IF NOT EXISTS simulation.room_members (
+    room_id      TEXT        NOT NULL REFERENCES simulation.rooms(room_id) ON DELETE CASCADE,
+    client_id    TEXT        NOT NULL,
+    display_name TEXT        NOT NULL,
+    draft_order  SMALLINT,
+    squad        JSONB       NOT NULL DEFAULT '[]',
+    joined_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (room_id, client_id)
 );

@@ -24,30 +24,23 @@ def search_players(
 ):
     conn = get_db_connection(); cur = conn.cursor()
     try:
-        if keeper_only:
-            cur.execute(
-                """
-                SELECT player_id, display_name, player_role, batting_style, bowling_style,
-                       cricinfo_id, player_role = 'Keeper' AS is_keeper
-                FROM history.players
-                WHERE gender = 'male' AND player_role = 'Keeper'
-                  AND (display_name ILIKE %s OR name ILIKE %s)
-                ORDER BY display_name LIMIT %s
-                """,
-                (f"%{q}%", f"%{q}%", limit),
-            )
-        else:
-            cur.execute(
-                """
-                SELECT player_id, display_name, player_role, batting_style, bowling_style,
-                       cricinfo_id, player_role = 'Keeper' AS is_keeper
-                FROM history.players
-                WHERE gender = 'male'
-                  AND (display_name ILIKE %s OR name ILIKE %s)
-                ORDER BY display_name LIMIT %s
-                """,
-                (f"%{q}%", f"%{q}%", limit),
-            )
+        role_filter = "AND player_role = 'Keeper'" if keeper_only else ""
+        cur.execute(
+            f"""
+            SELECT p.player_id, p.display_name, p.player_role, p.batting_style, p.bowling_style,
+                   p.cricinfo_id, p.player_role = 'Keeper' AS is_keeper
+            FROM history.players p
+            LEFT JOIN (
+                SELECT player_id, COUNT(*) AS matches_played
+                FROM history.match_players
+                GROUP BY player_id
+            ) mp ON mp.player_id = p.player_id
+            WHERE p.gender = 'male' {role_filter}
+              AND (p.display_name ILIKE %s OR p.name ILIKE %s)
+            ORDER BY COALESCE(mp.matches_played, 0) DESC LIMIT %s
+            """,
+            (f"%{q}%", f"%{q}%", limit),
+        )
         rows = cur.fetchall()
     finally:
         cur.close(); conn.close()
@@ -71,14 +64,17 @@ def search_players(
 class CreateRoomRequest(BaseModel):
     client_id: str
     display_name: str = Field(..., min_length=1, max_length=32)
+    team_name: str = Field("", max_length=32)
     mode: str = Field("1v1", pattern="^(1v1|tournament)$")
     tournament_name: str = Field("", max_length=64)
     player_count: int = Field(2, ge=2, le=10)
+    match_format: str = Field("T20", pattern="^(T20|ODI|Test)$")
 
 
 class JoinRoomRequest(BaseModel):
     client_id: str
     display_name: str = Field(..., min_length=1, max_length=32)
+    team_name: str = Field("", max_length=32)
 
 
 @router.post("/rooms")
@@ -92,9 +88,11 @@ def create_room(body: CreateRoomRequest):
     room = draft_manager.create_room(
         host_id=body.client_id,
         display_name=body.display_name,
+        team_name=body.team_name.strip(),
         mode=body.mode,
         tournament_name=name,
         player_count=body.player_count,
+        match_format=body.match_format,
     )
     _persist_room(room)
     return {"room_id": room.room_id, "tournament_name": room.tournament_name, **room.to_dict()}
@@ -103,11 +101,24 @@ def create_room(body: CreateRoomRequest):
 @router.post("/rooms/{room_id}/join")
 def join_room(room_id: str, body: JoinRoomRequest):
     try:
-        room = draft_manager.join_room(room_id, body.client_id, body.display_name)
+        room = draft_manager.join_room(room_id, body.client_id, body.display_name, body.team_name.strip())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     _persist_member(room.room_id, body.client_id, body.display_name)
     return room.to_dict()
+
+
+class UpdateMemberRequest(BaseModel):
+    client_id: str
+    team_name: str = Field(..., min_length=1, max_length=32)
+
+
+@router.patch("/rooms/{room_id}/member")
+def update_room_member(room_id: str, body: UpdateMemberRequest):
+    ok = draft_manager.update_team_name(room_id, body.client_id, body.team_name.strip())
+    if not ok:
+        raise HTTPException(status_code=404, detail="Room or member not found")
+    return {"ok": True}
 
 
 @router.get("/rooms/{room_id}")
@@ -123,15 +134,29 @@ def get_room(room_id: str):
 
 @router.websocket("/ws/{room_id}")
 async def room_ws(ws: WebSocket, room_id: str, client_id: str = Query(...)):
+    await ws.accept()
     room = draft_manager.get_room(room_id)
     if not room or client_id not in room.members:
-        await ws.close(code=4004)
+        await ws.close(code=4004, reason="Room not found or not a member")
         return
-
-    await ws.accept()
     draft_manager.connect(room, client_id, ws)
     await draft_manager.send(ws, {"type": "room_state", "data": room.to_dict()})
     await draft_manager.broadcast(room, {"type": "member_connected", "data": {"client_id": client_id}})
+
+    # Auto-start when all members are connected and room is at capacity
+    if (room.status == 'waiting'
+            and len(room.members) == room.player_count
+            and all(m.ws is not None for m in room.members.values())):
+        try:
+            keeper_ids = _load_keeper_ids()
+            draft_manager.start_draft(room, keeper_ids)
+            all_pids = _load_all_player_ids()
+            await draft_manager.broadcast(room, {"type": "draft_started", "data": room.to_dict()})
+            _start_pick_timer(room, all_pids)
+        except ValueError:
+            pass  # already started by another connection racing here
+        except Exception as exc:
+            await draft_manager.send(ws, {"type": "error", "data": {"message": f"Auto-start failed: {exc}"}})
 
     try:
         async for raw in ws.iter_text():
@@ -205,6 +230,18 @@ async def _handle_message(room: RoomState, client_id: str, ws: WebSocket, msg: d
             "data": {"client_id": client_id, "squad": order},
         })
 
+    elif t == "player_ready":
+        if room.status != "reordering":
+            return
+        room.ready_members.add(client_id)
+        await draft_manager.broadcast(room, {
+            "type": "ready_update",
+            "data": {"ready_members": list(room.ready_members), "total": len(room.members)},
+        })
+        if len(room.ready_members) >= len(room.members):
+            draft_manager.cancel_reorder_timer(room)
+            await _start_simulation(room)
+
     elif t == "ping":
         await draft_manager.send(ws, {"type": "pong"})
 
@@ -231,87 +268,158 @@ def _start_pick_timer(room: RoomState, all_pids: list):
     draft_manager.start_timer(room, loop, _on_timeout, all_pids)
 
 
-# ── simulation trigger ─────────────────────────────────────────────────────────
+# ── reorder phase ──────────────────────────────────────────────────────────────
 
 async def _finish_draft(room: RoomState):
-    room.status = "simulating"
-    await draft_manager.broadcast(room, {"type": "draft_complete", "data": room.to_dict()})
+    """Called when all picks are done — enters the 60-second reorder phase."""
+    room.status = "reordering"
+    room.ready_members = set()
+    await draft_manager.broadcast(room, {"type": "reorder_phase", "data": room.to_dict()})
+    loop = asyncio.get_event_loop()
+    room._reorder_task = loop.create_task(_reorder_timeout(room))
 
+
+async def _reorder_timeout(room: RoomState):
+    for remaining in range(60, 0, -1):
+        await asyncio.sleep(1)
+        if room.status != "reordering":
+            return
+        await draft_manager.broadcast(room, {
+            "type": "reorder_tick",
+            "data": {"seconds_remaining": remaining - 1},
+        })
+    if room.status == "reordering":
+        await _start_simulation(room)
+
+
+async def _start_simulation(room: RoomState):
+    if room.status != "reordering":
+        return
+    room.status = "simulating"
+    await draft_manager.broadcast(room, {"type": "sim_started", "data": {}})
     try:
-        sim_id = await asyncio.get_event_loop().run_in_executor(None, _run_simulation, room)
+        sim_id, match_id = await asyncio.get_event_loop().run_in_executor(None, _run_simulation, room)
         room.sim_id = sim_id
         room.status = "completed"
         await draft_manager.broadcast(room, {
             "type": "sim_result",
-            "data": {"sim_id": sim_id},
+            "data": {"sim_id": sim_id, "mode": room.mode, "match_id": match_id},
         })
     except Exception as e:
-        room.status = "waiting"
+        room.status = "reordering"
         await draft_manager.broadcast(room, {"type": "error", "data": {"message": f"Simulation failed: {e}"}})
     finally:
         _cleanup_room_db(room.room_id)
         draft_manager.remove_room(room.room_id)
 
 
-def _run_simulation(room: RoomState) -> str:
+def _run_simulation(room: RoomState) -> tuple:
     """Build a tournament/match config and kick off the simulation synchronously."""
     from api.worker import run_tournament_job, run_match_job
     from db.simulation_repository import SimulationRepository
-    import uuid
 
     members = sorted(room.members.values(), key=lambda m: m.draft_order)
-    conn = get_db_connection(); cur = conn.cursor()
 
-    # Fetch player details for all squad members
-    all_ids = list({pid for m in members for pid in m.squad})
-    cur.execute(
-        "SELECT player_id, display_name, player_role, batting_style, bowling_style "
-        "FROM history.players WHERE player_id = ANY(%s)",
-        (all_ids,),
-    )
-    player_map = {r[0]: {"name": r[1], "role": r[2], "bat": r[3], "bowl": r[4]} for r in cur.fetchall()}
-    cur.close(); conn.close()
-
-    def _team_cfg(member: "Member") -> dict:
+    def _team_cfg(member) -> dict:
         return {
-            "name": member.display_name,
+            "name": member.team_name or member.display_name,
             "players": member.squad,
             "primary_color": "#1a1a2e",
             "secondary_color": "#16213e",
         }
 
+    # client_id → team name for game_session creation after sim
+    team_name_by_client: dict = {m.client_id: (m.team_name or m.display_name) for m in members}
+    participant_ids = [m.client_id for m in members]
+
     repo = SimulationRepository()
     try:
+        fmt = room.match_format
         if room.mode == "1v1":
             home, away = members[0], members[1]
             config = {
                 "simulation_type": "match",
-                "match_format": "T20",
-                "home_team": _team_cfg(home),
-                "away_team": _team_cfg(away),
+                "match_format": fmt,
+                "gender": "male",
+                "team_a": _team_cfg(home),
+                "team_b": _team_cfg(away),
                 "venue": None,
             }
-            sim_id = repo.create_simulation("match", config, client_id=None, mode="multiplayer")
+            sim_id = repo.create_simulation("match", config, client_id=None, mode="multiplayer",
+                                            participant_ids=participant_ids)
             repo.commit()
             run_match_job(sim_id, config)
+
+            # Create one game_session per participant now that simulation.teams rows exist
+            _save_multiplayer_game_sessions(repo, sim_id, team_name_by_client)
+
+            # Fetch the match_id for direct navigation
+            repo.cur.execute(
+                "SELECT match_id FROM simulation.matches WHERE sim_id = %s LIMIT 1", (sim_id,)
+            )
+            row = repo.cur.fetchone()
+            return sim_id, (row[0] if row else None)
         else:
             teams = [_team_cfg(m) for m in members]
             config = {
                 "simulation_type": "tournament",
                 "tournament_name": room.tournament_name,
                 "season": "2025",
-                "format": "T20",
+                "format": fmt,
                 "gender": "male",
                 "teams": teams,
                 "outcome_strategy": "enhanced_historical_stats",
                 "bowling_strategy": "historical",
             }
-            sim_id = repo.create_simulation("tournament", config, client_id=None, mode="multiplayer")
+            sim_id = repo.create_simulation("tournament", config, client_id=None, mode="multiplayer",
+                                            participant_ids=participant_ids)
             repo.commit()
             run_tournament_job(sim_id, config, user_team_name=None)
-        return sim_id
+
+            # Create one game_session per participant now that simulation.teams rows exist
+            _save_multiplayer_game_sessions(repo, sim_id, team_name_by_client)
+
+            return sim_id, None
     finally:
         repo.close()
+
+
+def _save_multiplayer_game_sessions(
+    repo,
+    sim_id: str,
+    team_name_by_client: dict,
+) -> None:
+    """After a multiplayer simulation completes, create one game_sessions row per participant.
+
+    Looks up simulation.teams by team name (set during simulation) to resolve user_team_id,
+    enabling team-name display and placement badges in list_simulations.
+    """
+    from db.simulation_repository import SimulationRepository
+
+    # Resolve team names → simulation.teams IDs via the matches table
+    # (works for both match and tournament sims without needing sim_id on simulation.teams)
+    repo.cur.execute(
+        """
+        SELECT DISTINCT t.team_id, t.name
+        FROM simulation.matches m
+        JOIN simulation.teams t ON t.team_id IN (m.home_team_id, m.away_team_id)
+        WHERE m.sim_id = %s
+        """,
+        (sim_id,),
+    )
+    team_id_by_name = {name: tid for tid, name in repo.cur.fetchall()}
+
+    for client_id, team_name in team_name_by_client.items():
+        user_team_id = team_id_by_name.get(team_name)
+        repo.save_game_session(
+            sim_id=sim_id,
+            client_id=client_id,
+            mode="multiplayer",
+            source_tournament_id=None,
+            user_team_id=user_team_id,
+            swaps=[],
+        )
+    repo.commit()
 
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
@@ -319,9 +427,9 @@ def _run_simulation(room: RoomState) -> str:
 def _persist_room(room: RoomState) -> None:
     conn = get_db_connection(autocommit=True); cur = conn.cursor()
     cur.execute(
-        """INSERT INTO simulation.rooms (room_id, host_id, mode, status, tournament_name, player_count)
-           VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING""",
-        (room.room_id, room.host_id, room.mode, room.status, room.tournament_name, room.player_count),
+        """INSERT INTO simulation.rooms (room_id, host_id, mode, status, tournament_name, player_count, match_format)
+           VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING""",
+        (room.room_id, room.host_id, room.mode, room.status, room.tournament_name, room.player_count, room.match_format),
     )
     cur.execute(
         """INSERT INTO simulation.room_members (room_id, client_id, display_name, squad)
@@ -385,7 +493,7 @@ def _player_info(player_id: int) -> dict:
 def _headshot(cricinfo_id) -> Optional[str]:
     if not cricinfo_id:
         return None
-    return f"https://img1.hscicdn.com/image/upload/f_auto,t_h_100_2x/lsci/db/PICTURES/CMS/316600/{cricinfo_id}.png"
+    return f"https://a.espncdn.com/i/headshots/cricket/players/full/{cricinfo_id}.png"
 
 
 def _random_tournament_name() -> str:

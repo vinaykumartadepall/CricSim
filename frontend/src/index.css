@@ -7,8 +7,8 @@
   --surface:    #1A1F2E;
   --surface-2:  #242B3D;
   --border:     #2D3748;
-  --accent:     #00E5CC;
-  --accent-dim: #00b3a0;
+  --accent:     #3B82F6;
+  --accent-dim: #2563EB;
   --score:      #F59E0B;
   --text:       #F1F5F9;
   --text-muted: #94A3B8;
@@ -60,6 +60,21 @@
   --text-dim:   #475569;
   --win:        #22C55E;
   --loss:       #EF4444;
+}
+
+[data-theme="day-match"] {
+  --bg:         #D8E0EC;
+  --surface:    #E4EAF4;
+  --surface-2:  #C8D3E3;
+  --border:     #B0BDD0;
+  --accent:     #2563EB;
+  --accent-dim: #1D4ED8;
+  --score:      #D97706;
+  --text:       #0F172A;
+  --text-muted: #334155;
+  --text-dim:   #64748B;
+  --win:        #16A34A;
+  --loss:       #DC2626;
 }
 
 /* ── Base ────────────────────────────────────────────────────────────────── */

@@ -17,11 +17,14 @@ Eligibility:
   Test     only constraint is no consecutive overs (current bowler excluded)
 """
 
+import logging
 from typing import Optional, Tuple
 
 from simulator.entities.inning_player import InningPlayer
 from simulator.entities.match import SimulationMatch
 from simulator.strategies.bowling.historical.base import HistoricalBowlingBase
+
+log = logging.getLogger(__name__)
 
 
 # ── T20 ───────────────────────────────────────────────────────────────────────
@@ -44,7 +47,27 @@ class T20HistoricalBowlingStrategy(HistoricalBowlingBase):
             ip for ip in under_quota
             if self.workload_cache.get(ip.id, {}).get('avg_overs_per_match', 0.0) >= self._MIN_AVG_OVERS
         ]
-        return bowlers if bowlers else under_quota
+        if bowlers:
+            return bowlers
+        # Fallback: prefer anyone with any bowling history over pure batters
+        part_timers = [
+            ip for ip in under_quota
+            if self.workload_cache.get(ip.id, {}).get('avg_overs_per_match', 0.0) > 0.0
+        ]
+        if part_timers:
+            log.warning(
+                "[BowlingFallback] Inn%d Ov%d %s — no dedicated bowlers left, using %d part-timer(s): %s",
+                match.current_inning, match.current_over + 1,
+                getattr(team, 'name', '?'), len(part_timers),
+                ", ".join(ip.name for ip in part_timers),
+            )
+            return part_timers
+        log.warning(
+            "[BowlingFallback] Inn%d Ov%d %s — no bowling history for any player, using all %d under-quota",
+            match.current_inning, match.current_over + 1,
+            getattr(team, 'name', '?'), len(under_quota),
+        )
+        return under_quota
 
     def _score_and_breakdown(self, ip: InningPlayer, match: SimulationMatch) -> Tuple[float, dict]:
         if self._hard_cap(ip):
@@ -82,7 +105,26 @@ class ODIHistoricalBowlingStrategy(HistoricalBowlingBase):
             ip for ip in under_quota
             if self.workload_cache.get(ip.id, {}).get('avg_overs_per_match', 0.0) >= self._MIN_AVG_OVERS
         ]
-        return bowlers if bowlers else under_quota
+        if bowlers:
+            return bowlers
+        part_timers = [
+            ip for ip in under_quota
+            if self.workload_cache.get(ip.id, {}).get('avg_overs_per_match', 0.0) > 0.0
+        ]
+        if part_timers:
+            log.warning(
+                "[BowlingFallback] Inn%d Ov%d %s — no dedicated bowlers left, using %d part-timer(s): %s",
+                match.current_inning, match.current_over + 1,
+                getattr(team, 'name', '?'), len(part_timers),
+                ", ".join(ip.name for ip in part_timers),
+            )
+            return part_timers
+        log.warning(
+            "[BowlingFallback] Inn%d Ov%d %s — no bowling history for any player, using all %d under-quota",
+            match.current_inning, match.current_over + 1,
+            getattr(team, 'name', '?'), len(under_quota),
+        )
+        return under_quota
 
     def _score_and_breakdown(self, ip: InningPlayer, match: SimulationMatch) -> Tuple[float, dict]:
         if self._hard_cap(ip):

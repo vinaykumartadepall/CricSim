@@ -1,4 +1,4 @@
-import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest } from '@/types'
+import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody } from '@/types'
 import { supabase } from '@/lib/supabase'
 
 const BASE = '/cricsimapi'
@@ -25,6 +25,19 @@ async function authGet<T>(path: string): Promise<T> {
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { detail?: string }).detail || `${res.status} ${res.statusText}`)
+  }
+  return res.json()
+}
+
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
@@ -81,8 +94,16 @@ export const api = {
   getMatches: (simId: string) =>
     get<MatchItem[]>(`/simulations/${simId}/matches`),
 
+  getSimScorecard: (simId: string) =>
+    get<Scorecard>(`/simulations/${simId}/scorecard`),
+
   getMatchScorecard: (simId: string, matchId: number) =>
     get<Scorecard>(`/simulations/${simId}/matches/${matchId}/scorecard`),
+
+  getSimCommentary: (simId: string) =>
+    get<{ innings: { team: string; balls: { over: number; ball: number; text: string }[] }[] }>(
+      `/simulations/${simId}/commentary`
+    ),
 
   getMatchCommentary: (simId: string, matchId: number) =>
     get<{ innings: { team: string; balls: { over: number; ball: number; text: string }[] }[] }>(
@@ -128,6 +149,23 @@ export const api = {
 
   linkAnonymous: (anonymous_id: string) =>
     authPost<{ migrated: number }>('/auth/link-anonymous', { anonymous_id }),
+
+  // ── Multiplayer endpoints ──────────────────────────────────────────────────
+
+  searchPlayers: (q: string, keeperOnly?: boolean) =>
+    get<MultiplayerPlayer[]>(`/multiplayer/players?q=${encodeURIComponent(q)}${keeperOnly ? '&keeper_only=true' : ''}`),
+
+  createRoom: (body: CreateRoomBody) =>
+    post<RoomResponse>('/multiplayer/rooms', body),
+
+  joinRoom: (roomId: string, body: JoinRoomBody) =>
+    post<RoomState>(`/multiplayer/rooms/${roomId}/join`, body),
+
+  getRoom: (roomId: string) =>
+    get<RoomState>(`/multiplayer/rooms/${roomId}`),
+
+  updateRoomMember: (roomId: string, body: { client_id: string; team_name: string }) =>
+    patch<{ ok: boolean }>(`/multiplayer/rooms/${roomId}/member`, body),
 }
 
 export type { SwapEntry }

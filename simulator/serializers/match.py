@@ -28,6 +28,7 @@ def get_scorecard(cur, match_id: int) -> dict:
         "home_team":          match_row['home_team'],
         "away_team":          match_row['away_team'],
         "venue":              match_row['venue_name'],
+        "match_format":       match_row['match_format'],
         "result_description": _build_result_description(match_row),
         "innings":            innings,
     }

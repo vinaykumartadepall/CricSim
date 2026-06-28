@@ -4,6 +4,9 @@ export interface Tournament {
   season: string
   team_count: number
   gender: string
+  format?: string | null
+  overseas_limit?: number | null
+  home_country_name?: string | null
 }
 
 export interface Player {
@@ -12,9 +15,10 @@ export interface Player {
   player_role: string | null
   batting_style: string | null
   bowling_style: string | null
-  batting_position: number
+  batting_position?: number | null
   cricinfo_id: number | null
   headshot_url: string | null
+  country_name?: string | null
 }
 
 export interface Team {
@@ -49,7 +53,7 @@ export interface SimHistoryTeamBest {
 }
 
 export type SimMode = 'fun' | 'challenge'
-export type Theme = 'night-stadium' | 'digital-scoreboard' | 'pitch-dark' | 'slate-gold'
+export type Theme = 'night-stadium' | 'digital-scoreboard' | 'pitch-dark' | 'slate-gold' | 'day-match'
 
 export interface SwapEntry {
   player_out_id: number
@@ -72,6 +76,7 @@ export interface SimSummary {
   swap_count?: number | null
   winner_name?: string | null
   user_team_placement?: string | null
+  match_id?: number | null
 }
 
 export interface PointsTableRow {
@@ -196,6 +201,7 @@ export interface BowlerRow {
   runs: number
   wickets: number
   economy?: number
+  dot_balls?: number
 }
 
 export interface Innings {
@@ -220,6 +226,7 @@ export interface Scorecard {
   home_team: string
   away_team: string
   venue: string | null
+  match_format: string | null
   result_description: string | null
   innings: Innings[]
 }
@@ -231,4 +238,59 @@ export interface AwardEntry {
   bowling_pts: number
   fielding_pts: number
   total_pts: number
+}
+
+// ── Multiplayer types ─────────────────────────────────────────────────────────
+
+export interface MultiplayerPlayer {
+  player_id: number
+  name: string
+  role: string
+  batting_style: string | null
+  bowling_style: string | null
+  headshot_url: string | null
+  is_keeper: boolean
+}
+
+export interface RoomMember {
+  client_id: string
+  display_name: string
+  team_name: string
+  draft_order: number
+  squad: number[]
+  connected: boolean
+}
+
+export interface RoomState {
+  room_id: string
+  mode: '1v1' | 'tournament'
+  tournament_name: string
+  player_count: number
+  match_format: string
+  status: 'waiting' | 'drafting' | 'reordering' | 'simulating' | 'completed'
+  current_picker: string | null
+  picks_made: number
+  total_picks: number
+  members: RoomMember[]
+}
+
+export interface CreateRoomBody {
+  client_id: string
+  display_name: string
+  team_name?: string
+  mode: '1v1' | 'tournament'
+  tournament_name: string
+  player_count: number
+  match_format: string
+}
+
+export interface JoinRoomBody {
+  client_id: string
+  display_name: string
+  team_name?: string
+}
+
+export interface RoomResponse extends RoomState {
+  room_id: string
+  tournament_name: string
 }
