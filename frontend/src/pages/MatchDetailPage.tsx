@@ -395,12 +395,17 @@ function OverSummaryCard({ snap, ctx, isFinalOver }: {
 
 const ECO_THRESHOLD: Record<string, number> = { T20: 7.5, ODI: 5.5, Test: 3.0 }
 
+interface BatInn { runs: number; balls: number; fours: number; sixes: number; sr: number; dismissal: string }
+interface BwlInn { overs: string; runs: number; wickets: number; economy: number; dot_balls: number }
+
 interface PlayerStat {
   name: string
   team: string
   headshot_url: string | null
   batting: { runs: number; balls: number; fours: number; sixes: number; strike_rate: number; not_out: boolean } | null
   bowling: { overs: string; runs: number; wickets: number; economy: number; dot_balls: number } | null
+  batting_innings: BatInn[]
+  bowling_innings: BwlInn[]
   batting_pts: number
   bowling_pts: number
   total: number
@@ -408,51 +413,52 @@ interface PlayerStat {
 
 function computePOTM(scorecard: Scorecard): PlayerStat | null {
   const fmt = scorecard.match_format ?? 'T20'
+  const isTest = fmt === 'Test' || fmt === 'MDM'
   const ecoThreshold = ECO_THRESHOLD[fmt] ?? 7.5
 
   const teamFor: Record<string, string> = {}
   const headshotFor: Record<string, string | null> = {}
-  const batStats: Record<string, { runs: number; balls: number; fours: number; sixes: number; sr: number; dismissal: string }> = {}
-  const bwlStats: Record<string, { overs: string; runs: number; wickets: number; economy: number; dot_balls: number }> = {}
+  const batByPlayer: Record<string, BatInn[]> = {}
+  const bwlByPlayer: Record<string, BwlInn[]> = {}
 
   for (const inn of scorecard.innings) {
+    if (!isTest && inn.inning_number > 2) continue  // skip super over
     for (const b of inn.batters ?? []) {
-      batStats[b.name] = { runs: b.runs, balls: b.balls, fours: b.fours ?? 0, sixes: b.sixes ?? 0, sr: b.strike_rate ?? 0, dismissal: b.dismissal ?? '' }
       teamFor[b.name] = inn.batting_team ?? ''
       headshotFor[b.name] ??= b.headshot_url ?? null
+      ;(batByPlayer[b.name] ??= []).push({ runs: b.runs, balls: b.balls, fours: b.fours ?? 0, sixes: b.sixes ?? 0, sr: b.strike_rate ?? 0, dismissal: b.dismissal ?? '' })
     }
     for (const bw of inn.bowlers ?? []) {
-      bwlStats[bw.name] = { overs: bw.overs, runs: bw.runs, wickets: bw.wickets, economy: bw.economy ?? 0, dot_balls: bw.dot_balls ?? 0 }
       teamFor[bw.name] ??= inn.bowling_team ?? ''
+      ;(bwlByPlayer[bw.name] ??= []).push({ overs: bw.overs, runs: bw.runs, wickets: bw.wickets, economy: bw.economy ?? 0, dot_balls: bw.dot_balls ?? 0 })
     }
   }
 
-  const players = new Set([...Object.keys(batStats), ...Object.keys(bwlStats)])
+  const players = new Set([...Object.keys(batByPlayer), ...Object.keys(bwlByPlayer)])
   let best: PlayerStat | null = null
 
   for (const name of players) {
-    const bat = batStats[name] ?? null
-    const bwl = bwlStats[name] ?? null
+    const batArr = batByPlayer[name] ?? []
+    const bwlArr = bwlByPlayer[name] ?? []
 
-    // ── Batting points (mirrors awards.py PlayerMatchPoints) ──
+    // Aggregate batting points across all innings
     let batPts = 0
-    if (bat) {
+    for (const bat of batArr) {
       batPts += bat.runs * 0.5
       batPts += bat.fours * 1.0
       batPts += bat.sixes * 2.0
       if (bat.runs >= 50) batPts += 10.0
       if (bat.runs >= 100) batPts += 20.0
       const notOut = bat.dismissal === 'not out'
-      if (!notOut && bat.runs < 10 && bat.balls >= 3) batPts -= 3.0  // cheap dismissal
-      if (notOut && bat.balls > 0) batPts += 2.0                     // not-out bonus
+      if (!notOut && bat.runs < 10 && bat.balls >= 3) batPts -= 3.0
+      if (notOut && bat.balls > 0) batPts += 2.0
     }
 
-    // ── Bowling points (mirrors awards.py PlayerMatchPoints) ──
+    // Aggregate bowling points across all innings
     let bwlPts = 0
-    if (bwl) {
+    for (const bwl of bwlArr) {
       bwlPts += bwl.wickets * 10.0
       bwlPts += bwl.dot_balls * 1.0
-      // Economy bonus: requires >= 2 complete overs
       const completeOvers = parseInt(bwl.overs.split('.')[0], 10)
       if (completeOvers >= 2 && bwl.economy < ecoThreshold) {
         const bonus = (ecoThreshold - bwl.economy) / ecoThreshold * 2.0 * completeOvers
@@ -460,12 +466,17 @@ function computePOTM(scorecard: Scorecard): PlayerStat | null {
       }
     }
 
+    const bat0 = batArr[0] ?? null
+    const bwl0 = bwlArr[0] ?? null
+
     const stat: PlayerStat = {
       name,
       team: teamFor[name] ?? '',
       headshot_url: headshotFor[name] ?? null,
-      batting: bat ? { runs: bat.runs, balls: bat.balls, fours: bat.fours, sixes: bat.sixes, strike_rate: bat.sr, not_out: bat.dismissal === 'not out' } : null,
-      bowling: bwl,
+      batting: bat0 ? { runs: bat0.runs, balls: bat0.balls, fours: bat0.fours, sixes: bat0.sixes, strike_rate: bat0.sr, not_out: bat0.dismissal === 'not out' } : null,
+      bowling: bwl0,
+      batting_innings: batArr,
+      bowling_innings: bwlArr,
       batting_pts: batPts,
       bowling_pts: bwlPts,
       total: batPts + bwlPts,
@@ -663,6 +674,7 @@ function bannerText(desc: string | null): string {
   }
   if (desc === 'No result') return 'No result'
   if (desc === 'Match tied') return 'Match tied'
+  if (desc === 'Match drawn') return 'Match drawn'
   return `${desc}!`
 }
 
@@ -776,11 +788,26 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
       {potm && (() => {
         const catches = fielding[potm.name] ?? 0
         const perfParts: string[] = []
-        if (potm.batting) {
-          const star = potm.batting.not_out ? '*' : ''
-          perfParts.push(`${potm.batting.runs}${star} (${potm.batting.balls})`)
+        if (potm.batting_innings.length > 0) {
+          if (isTest && potm.batting_innings.length > 1) {
+            perfParts.push(potm.batting_innings.map(b => {
+              const star = b.dismissal === 'not out' ? '*' : ''
+              return `${b.runs}${star}(${b.balls})`
+            }).join(' & '))
+          } else {
+            const b = potm.batting_innings[0]
+            const star = b.dismissal === 'not out' ? '*' : ''
+            perfParts.push(`${b.runs}${star} (${b.balls}b)`)
+          }
         }
-        if (potm.bowling) perfParts.push(`${potm.bowling.runs}/${potm.bowling.wickets}`)
+        if (potm.bowling_innings.length > 0) {
+          if (isTest && potm.bowling_innings.length > 1) {
+            perfParts.push(potm.bowling_innings.map(bw => `${bw.runs}/${bw.wickets}`).join(' & '))
+          } else {
+            const bw = potm.bowling_innings[0]
+            perfParts.push(`${bw.runs}/${bw.wickets}`)
+          }
+        }
         if (catches > 0) perfParts.push(`${catches} ${catches === 1 ? 'catch' : 'catches'}`)
 
         return (

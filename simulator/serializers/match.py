@@ -425,6 +425,9 @@ def _build_inning_scorecard(inning_num: int, rows: list) -> dict:
 def _build_result_description(row) -> Optional[str]:
     result   = row.get('result') if hasattr(row, 'get') else row['result']
     if result == 'no result':
+        fmt = row.get('match_format') or ''
+        if fmt in ('Test', 'MDM'):
+            return "Match drawn"
         return "No result"
     if result == 'tie':
         return "Match tied"
@@ -435,6 +438,9 @@ def _build_result_description(row) -> Optional[str]:
     if is_so and winner:
         return f"Match tied · {winner} won Super Over"
     if winner and win_type and win_by is not None:
+        if win_type == 'innings':
+            n = win_by
+            return f"{winner} won by an innings and {n} run{'s' if n != 1 else ''}"
         unit   = 'run' if win_type == 'runs' else 'wicket'
         plural = 's' if win_by != 1 else ''
         return f"{winner} won by {win_by} {unit}{plural}"

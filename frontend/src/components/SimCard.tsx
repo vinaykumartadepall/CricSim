@@ -35,6 +35,19 @@ function Chip({ bg, color, children }: { bg: string; color: string; children: Re
   )
 }
 
+// ── Format badge ──────────────────────────────────────────────────────────────
+
+function FormatBadge({ format }: { format: string | null | undefined }) {
+  if (!format) return null
+  const styles: Record<string, { bg: string; color: string }> = {
+    Test: { bg: 'rgba(168,85,247,0.12)', color: '#a855f7' },
+    ODI:  { bg: 'rgba(34,197,94,0.10)',  color: 'var(--win)' },
+    T20:  { bg: 'rgba(59,130,246,0.10)', color: 'var(--accent)' },
+  }
+  const s = styles[format] ?? { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }
+  return <Badge bg={s.bg} color={s.color}>{format}</Badge>
+}
+
 // ── Mode badge (row 2) ────────────────────────────────────────────────────────
 
 function ModeBadge({ mode, simulationType }: {
@@ -90,7 +103,7 @@ function RightChip({ sim }: { sim: SimSummary }) {
 
 export function SimCard({ sim }: { sim: SimSummary }) {
   const navigate = useNavigate()
-  const hasMetaRow = !!(sim.mode || (sim.swap_count != null && sim.swap_count > 0))
+  const hasMetaRow = !!(sim.match_format || sim.mode || (sim.swap_count != null && sim.swap_count > 0))
 
   return (
     <button
@@ -112,6 +125,7 @@ export function SimCard({ sim }: { sim: SimSummary }) {
 
           {hasMetaRow && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <FormatBadge format={sim.match_format} />
               <ModeBadge mode={sim.mode} simulationType={sim.simulation_type} />
               {sim.swap_count != null && sim.swap_count > 0 && (
                 <span style={{ fontSize: 12, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>

@@ -1125,7 +1125,14 @@ function MatchGroup({ title, matches, simId, navigate, userTeamName }: {
                   style={{ color: m.winner === m.home_team ? 'var(--text)' : 'var(--text-muted)' }}>
                   {m.home_team}
                 </div>
-                {m.home_score != null ? (
+                {m.match_format === 'Test' && m.home_innings && m.home_innings.length > 0 ? (
+                  <div className="text-sm font-bold font-mono leading-none"
+                    style={{ color: m.winner === m.home_team ? 'var(--score)' : 'var(--text-muted)' }}>
+                    {m.home_innings.map((inn, i) => (
+                      <span key={i}>{i > 0 ? ' & ' : ''}{inn.runs}/{inn.wkts}</span>
+                    ))}
+                  </div>
+                ) : m.home_score != null ? (
                   <>
                     <div className="text-base font-bold font-mono leading-none"
                       style={{ color: m.winner === m.home_team ? 'var(--score)' : 'var(--text-muted)' }}>
@@ -1147,7 +1154,14 @@ function MatchGroup({ title, matches, simId, navigate, userTeamName }: {
                   style={{ color: m.winner === m.away_team ? 'var(--text)' : 'var(--text-muted)' }}>
                   {m.away_team}
                 </div>
-                {m.away_score != null ? (
+                {m.match_format === 'Test' && m.away_innings && m.away_innings.length > 0 ? (
+                  <div className="text-sm font-bold font-mono leading-none"
+                    style={{ color: m.winner === m.away_team ? 'var(--score)' : 'var(--text-muted)' }}>
+                    {m.away_innings.map((inn, i) => (
+                      <span key={i}>{i > 0 ? ' & ' : ''}{inn.runs}/{inn.wkts}</span>
+                    ))}
+                  </div>
+                ) : m.away_score != null ? (
                   <>
                     <div className="text-base font-bold font-mono leading-none"
                       style={{ color: m.winner === m.away_team ? 'var(--score)' : 'var(--text-muted)' }}>

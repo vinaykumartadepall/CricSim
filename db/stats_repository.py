@@ -808,6 +808,49 @@ class StatsRepository:
         return {pid: {str(k): float(v) for k, v in data.items()}
                 for pid, data in slot.items() if pid in pid_set}
 
+    def _load_test_phase_freq_cache(self) -> Dict[int, Dict]:
+        """
+        Loads Test bowler phase-frequency from bowler_order_stats (dist_type='test_phase_freq').
+        Returns {player_id: {'n': int, 'buckets': {innings_bucket: {phase_idx: float}}}}.
+        Process-level cache; never queries history.deliveries.
+        """
+        cache_key = ('test_phase_freq_pc',)
+        if cache_key in _PRECOMPUTED_CACHE:
+            return _PRECOMPUTED_CACHE[cache_key]
+        if not self.conn:
+            _PRECOMPUTED_CACHE[cache_key] = {}
+            return {}
+        rows = self._run_query(
+            "SELECT player_id, probs "
+            "FROM history.bowler_order_stats "
+            "WHERE match_format = 'Test' AND dist_type = 'test_phase_freq' "
+            "AND match_type = 'all' AND inning_number = 0 "
+            "AND venue_id IS NULL AND country IS NULL",
+            (),
+        )
+        result: Dict[int, Dict] = {}
+        for pid, probs in rows:
+            if probs:
+                # Convert string keys back to ints for buckets and phases
+                buckets = {}
+                for ib_str, phases in probs.get('buckets', {}).items():
+                    buckets[int(ib_str)] = {int(ph): float(frac) for ph, frac in phases.items()}
+                result[int(pid)] = {'n': int(probs.get('n', 0)), 'buckets': buckets}
+        _PRECOMPUTED_CACHE[cache_key] = result
+        return result
+
+    def get_bowler_test_phase_frequency_precomputed(
+        self, player_ids: List[int],
+    ) -> Dict[int, Dict]:
+        """
+        Precomputed Test phase-frequency for the given player IDs.
+        Returns {pid: {'n': int, 'buckets': {innings_bucket: {phase_idx: float}}}}.
+        Never queries history.deliveries.
+        """
+        full = self._load_test_phase_freq_cache()
+        pid_set = set(player_ids)
+        return {pid: data for pid, data in full.items() if pid in pid_set}
+
     def get_batter_bowler_matchups_aggregate(
         self, batter_ids: List[int], bowler_ids: List[int], match_format: str
     ) -> Dict[Tuple, dict]:
@@ -853,6 +896,7 @@ class StatsRepository:
         for fmt in ('T20', 'ODI'):
             for dist_type in ('over_freq', 'phase_dist'):
                 repo._load_bowler_order_cache(fmt, dist_type)
+        repo._load_test_phase_freq_cache()
         from simulator.logger import get_logger
         get_logger().warning("[StartupWarm] All caches loaded in %.2fs", time.perf_counter() - t0)
 

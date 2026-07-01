@@ -567,12 +567,17 @@ def _fetch_venue(cur, sim_id: str):
 
 def _build_desc(m: dict):
     if m['result'] == 'no result':
+        if m.get('match_format') in ('Test', 'MDM'):
+            return "Match drawn"
         return "No result"
     if m['result'] == 'tie':
         return "Match tied"
     if m.get('is_super_over') and m['winner']:
         return f"Match tied · {m['winner']} won Super Over"
     if m['winner'] and m['win_type'] and m['win_by'] is not None:
+        if m['win_type'] == 'innings':
+            n = m['win_by']
+            return f"{m['winner']} won by an innings and {n} run{'s' if n != 1 else ''}"
         unit = 'run' if m['win_type'] == 'runs' else 'wicket'
         plural = 's' if m['win_by'] != 1 else ''
         return f"{m['winner']} won by {m['win_by']} {unit}{plural}"

@@ -78,6 +78,7 @@ export interface SimSummary {
   winner_name?: string | null
   user_team_placement?: string | null
   match_id?: number | null
+  match_format?: string | null
 }
 
 export interface PointsTableRow {
@@ -168,6 +169,11 @@ export interface LeaderboardsDashboard {
   mvp: MvpRow[]
 }
 
+export interface InningsScore {
+  runs: number
+  wkts: number
+}
+
 export interface MatchItem {
   match_id: number
   match_label: string
@@ -180,12 +186,15 @@ export interface MatchItem {
   is_super_over: boolean
   venue?: string | null
   venue_country?: string | null
+  match_format?: string | null
   home_score: number | null
   home_wickets: number | null
   home_overs: string | null
+  home_innings?: InningsScore[] | null
   away_score: number | null
   away_wickets: number | null
   away_overs: string | null
+  away_innings?: InningsScore[] | null
 }
 
 export interface BatterRow {

@@ -25,6 +25,7 @@ class SimSummaryItem(BaseModel):
     winner_name: Optional[str] = None
     user_team_placement: Optional[str] = None
     match_id: Optional[int] = None
+    match_format: Optional[str] = None
 
 
 # ── /result ────────────────────────────────────────────────────────────────────
@@ -176,12 +177,15 @@ class TournamentMatchItem(BaseModel):
     is_super_over: bool
     venue: Optional[str] = None
     venue_country: Optional[str] = None
+    match_format: Optional[str] = None
     home_score: Optional[int] = None
     home_wickets: Optional[int] = None
     home_overs: Optional[str] = None
+    home_innings: Optional[Any] = None
     away_score: Optional[int] = None
     away_wickets: Optional[int] = None
     away_overs: Optional[str] = None
+    away_innings: Optional[Any] = None
 
 
 # ── Leaderboards ───────────────────────────────────────────────────────────────

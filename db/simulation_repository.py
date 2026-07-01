@@ -521,7 +521,8 @@ class SimulationRepository:
                 {_PLACEMENT_CASE}                          AS user_team_placement,
                 CASE WHEN s.simulation_type = 'match' THEN (
                     SELECT m.match_id FROM simulation.matches m WHERE m.sim_id = s.sim_id LIMIT 1
-                ) END                                      AS match_id
+                ) END                                      AS match_id,
+                COALESCE(t.format, s.config->>'match_format') AS match_format
             FROM simulation.simulations s
             LEFT JOIN simulation.tournaments t   ON t.sim_id   = s.sim_id
             LEFT JOIN simulation.game_sessions gs ON gs.sim_id  = s.sim_id
@@ -616,6 +617,7 @@ class SimulationRepository:
         self._dict_cur.execute(
             """
             SELECT m.match_id, m.match_label, m.name,
+                   m.match_format,
                    ht.name AS home_team, at.name AS away_team,
                    wt.name AS winner,
                    v.name  AS venue,
@@ -624,17 +626,20 @@ class SimulationRepository:
                    (m.is_super_over OR EXISTS (
                        SELECT 1 FROM simulation.deliveries dso
                        WHERE dso.match_id = m.match_id AND dso.inning_number = 3
+                         AND m.match_format NOT IN ('Test', 'MDM')
                    )) AS is_super_over,
                    home_s.runs  AS home_score,
                    home_s.wkts  AS home_wickets,
                    CASE WHEN home_s.lb IS NOT NULL
                         THEN (home_s.lb / 6)::text || '.' || (home_s.lb %% 6)::text
                         ELSE NULL END AS home_overs,
+                   home_s.innings_json  AS home_innings,
                    away_s.runs  AS away_score,
                    away_s.wkts  AS away_wickets,
                    CASE WHEN away_s.lb IS NOT NULL
                         THEN (away_s.lb / 6)::text || '.' || (away_s.lb %% 6)::text
-                        ELSE NULL END AS away_overs
+                        ELSE NULL END AS away_overs,
+                   away_s.innings_json  AS away_innings
             FROM simulation.matches m
             JOIN simulation.teams ht ON ht.team_id = m.home_team_id
             JOIN simulation.teams at ON at.team_id = m.away_team_id
@@ -642,20 +647,44 @@ class SimulationRepository:
             LEFT JOIN history.venues   v  ON v.venue_id  = m.venue_id
             LEFT JOIN history.countries c ON c.country_id = v.country_id
             LEFT JOIN LATERAL (
-                SELECT SUM(COALESCE(runs_batter, 0) + COALESCE(runs_extras, 0)) AS runs,
-                       SUM(CASE WHEN outcome_type = 'Wicket' THEN 1 ELSE 0 END) AS wkts,
-                       SUM(CASE WHEN outcome_kind IS NULL OR outcome_kind NOT IN ('Wide', 'wide', 'Noball', 'noball') THEN 1 ELSE 0 END) AS lb
+                SELECT SUM(COALESCE(d.runs_batter, 0) + COALESCE(d.runs_extras, 0)) AS runs,
+                       SUM(CASE WHEN d.outcome_type = 'Wicket' THEN 1 ELSE 0 END) AS wkts,
+                       SUM(CASE WHEN d.outcome_kind IS NULL OR d.outcome_kind NOT IN ('Wide', 'wide', 'Noball', 'noball') THEN 1 ELSE 0 END) AS lb,
+                       (SELECT COALESCE(JSONB_AGG(
+                           JSONB_BUILD_OBJECT('runs', sub.r, 'wkts', sub.w) ORDER BY sub.inn
+                       ), '[]'::jsonb)
+                        FROM (
+                            SELECT di.inning_number AS inn,
+                                   SUM(COALESCE(di.runs_batter,0)+COALESCE(di.runs_extras,0)) AS r,
+                                   SUM(CASE WHEN di.outcome_type='Wicket' THEN 1 ELSE 0 END) AS w
+                            FROM simulation.deliveries di
+                            WHERE di.match_id = m.match_id AND di.batting_team_id = m.home_team_id
+                            GROUP BY di.inning_number
+                        ) sub
+                       ) AS innings_json
                 FROM simulation.deliveries d
                 WHERE d.match_id = m.match_id AND d.batting_team_id = m.home_team_id
-                  AND d.inning_number <= 2
+                  AND (m.match_format IN ('Test', 'MDM') OR d.inning_number <= 2)
             ) home_s ON true
             LEFT JOIN LATERAL (
-                SELECT SUM(COALESCE(runs_batter, 0) + COALESCE(runs_extras, 0)) AS runs,
-                       SUM(CASE WHEN outcome_type = 'Wicket' THEN 1 ELSE 0 END) AS wkts,
-                       SUM(CASE WHEN outcome_kind IS NULL OR outcome_kind NOT IN ('Wide', 'wide', 'Noball', 'noball') THEN 1 ELSE 0 END) AS lb
+                SELECT SUM(COALESCE(d.runs_batter, 0) + COALESCE(d.runs_extras, 0)) AS runs,
+                       SUM(CASE WHEN d.outcome_type = 'Wicket' THEN 1 ELSE 0 END) AS wkts,
+                       SUM(CASE WHEN d.outcome_kind IS NULL OR d.outcome_kind NOT IN ('Wide', 'wide', 'Noball', 'noball') THEN 1 ELSE 0 END) AS lb,
+                       (SELECT COALESCE(JSONB_AGG(
+                           JSONB_BUILD_OBJECT('runs', sub.r, 'wkts', sub.w) ORDER BY sub.inn
+                       ), '[]'::jsonb)
+                        FROM (
+                            SELECT di.inning_number AS inn,
+                                   SUM(COALESCE(di.runs_batter,0)+COALESCE(di.runs_extras,0)) AS r,
+                                   SUM(CASE WHEN di.outcome_type='Wicket' THEN 1 ELSE 0 END) AS w
+                            FROM simulation.deliveries di
+                            WHERE di.match_id = m.match_id AND di.batting_team_id = m.away_team_id
+                            GROUP BY di.inning_number
+                        ) sub
+                       ) AS innings_json
                 FROM simulation.deliveries d
                 WHERE d.match_id = m.match_id AND d.batting_team_id = m.away_team_id
-                  AND d.inning_number <= 2
+                  AND (m.match_format IN ('Test', 'MDM') OR d.inning_number <= 2)
             ) away_s ON true
             WHERE m.sim_id = %s
             ORDER BY m.match_id
@@ -957,11 +986,15 @@ def _delivery_outcome_type(d) -> str:
 def _parse_win(description: str):
     """
     Extract (win_type, win_by) from a result description string.
-    e.g. "India won by 34 runs"  → ('runs', 34)
-         "England won by 2 wickets" → ('wickets', 2)
+    e.g. "India won by 34 runs"              → ('runs', 34)
+         "England won by 2 wickets"           → ('wickets', 2)
+         "Australia won by an innings and 45" → ('innings', 45)
     Returns (None, None) if unparseable.
     """
     import re
+    m_inn = re.search(r'by an innings and (\d+)', description, re.IGNORECASE)
+    if m_inn:
+        return 'innings', int(m_inn.group(1))
     m = re.search(r'by (\d+) (run|wicket)', description, re.IGNORECASE)
     if not m:
         return None, None

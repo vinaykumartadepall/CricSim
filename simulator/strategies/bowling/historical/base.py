@@ -192,12 +192,12 @@ class HistoricalBowlingBase(BowlingStrategy):
         self.form_cache   = {}
 
         if self._fmt == "Test":
-            # No precomputed Test phase-frequency yet; _f_test_phase_affinity returns 0
-            # (blending gracefully falls back to 0 with empty caches)
-            self.global_test_phase_freq_cache = {}
-            self.test_phase_freq_cache        = {}
+            t = time.perf_counter()
+            self.global_test_phase_freq_cache = repo.get_bowler_test_phase_frequency_precomputed(all_ids)
+            self.test_phase_freq_cache        = self.global_test_phase_freq_cache
             self.venue_test_phase_freq_cache  = {}
-            log.info("[BowlingModel]   %-38s  (no precomputed data)", "test_phase_freq")
+            log.info("[BowlingModel]   %-38s  %.3fs  (%d players)", "test_phase_freq",
+                     time.perf_counter() - t, len(self.global_test_phase_freq_cache))
 
         elif self._fmt == "T20":
             t = time.perf_counter()
@@ -243,7 +243,11 @@ class HistoricalBowlingBase(BowlingStrategy):
         self.workload_cache.update(repo.get_bowler_workload_precomputed(new_ids, self._fmt))
         self.matchup_cache.update(repo.get_batter_bowler_matchups_aggregate(new_ids, new_ids, self._fmt))
 
-        if self._fmt != "Test":
+        if self._fmt == "Test":
+            new_data = repo.get_bowler_test_phase_frequency_precomputed(new_ids)
+            self.global_test_phase_freq_cache.update(new_data)
+            self.test_phase_freq_cache.update(new_data)
+        else:
             self.global_over_freq_cache.update(
                 repo.get_bowler_over_frequency_precomputed(new_ids, self._fmt, 'all', 0))
             self.over_freq_cache.update(

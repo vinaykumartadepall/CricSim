@@ -1513,9 +1513,82 @@ def _populate_player_roles(conn, dry_run: bool) -> int:
 # bowler_order_stats: over_freq + phase_dist
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _populate_test_bowler_phase_freq(conn, gender: str, dry_run: bool) -> int:
+    """
+    Precomputes Test bowling phase-frequency and stores it in bowler_order_stats
+    with dist_type='test_phase_freq'.
+
+    For each bowler, computes fraction of matches in which they bowled in each
+    10-over phase (0-7 mapping to overs 0-9 … 70-79 within an 80-over cycle),
+    broken out by innings bucket (1 = innings 1/2, 2 = innings 3/4).
+
+    Stored as one row per player:
+      probs = {"n": <total_matches>, "buckets": {"1": {"0": frac, ...}, "2": {...}}}
+    """
+    print(f"  bowler_order_stats Test/phase_freq/{gender} ...", end=" ", flush=True)
+    t0 = time.perf_counter()
+    raw_fmts = _FORMAT_ALIASES['Test']
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH total_matches AS (
+                SELECT mp.player_id, COUNT(DISTINCT mp.match_id) AS n
+                FROM history.match_players mp
+                JOIN history.matches m ON mp.match_id = m.match_id
+                WHERE mp.player_id IS NOT NULL
+                  AND m.match_format = ANY(%s) AND m.gender = %s
+                GROUP BY mp.player_id
+            ),
+            bucketed AS (
+                SELECT
+                    d.bowler_id,
+                    d.match_id,
+                    CASE WHEN d.inning_number <= 2 THEN 1 ELSE 2 END AS innings_bucket,
+                    ((d.over_number %% 80) / 10)::int                AS phase
+                FROM history.deliveries d
+                JOIN history.matches m ON d.match_id = m.match_id
+                WHERE d.bowler_id IS NOT NULL
+                  AND m.match_format = ANY(%s) AND m.gender = %s
+            ),
+            phase_counts AS (
+                SELECT bowler_id, innings_bucket, phase, COUNT(DISTINCT match_id) AS phase_matches
+                FROM bucketed
+                GROUP BY bowler_id, innings_bucket, phase
+            )
+            SELECT
+                p.bowler_id,
+                p.innings_bucket,
+                t.n,
+                p.phase,
+                p.phase_matches::float / NULLIF(t.n, 0) AS phase_frac
+            FROM phase_counts p
+            JOIN total_matches t ON p.bowler_id = t.player_id
+            WHERE t.n >= 5
+            """,
+            (raw_fmts, gender, raw_fmts, gender),
+        )
+        rows = cur.fetchall()
+
+    acc: Dict[int, dict] = {}
+    for bowler_id, innings_bucket, n, phase, frac in rows:
+        entry = acc.setdefault(int(bowler_id), {'n': int(n), 'buckets': {}})
+        entry['n'] = int(n)
+        entry['buckets'].setdefault(int(innings_bucket), {})[int(phase)] = float(frac or 0)
+
+    insert_rows = [
+        (pid, 'Test', 'test_phase_freq', 'all', 0, None, None, json.dumps(data))
+        for pid, data in acc.items()
+    ]
+
+    count = _upsert_bowler_order(conn, insert_rows, dry_run)
+    print(f"{count} rows  ({time.perf_counter()-t0:.1f}s)")
+    return count
+
+
 def _populate_bowler_order_stats(conn, fmt: str, gender: str, dry_run: bool) -> int:
-    if fmt not in ('T20', 'ODI'):
-        return 0  # Test cricket doesn't use bowling-order models
+    if fmt == 'Test':
+        return _populate_test_bowler_phase_freq(conn, gender, dry_run)
     raw_fmts = _FORMAT_ALIASES[fmt]
     t20_fmts = _FORMAT_ALIASES['T20']
     odi_fmts = _FORMAT_ALIASES['ODI']
