@@ -5,6 +5,7 @@ import { Trophy, TrendingUp, Swords, Star, RotateCcw, ChevronRight, X, Search } 
 import { Spinner } from '@/components/ui/Spinner'
 import { PlayoffBracket } from '@/components/PlayoffBracket'
 import { api } from '@/api/client'
+import { getClientId } from '@/api/clientId'
 import type {
   TournamentResult, LeaderboardsDashboard,
   MatchItem,
@@ -54,7 +55,6 @@ const BOWLING_BASE: Col[] = [
   { label: 'Dots',   get: r => r.dots as number },
 ]
 
-// Player first, Team second (filtered to sub-text in modal), then primary metric accented, then rest
 function battingCols(primary: string): Col[] {
   const rest = BATTING_BASE.filter(c => c.label !== 'Player' && c.label !== 'Team' && c.label !== primary)
   const primaryCol = BATTING_BASE.find(c => c.label === primary)!
@@ -77,7 +77,6 @@ function bowlingCols(primary: string): Col[] {
 }
 
 const LB_DEFS: LbMeta[] = [
-  // ── MVP ──────────────────────────────────────────────────────────────────────
   {
     key: 'mvp', title: 'Tournament MVP',
     columns: [
@@ -89,16 +88,13 @@ const LB_DEFS: LbMeta[] = [
       { label: 'Field',  get: r => Number(r.fielding_pts).toFixed(1) },
     ],
   },
-  // ── Batting aggregate ────────────────────────────────────────────────────────
   { key: 'most_runs',           title: 'Most Runs',           columns: battingCols('Runs') },
-  // ── Bowling aggregate ────────────────────────────────────────────────────────
   { key: 'most_wickets',        title: 'Most Wickets',        columns: bowlingCols('Wkts') },
   { key: 'best_strike_rate',    title: 'Best Strike Rate',    columns: battingCols('SR')   },
   { key: 'best_economy',        title: 'Best Economy',        columns: bowlingCols('Econ') },
   { key: 'most_sixes',          title: 'Most Sixes',          columns: battingCols('6s')   },
   { key: 'most_fours',          title: 'Most Fours',          columns: battingCols('4s')   },
   { key: 'most_dots',           title: 'Most Dot Balls',      columns: bowlingCols('Dots') },
-  // ── Match-level batting ──────────────────────────────────────────────────────
   {
     key: 'highest_score', title: 'Highest Score',
     columns: [
@@ -110,10 +106,9 @@ const LB_DEFS: LbMeta[] = [
       { label: '4s',     get: r => r.fours as number },
       { label: '6s',     get: r => r.sixes as number },
       { label: 'vs',     get: r => r.opponent as string },
-      { label: 'Venue',  get: r => r.venue as string ?? '—' },
+      { label: 'Venue',  get: r => (r.venue as string) ?? '—' },
     ],
   },
-  // ── Match-level bowling ──────────────────────────────────────────────────────
   {
     key: 'best_bowling_figures', title: 'Best Bowling Figures',
     columns: [
@@ -122,17 +117,15 @@ const LB_DEFS: LbMeta[] = [
       { label: 'Figures',  get: r => r.best_figures as string, accent: true },
       { label: 'Wkts',    get: r => r.wickets as number },
       { label: 'Runs',     get: r => r.runs as number },
-      { label: 'Overs',   get: r => (r.overs ?? '—') as string },
       { label: 'Econ',     get: r => r.economy != null ? Number(r.economy).toFixed(2) : '—' },
       { label: 'vs',       get: r => r.opponent as string },
-      { label: 'Venue',    get: r => r.venue as string ?? '—' },
+      { label: 'Venue',    get: r => (r.venue as string) ?? '—' },
     ],
   },
   { key: 'best_batting_average',title: 'Best Batting Avg',   columns: battingCols('Avg')  },
   { key: 'best_bowling_average',title: 'Best Bowling Avg',   columns: bowlingCols('Avg')  },
 ]
 
-// Map from LeaderboardsDashboard key → leaderboard API type string
 const LB_KEY_TO_API: Record<string, string> = {
   most_runs:            'most-runs',
   best_batting_average: 'best-batting-average',
@@ -149,6 +142,140 @@ const LB_KEY_TO_API: Record<string, string> = {
 }
 
 const PAGE_SIZE = 50
+
+// ── Player avatar ─────────────────────────────────────────────────────────────
+
+function PlayerAvatar({ name, size = 44 }: { name: string; size?: number }) {
+  const initials = name.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase()
+  const COLORS = ['#0EA5E9', '#F97316', '#22C55E', '#F59E0B', '#8B5CF6', '#EF4444', '#EC4899', '#14B8A6']
+  const color = COLORS[name.charCodeAt(0) % COLORS.length]
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%',
+      background: `${color}1A`, color, border: `1.5px solid ${color}55`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: Math.round(size * 0.36), fontWeight: 700, flexShrink: 0, letterSpacing: '-0.5px',
+    }}>
+      {initials}
+    </div>
+  )
+}
+
+// ── Role badge ────────────────────────────────────────────────────────────────
+
+function RoleBadge({ role }: { role: string | null }) {
+  if (!role) return null
+  const r = role.toLowerCase()
+  const [bg, color] =
+    r.includes('bowl') ? ['rgba(239,68,68,0.12)', '#ef4444'] :
+    r.includes('all')  ? ['rgba(14,165,233,0.12)', '#0ea5e9'] :
+    r.includes('keep') ? ['rgba(245,158,11,0.12)', 'var(--score)'] :
+                         ['rgba(34,197,94,0.12)', '#22c55e']
+  const label =
+    r.includes('bowl') ? 'BWL' :
+    r.includes('all')  ? 'AR' :
+    r.includes('keep') ? 'WK' : 'BAT'
+  return (
+    <span className="text-[10px] px-1 py-px rounded font-semibold shrink-0"
+      style={{ background: bg, color }}>
+      {label}
+    </span>
+  )
+}
+
+// ── Team XI preview panel ─────────────────────────────────────────────────────
+
+type LineupPlayer = {
+  player_id: number
+  player_name: string
+  player_role: string | null
+  matches: number
+  runs: number
+  wickets: number
+  mvp_points: number
+  batting_pts: number
+  bowling_pts: number
+  fielding_pts: number
+}
+
+function TeamPreviewPanel({
+  teamName,
+  players,
+  onClose,
+}: {
+  teamName: string
+  players: LineupPlayer[]
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  return createPortal(
+    <>
+      <div
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, zIndex: 150, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(3px)' }}
+      />
+      <div style={{
+        position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
+        width: 'min(380px, 96vw)', maxHeight: '85vh',
+        zIndex: 151, display: 'flex', flexDirection: 'column',
+        background: 'var(--bg)', borderRadius: 12, border: '1px solid var(--border)',
+        overflow: 'hidden', animation: 'fadeIn 160ms ease',
+      }}>
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0"
+          style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-dim)' }}>Squad</div>
+            <div className="text-sm font-bold truncate" style={{ color: 'var(--text)' }}>{teamName}</div>
+          </div>
+          <button onClick={onClose} style={{ color: 'var(--text-muted)' }}><X size={16} /></button>
+        </div>
+
+        {/* Player list */}
+        <div className="flex-1 overflow-y-auto">
+          {players.map((p, i) => (
+            <div key={p.player_id}
+              className="flex items-center gap-3 px-4 py-3"
+              style={{ borderBottom: '1px solid var(--border)' }}>
+              <div className="text-xs w-5 text-right shrink-0 font-mono" style={{ color: 'var(--text-dim)' }}>{i + 1}</div>
+              <PlayerAvatar name={p.player_name} size={32} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{p.player_name}</span>
+                  <RoleBadge role={p.player_role} />
+                </div>
+                <div className="flex items-center gap-2 mt-0.5" style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                  <span>{p.runs} runs</span>
+                  {p.wickets > 0 && <span>· {p.wickets} wkts</span>}
+                </div>
+              </div>
+              {p.mvp_points > 0 && (
+                <div className="text-right shrink-0">
+                  <div className="text-sm font-bold" style={{ color: 'var(--score)' }}>{p.mvp_points.toFixed(1)}</div>
+                  <div className="text-xs" style={{ color: 'var(--text-dim)', fontSize: 10 }}>MVP</div>
+                </div>
+              )}
+            </div>
+          ))}
+          {players.length === 0 && (
+            <div className="flex items-center justify-center h-32 text-sm" style={{ color: 'var(--text-dim)' }}>
+              No player data
+            </div>
+          )}
+        </div>
+      </div>
+      <style>{`@keyframes fadeIn { from { opacity:0;transform:translate(-50%,-50%) scale(0.96) } to { opacity:1;transform:translate(-50%,-50%) scale(1) } }`}</style>
+    </>,
+    document.body
+  )
+}
+
+// ── Leaderboard modal ─────────────────────────────────────────────────────────
 
 function LeaderboardModal({
   simId,
@@ -168,7 +295,6 @@ function LeaderboardModal({
   const offsetRef = useRef(0)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Lock body scroll while open
   useEffect(() => {
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -192,7 +318,6 @@ function LeaderboardModal({
     finally { setFetching(false) }
   }, [apiType, simId, fetching])
 
-  // Initial page load
   useEffect(() => {
     offsetRef.current = 0
     setRows([])
@@ -202,7 +327,6 @@ function LeaderboardModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [simId, lbKey])
 
-  // When search becomes active and rows aren't all loaded yet, eagerly fetch remaining
   useEffect(() => {
     if (!search || allLoaded || fetching) return
     const loadAll = async () => {
@@ -246,18 +370,17 @@ function LeaderboardModal({
     <>
       <div
         onClick={onClose}
-        style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(3px)' }}
+        style={{ position: 'fixed', inset: 0, zIndex: 160, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(3px)' }}
       />
       <div
         style={{
           position: 'fixed', left: '50%', transform: 'translateX(-50%)',
           top: '5vh', width: 'min(700px, 96vw)', height: '90vh',
-          zIndex: 61, display: 'flex', flexDirection: 'column',
+          zIndex: 161, display: 'flex', flexDirection: 'column',
           background: 'var(--bg)', borderRadius: 12, border: '1px solid var(--border)',
           overflow: 'hidden', animation: 'fadeIn 150ms ease',
         }}
       >
-        {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0"
           style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
           <div className="text-sm font-semibold shrink-0" style={{ color: 'var(--text)' }}>{meta.title}</div>
@@ -285,13 +408,11 @@ function LeaderboardModal({
           <button onClick={onClose} style={{ color: 'var(--text-muted)', flexShrink: 0 }}><X size={16} /></button>
         </div>
 
-        {/* Scrollable table */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-auto" onScroll={handleScroll}>
           {rows.length === 0 && fetching ? (
             <div className="flex justify-center py-12"><Spinner /></div>
           ) : (
             <table className="w-full text-sm" style={{ minWidth: meta.columns.length * 80 }}>
-              {/* Filter out Team — it renders as sub-text under Player */}
               {(() => {
                 const cols = meta.columns.filter(c => c.label !== 'Team')
                 return (
@@ -355,7 +476,6 @@ function LeaderboardModal({
             </table>
           )}
         </div>
-        <style>{`@keyframes fadeIn { from { opacity:0;transform:scale(0.97) } to { opacity:1;transform:scale(1) } }`}</style>
       </div>
     </>,
     document.body
@@ -416,6 +536,91 @@ function StatCard({
   )
 }
 
+// ── Lineups tab ───────────────────────────────────────────────────────────────
+
+type LineupTeam = { team_name: string; players: LineupPlayer[] }
+
+function LineupsTab({ simId, userTeamName }: { simId: string; userTeamName: string | null }) {
+  const [teams, setTeams] = useState<LineupTeam[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getLineups(simId).then(r => {
+      setTeams(r.teams)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [simId])
+
+  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>
+  if (!teams.length) return <div className="text-center py-8 text-sm" style={{ color: 'var(--text-dim)' }}>No lineup data</div>
+
+  return (
+    <div className="fade-in flex flex-col gap-4">
+      {teams.map(team => {
+        const isMyTeam = !!userTeamName && team.team_name === userTeamName
+        return (
+          <div key={team.team_name} className="card overflow-hidden"
+            style={{ borderColor: isMyTeam ? 'var(--accent)' : 'var(--border)' }}>
+            {/* Team header */}
+            <div className="flex items-center gap-2 px-4 py-2.5"
+              style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+              <div className="text-sm font-bold" style={{ color: isMyTeam ? 'var(--accent)' : 'var(--text)' }}>
+                {team.team_name}
+              </div>
+              {isMyTeam && (
+                <span className="text-xs px-1.5 py-px rounded font-semibold"
+                  style={{ background: 'rgba(59,130,246,0.12)', color: 'var(--accent)' }}>You</span>
+              )}
+              <div className="ml-auto text-xs" style={{ color: 'var(--text-dim)' }}>
+                {team.players.length} players
+              </div>
+            </div>
+
+            {/* Column headers */}
+            <div className="grid px-4 py-1.5"
+              style={{ gridTemplateColumns: '1fr 52px 52px 56px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+              <div className="text-xs font-medium" style={{ color: 'var(--text-dim)' }}>Player</div>
+              <div className="text-xs font-medium text-right" style={{ color: 'var(--text-dim)' }}>Runs</div>
+              <div className="text-xs font-medium text-right" style={{ color: 'var(--text-dim)' }}>Wkts</div>
+              <div className="text-xs font-medium text-right" style={{ color: 'var(--score)' }}>MVP</div>
+            </div>
+
+            {/* Players */}
+            {team.players.map((p, i) => (
+              <div key={p.player_id}
+                className="grid items-center px-4 py-2.5"
+                style={{
+                  gridTemplateColumns: '1fr 52px 52px 56px',
+                  borderBottom: i < team.players.length - 1 ? '1px solid var(--border)' : 'none',
+                }}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs w-4 text-right shrink-0 font-mono" style={{ color: 'var(--text-dim)' }}>{i + 1}</span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium truncate" style={{ color: 'var(--text)' }}>{p.player_name}</span>
+                      <RoleBadge role={p.player_role} />
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-dim)', fontSize: 10 }}>{p.matches}M</div>
+                  </div>
+                </div>
+                <div className="text-xs font-mono text-right" style={{ color: p.runs > 0 ? 'var(--text-muted)' : 'var(--text-dim)' }}>
+                  {p.runs > 0 ? p.runs : '—'}
+                </div>
+                <div className="text-xs font-mono text-right" style={{ color: p.wickets > 0 ? 'var(--text-muted)' : 'var(--text-dim)' }}>
+                  {p.wickets > 0 ? p.wickets : '—'}
+                </div>
+                <div className="text-xs font-bold text-right" style={{ color: p.mvp_points > 0 ? 'var(--score)' : 'var(--text-dim)' }}>
+                  {p.mvp_points > 0 ? p.mvp_points.toFixed(1) : '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function ResultsPage() {
@@ -424,8 +629,6 @@ export function ResultsPage() {
   const location = useLocation()
   const locState = (location.state ?? {}) as Record<string, unknown>
 
-  // Scroll-to and initial tab from location state — captured once at mount via refs
-  // so reloads and sub-navigation don't replay the effect.
   const scrollToMatchId = useRef<number | undefined>((locState.scrollTo as number) || undefined)
   const hasScrolled = useRef(false)
 
@@ -442,7 +645,10 @@ export function ResultsPage() {
   const [standingsSubTab, setStandingsSubTab] = useState<'playoffs' | 'table'>('playoffs')
   const standingsDefaultSet = useRef(false)
 
-  // Strip volatile navigation state (tab/scrollTo) from history once on mount.
+  // Team preview state
+  const [previewTeam, setPreviewTeam] = useState<string | null>(null)
+  const [lineupTeams, setLineupTeams] = useState<LineupTeam[]>([])
+
   useEffect(() => {
     if (locState.tab || locState.scrollTo) {
       navigate(location.pathname, { replace: true, state: {} })
@@ -458,14 +664,17 @@ export function ResultsPage() {
         if (s.status === 'completed') {
           clearInterval(pollRef.current!)
           setStatus('completed')
+          const clientId = getClientId()
           const [r, lb, m] = await Promise.all([
-            api.getSimResult(simId!),
+            api.getSimResult(simId!, clientId),
             api.getLeaderboards(simId!),
             api.getMatches(simId!),
           ])
           setResult(r)
           setLeaderboards(lb)
           setMatches(m)
+          // Pre-fetch lineups for team preview on points-table click
+          api.getLineups(simId!).then(l => setLineupTeams(l.teams)).catch(() => {/* non-critical */})
         } else if (s.status === 'failed') {
           clearInterval(pollRef.current!)
           setStatus('failed')
@@ -495,7 +704,7 @@ export function ResultsPage() {
     standingsDefaultSet.current = true
     const playoffMs = matches.filter(m => !/^match\s+\d+$/i.test(m.match_label.trim()))
     if (playoffMs.length === 0) { setStandingsSubTab('table'); return }
-    if (!result.user_team_name) return // no team context → keep playoffs default
+    if (!result.user_team_name) return
     const qualified = playoffMs.some(
       m => m.home_team === result.user_team_name || m.away_team === result.user_team_name
     )
@@ -537,11 +746,13 @@ export function ResultsPage() {
   const playoffMatches = visibleMatches.filter(m => !/^match\s+\d+$/i.test(m.match_label.trim()))
   const allPlayoffMatches = matches.filter(m => !/^match\s+\d+$/i.test(m.match_label.trim()))
 
-  // lb → rows from dashboard (first 10)
   const lbRows = (key: string): Record<string, unknown>[] =>
     ((leaderboards as unknown as Record<string, unknown>)?.[key] as Record<string, unknown>[]) ?? []
 
   const canTryAgain = !!(result?.mode && result?.source_tournament_id)
+
+  // Team preview panel data
+  const previewTeamData = previewTeam ? lineupTeams.find(t => t.team_name === previewTeam) : null
 
   return (
     <div className="w-full px-1 py-6">
@@ -554,7 +765,16 @@ export function ResultsPage() {
         />
       )}
 
-      {/* Top nav — Home link */}
+      {/* Team preview panel */}
+      {previewTeam && previewTeamData && (
+        <TeamPreviewPanel
+          teamName={previewTeam}
+          players={previewTeamData.players}
+          onClose={() => setPreviewTeam(null)}
+        />
+      )}
+
+      {/* Top nav */}
       <button
         className="flex items-center gap-1 text-sm mb-5"
         style={{ color: 'var(--text-muted)' }}
@@ -563,7 +783,7 @@ export function ResultsPage() {
         <ChevronRight size={14} style={{ transform: 'rotate(180deg)' }} /> Home
       </button>
 
-      {/* Result banner — personalized to user's team when available */}
+      {/* Result banner */}
       {result && (() => {
         const placement = result.user_team_placement
         const userTeam = result.user_team_name
@@ -572,12 +792,22 @@ export function ResultsPage() {
         const theme: BannerTheme = (() => {
           if (userTeam) {
             if (placement === 'Winner')    return { icon: '🏆', headline: 'Champions!',             sub: `${userTeam} won the title`,             border: 'var(--score)', bg: 'rgba(245,158,11,0.07)', color: 'var(--score)' }
-            if (placement === 'Runner-up') return { icon: '💔', headline: 'So close…',              sub: `${userTeam} — Runner-up`,               border: 'rgba(239,68,68,0.4)', bg: 'rgba(239,68,68,0.05)', color: 'var(--loss)' }
+            if (placement === 'Runner-up') return { icon: '🥈', headline: 'Runner-up',               sub: `${userTeam} — Finished 2nd`,            border: 'rgba(148,163,184,0.4)', bg: 'rgba(148,163,184,0.05)', color: '#94a3b8' }
             if (placement === 'Playoffs')  return { icon: '✨', headline: 'You made the Playoffs!', sub: `${userTeam} reached the knockout stage`, border: 'var(--accent)', bg: 'rgba(59,130,246,0.05)', color: 'var(--accent)' }
             return { icon: '😞', headline: 'Did not qualify', sub: `${userTeam} was eliminated in the group stage`, border: 'var(--border)', bg: 'transparent', color: 'var(--text-muted)' }
           }
-          return { icon: '🏆', headline: result.winner ? `${result.winner} won the tournament` : 'Tournament complete', sub: result.runner_up ? `Runner-up: ${result.runner_up}` : '', border: 'var(--score)', bg: 'rgba(245,158,11,0.07)', color: 'var(--score)' }
+          return { icon: '🏆', headline: result.winner ? `${result.winner} won the tournament` : 'Tournament complete', sub: '', border: 'var(--score)', bg: 'rgba(245,158,11,0.07)', color: 'var(--score)' }
         })()
+
+        // Secondary info line for multiplayer (when user is a participant)
+        const secondaryLine = userTeam ? (() => {
+          const winner = result.winner
+          const runnerUp = result.runner_up
+          if (placement === 'Winner') {
+            return runnerUp ? `Runner-up: ${runnerUp}` : null
+          }
+          return winner ? `🏆 Winner: ${winner}` : null
+        })() : null
 
         return (
           <div className="rounded-xl mb-5 fade-in overflow-hidden"
@@ -590,10 +820,13 @@ export function ResultsPage() {
                   {theme.sub && <span>{theme.sub}</span>}
                   {result.tournament_name && (
                     <span style={{ color: 'var(--text-dim)' }}>
-                      {theme.sub ? ' · ' : ''}{result.tournament_name}{result.season ? ` ${result.season}` : ''} · {result.total_matches} matches
+                      {theme.sub ? ' · ' : ''}{result.tournament_name}{result.season && result.mode !== 'multiplayer' ? ` ${result.season}` : ''} · {result.total_matches} matches
                     </span>
                   )}
                 </div>
+                {secondaryLine && (
+                  <div className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>{secondaryLine}</div>
+                )}
               </div>
             </div>
             {canTryAgain && (
@@ -622,9 +855,9 @@ export function ResultsPage() {
       {/* Tabs */}
       <div className="flex gap-1 mb-5 p-1 rounded-lg" style={{ background: 'var(--surface)' }}>
         {([
-          { id: 'standings' as Tab, label: 'Standings', icon: <TrendingUp size={14} /> },
-          { id: 'leaderboards' as Tab, label: 'Leaderboards', icon: <Star size={14} /> },
-          { id: 'matches' as Tab, label: 'Matches', icon: <Swords size={14} /> },
+          { id: 'standings' as Tab,   label: 'Overview',     icon: <TrendingUp size={14} /> },
+          { id: 'leaderboards' as Tab,label: 'Leaderboards', icon: <Star size={14} /> },
+          { id: 'matches' as Tab,     label: 'Matches',      icon: <Swords size={14} /> },
         ]).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-sm font-medium transition-all"
@@ -642,8 +875,39 @@ export function ResultsPage() {
       {/* ═══ Standings ═══ */}
       {tab === 'standings' && (
         <div className="fade-in flex flex-col gap-4">
+          {/* Player of the Tournament */}
+          {leaderboards && (() => {
+            const mvpRow = lbRows('mvp')[0]
+            if (!mvpRow) return null
+            const name  = mvpRow.player as string
+            const team  = mvpRow.team as string
+            const total = Number(mvpRow.total).toFixed(1)
+            return (
+              <button
+                onClick={() => setActiveLb('mvp')}
+                className="w-full text-left rounded-xl fade-in overflow-hidden"
+                style={{ border: '1px solid var(--border)', background: 'var(--surface)', display: 'block' }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}
+              >
+                <div className="flex gap-3 items-center px-4 py-3">
+                  <PlayerAvatar name={name} size={46} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--text-dim)' }}>Player of the Tournament</div>
+                    <div className="text-sm font-bold truncate" style={{ color: 'var(--text)' }}>{name}</div>
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{team}</div>
+                  </div>
+                  <div className="text-right flex-shrink-0 mr-1">
+                    <div className="text-xl font-extrabold" style={{ color: 'var(--score)' }}>{total}</div>
+                    <div className="text-xs" style={{ color: 'var(--text-dim)' }}>MVP pts</div>
+                  </div>
+                  <ChevronRight size={14} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />
+                </div>
+              </button>
+            )
+          })()}
 
-          {/* Sub-tabs — only when there are playoff matches */}
+          {/* Sub-tabs */}
           {allPlayoffMatches.length > 0 && (
             <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'var(--surface)' }}>
               {(['playoffs', 'table'] as const).map(st => (
@@ -663,7 +927,7 @@ export function ResultsPage() {
             </div>
           )}
 
-          {/* Playoffs sub-tab — bracket */}
+          {/* Playoffs bracket */}
           {standingsSubTab === 'playoffs' && allPlayoffMatches.length > 0 && (
             <PlayoffBracket
               matches={allPlayoffMatches}
@@ -672,7 +936,7 @@ export function ResultsPage() {
             />
           )}
 
-          {/* Points table sub-tab */}
+          {/* Points table */}
           {(allPlayoffMatches.length === 0 || standingsSubTab === 'table') && (
             <div className="card overflow-x-auto">
               <table className="w-full text-sm min-w-[400px]">
@@ -682,6 +946,7 @@ export function ResultsPage() {
                       <th key={h} className="px-3 py-2.5 text-left font-medium"
                         style={{ color: 'var(--text-muted)' }}>{h}</th>
                     ))}
+                    <th className="px-3 py-2.5 text-left font-medium" style={{ color: 'var(--text-muted)' }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -689,14 +954,20 @@ export function ResultsPage() {
                     const isWinner = result?.winner === row.team
                     const isMyTeam = !!userTeamName && row.team === userTeamName
                     return (
-                    <tr key={row.team} style={{
-                      borderBottom: i < pt.length - 1 ? '1px solid var(--border)' : 'none',
-                      background: isWinner
-                        ? 'rgba(245,158,11,0.09)'
-                        : isMyTeam ? 'rgba(59,130,246,0.07)'
-                        : i < 4 ? 'rgba(59,130,246,0.025)' : 'transparent',
-                      boxShadow: isMyTeam && !isWinner ? 'inset 2px 0 0 var(--accent)' : undefined,
-                    }}>
+                    <tr key={row.team}
+                      className="cursor-pointer transition-colors"
+                      style={{
+                        borderBottom: i < pt.length - 1 ? '1px solid var(--border)' : 'none',
+                        background: isWinner
+                          ? 'rgba(245,158,11,0.09)'
+                          : isMyTeam ? 'rgba(59,130,246,0.07)'
+                          : i < 4 ? 'rgba(59,130,246,0.025)' : 'transparent',
+                        boxShadow: isMyTeam && !isWinner ? 'inset 2px 0 0 var(--accent)' : undefined,
+                      }}
+                      onClick={() => setPreviewTeam(row.team)}
+                      onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.filter = 'brightness(1.15)'}
+                      onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.filter = ''}
+                    >
                       <td className="px-3 py-2.5" style={{ color: isWinner ? 'var(--score)' : i < 4 ? 'var(--accent)' : 'var(--text-dim)' }}>
                         {isWinner ? <Trophy size={13} style={{ color: 'var(--score)' }} /> : i + 1}
                       </td>
@@ -722,6 +993,9 @@ export function ResultsPage() {
                       <td className="px-3 py-2.5" style={{ color: row.nrr >= 0 ? 'var(--win)' : 'var(--loss)' }}>
                         {row.nrr >= 0 ? '+' : ''}{row.nrr.toFixed(3)}
                       </td>
+                      <td className="px-3 py-2.5">
+                        <ChevronRight size={12} style={{ color: 'var(--text-dim)' }} />
+                      </td>
                     </tr>
                     )
                   })}
@@ -731,6 +1005,12 @@ export function ResultsPage() {
           )}
         </div>
       )}
+
+      {/* ═══ Lineups tab — commented out until tab label spacing is fixed ═══
+      {tab === 'lineups' && (
+        <LineupsTab simId={simId!} userTeamName={userTeamName} />
+      )}
+      */}
 
       {/* ═══ Leaderboards ═══ */}
       {tab === 'leaderboards' && leaderboards && (
@@ -782,10 +1062,10 @@ export function ResultsPage() {
             </label>
           )}
           {playoffMatches.length > 0 && (
-            <MatchGroup title="Playoffs" matches={[...playoffMatches].reverse()} simId={simId!} navigate={navigate} />
+            <MatchGroup title="Playoffs" matches={[...playoffMatches].reverse()} simId={simId!} navigate={navigate} userTeamName={userTeamName} />
           )}
           {groupStageMatches.length > 0 && (
-            <MatchGroup title="Group Stage" matches={[...groupStageMatches].reverse()} simId={simId!} navigate={navigate} />
+            <MatchGroup title="Group Stage" matches={[...groupStageMatches].reverse()} simId={simId!} navigate={navigate} userTeamName={userTeamName} />
           )}
           {visibleMatches.length === 0 && matches.length > 0 && (
             <div className="text-center py-8 text-sm" style={{ color: 'var(--text-dim)' }}>No matches for {userTeamName}</div>
@@ -801,11 +1081,12 @@ export function ResultsPage() {
 
 // ── Match group ───────────────────────────────────────────────────────────────
 
-function MatchGroup({ title, matches, simId, navigate }: {
+function MatchGroup({ title, matches, simId, navigate, userTeamName }: {
   title: string
   matches: MatchItem[]
   simId: string
   navigate: ReturnType<typeof useNavigate>
+  userTeamName: string | null
 }) {
   return (
     <div>
@@ -817,26 +1098,28 @@ function MatchGroup({ title, matches, simId, navigate }: {
           <button
             key={m.match_id}
             id={`match-${m.match_id}`}
-            onClick={() => navigate(`/results/${simId}/matches/${m.match_id}`)}
+            onClick={() => navigate(`/results/${simId}/matches/${m.match_id}`, { state: { backPath: `/results/${simId}`, fromTab: 'matches', userTeam: userTeamName } })}
             className="card-sm w-full px-4 py-4 text-left transition-all"
             onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'}
             onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}
           >
-            {/* Match label row */}
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2" style={{ color: 'var(--text-dim)' }}>
-                <span className="text-xs">{m.match_label}</span>
+              <div className="flex items-center gap-2 min-w-0 flex-1 mr-2" style={{ color: 'var(--text-dim)' }}>
+                <span className="text-xs shrink-0">{m.match_label}</span>
+                {m.venue && (
+                  <span className="text-xs truncate" style={{ color: 'var(--text-dim)' }}>
+                    · {m.venue}{m.venue_country ? `, ${m.venue_country}` : ''}
+                  </span>
+                )}
                 {m.is_super_over && (
-                  <span className="px-1 py-px rounded text-xs"
+                  <span className="px-1 py-px rounded text-xs shrink-0"
                     style={{ background: 'rgba(245,158,11,0.12)', color: 'var(--score)' }}>SO</span>
                 )}
               </div>
-              <ChevronRight size={13} style={{ color: 'var(--text-dim)' }} />
+              <ChevronRight size={13} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />
             </div>
 
-            {/* Scoreline */}
             <div className="flex items-center gap-3">
-              {/* Home team */}
               <div className="flex-1 text-left">
                 <div className="text-xs font-medium mb-1 truncate"
                   style={{ color: m.winner === m.home_team ? 'var(--text)' : 'var(--text-muted)' }}>
@@ -857,10 +1140,8 @@ function MatchGroup({ title, matches, simId, navigate }: {
                 )}
               </div>
 
-              {/* VS */}
               <div className="text-sm font-bold shrink-0 px-1" style={{ color: 'var(--text-dim)' }}>vs</div>
 
-              {/* Away team */}
               <div className="flex-1 text-right">
                 <div className="text-xs font-medium mb-1 truncate"
                   style={{ color: m.winner === m.away_team ? 'var(--text)' : 'var(--text-muted)' }}>
@@ -882,7 +1163,6 @@ function MatchGroup({ title, matches, simId, navigate }: {
               </div>
             </div>
 
-            {/* Result description */}
             {m.result && (
               <div className="text-xs mt-3 pt-2" style={{ color: 'var(--text-muted)', borderTop: '1px solid var(--border)' }}>
                 {m.result}

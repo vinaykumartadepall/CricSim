@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Copy, Check, Dice5, Users, Swords, Link, X, ChevronLeft } from 'lucide-react'
 import { api } from '@/api/client'
@@ -86,31 +86,14 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 
 // ── Room created panel ────────────────────────────────────────────────────────
 
-function RoomCreatedPanel({ room, clientId, onClose }: { room: RoomResponse; clientId: string; onClose: () => void }) {
+function RoomCreatedPanel({ room, clientId: _clientId, onClose }: { room: RoomResponse; clientId: string; onClose: () => void }) {
   const navigate = useNavigate()
-  const shareUrl = `${window.location.origin}/join/${room.room_id}`
-  const [teamName, setTeamName] = useState('')
-  const [saving, setSaving]     = useState(false)
-  const [error, setError]       = useState<string | null>(null)
-
-  async function handleEnter() {
-    if (!teamName.trim()) { setError('Enter your team name'); return }
-    setSaving(true); setError(null)
-    try {
-      await api.updateRoomMember(room.room_id, { client_id: clientId, team_name: teamName.trim() })
-      navigate(`/multiplayer/draft/${room.room_id}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to set team name')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   return (
     <Modal title="Room Created" onClose={onClose}>
       <div className="flex flex-col gap-4">
         <div className="text-center">
-          <div className="text-xs font-medium uppercase tracking-wider mb-1" style={{ color: '#a855f7' }}>Room Created!</div>
+          <div className="text-xs font-medium uppercase tracking-wider mb-1" style={{ color: 'var(--accent)' }}>Room Created!</div>
           <div className="text-sm" style={{ color: 'var(--text-muted)' }}>{room.tournament_name}</div>
         </div>
 
@@ -119,7 +102,7 @@ function RoomCreatedPanel({ room, clientId, onClose }: { room: RoomResponse; cli
           <div className="flex items-center gap-2">
             <div
               className="font-mono text-2xl font-bold tracking-[0.2em] px-4 py-2 rounded-lg flex-1 text-center"
-              style={{ background: 'var(--surface-2)', color: '#a855f7', border: '1px solid rgba(168,85,247,0.3)' }}
+              style={{ background: 'var(--surface-2)', color: 'var(--accent)', border: '1px solid var(--border)' }}
             >
               {room.room_id}
             </div>
@@ -127,58 +110,18 @@ function RoomCreatedPanel({ room, clientId, onClose }: { room: RoomResponse; cli
           </div>
         </div>
 
-        <div>
-          <div className="text-xs mb-1.5 font-medium" style={{ color: 'var(--text-dim)' }}>Share Link</div>
-          <div className="flex items-center gap-2">
-            <div
-              className="flex-1 min-w-0 text-xs font-mono px-3 py-2 rounded-lg truncate"
-              style={{ background: 'var(--surface-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
-            >
-              {shareUrl}
-            </div>
-            <CopyButton text={shareUrl} label="Copy link" />
-          </div>
+        <div className="text-xs text-center" style={{ color: 'var(--text-dim)' }}>
+          Share this code with your friends to invite them.
         </div>
-
-        <div
-          className="text-xs px-3 py-2 rounded-lg text-center"
-          style={{ background: 'rgba(168,85,247,0.06)', color: 'var(--text-muted)', border: '1px solid rgba(168,85,247,0.15)' }}
-        >
-          Share the code with your opponent, then enter the draft room.
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Your Team Name</label>
-          <input
-            className="input"
-            placeholder="e.g. Royal Strikers"
-            value={teamName}
-            onChange={e => { setTeamName(e.target.value); setError(null) }}
-            onKeyDown={e => { if (e.key === 'Enter') handleEnter() }}
-            autoFocus
-          />
-        </div>
-
-        {error && (
-          <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
-            {error}
-          </div>
-        )}
 
         <button
-          onClick={handleEnter}
-          disabled={saving}
+          onClick={() => navigate(`/multiplayer/draft/${room.room_id}`)}
           className="w-full py-2.5 rounded-xl font-semibold text-sm transition-all"
-          style={{ background: saving ? 'rgba(168,85,247,0.4)' : '#a855f7', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer' }}
-          onMouseEnter={e => !saving && ((e.currentTarget as HTMLElement).style.background = '#9333ea')}
-          onMouseLeave={e => !saving && ((e.currentTarget as HTMLElement).style.background = '#a855f7')}
+          style={{ background: 'var(--accent)', color: 'var(--bg)', cursor: 'pointer' }}
+          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = 'var(--accent-dim)')}
+          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'var(--accent)')}
         >
-          {saving ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="spin inline-block w-4 h-4 rounded-full border-2" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#fff' }} />
-              Saving…
-            </span>
-          ) : 'Enter Draft Room →'}
+          Enter Room
         </button>
       </div>
     </Modal>
@@ -194,15 +137,9 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
   const [name, setName]             = useState(() => randomName('1v1'))
   const [matchFormat, setMatchFormat] = useState<'T20' | 'ODI' | 'Test'>('T20')
   const [playerCount, setPlayerCount] = useState<number>(4)
-  const [myName, setMyName]         = useState(displayName)
   const [creating, setCreating]     = useState(false)
   const [error, setError]           = useState<string | null>(null)
   const [created, setCreated]       = useState<RoomResponse | null>(null)
-
-  const nameEdited = useRef(false)
-  useEffect(() => {
-    if (!nameEdited.current) setMyName(displayName)
-  }, [displayName])
 
   function switchMode(m: '1v1' | 'tournament') {
     setMode(m)
@@ -211,12 +148,11 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
 
   async function handleCreate() {
     if (!name.trim()) { setError('Enter a name'); return }
-    if (!myName.trim()) { setError('Enter your display name'); return }
     setCreating(true); setError(null)
     try {
       const room = await api.createRoom({
         client_id: clientId,
-        display_name: myName.trim(),
+        display_name: displayName,
         mode,
         tournament_name: name.trim(),
         player_count: mode === '1v1' ? 2 : playerCount,
@@ -234,11 +170,10 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
     return <RoomCreatedPanel room={created} clientId={clientId} onClose={onClose} />
   }
 
-  const PURPLE = '#a855f7'
   const pill = (active: boolean) => ({
-    background: active ? 'rgba(168,85,247,0.15)' : 'var(--surface-2)',
-    color: active ? PURPLE : 'var(--text-muted)',
-    border: `1px solid ${active ? 'rgba(168,85,247,0.4)' : 'var(--border)'}`,
+    background: active ? 'var(--accent-tint)' : 'var(--surface-2)',
+    color: active ? 'var(--accent)' : 'var(--text-muted)',
+    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
   })
 
   return (
@@ -283,7 +218,7 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
             title="Randomize"
             className="px-2.5 rounded-lg transition-all flex-shrink-0"
             style={{ background: 'var(--surface-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = PURPLE}
+            onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--accent)'}
             onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'}
           >
             <Dice5 size={16} />
@@ -327,17 +262,6 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* Display name */}
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Your Display Name</label>
-        <input
-          className="input"
-          placeholder="CricketFan99"
-          value={myName}
-          onChange={e => { nameEdited.current = true; setMyName(e.target.value) }}
-        />
-      </div>
-
       {error && (
         <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
           {error}
@@ -348,9 +272,9 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
         onClick={handleCreate}
         disabled={creating}
         className="w-full py-3 rounded-xl font-semibold text-sm transition-all"
-        style={{ background: creating ? 'rgba(168,85,247,0.4)' : PURPLE, color: '#fff', cursor: creating ? 'not-allowed' : 'pointer' }}
-        onMouseEnter={e => !creating && ((e.currentTarget as HTMLElement).style.background = '#9333ea')}
-        onMouseLeave={e => !creating && ((e.currentTarget as HTMLElement).style.background = PURPLE)}
+        style={{ background: creating ? 'var(--accent-tint)' : 'var(--accent)', color: creating ? 'var(--text-dim)' : 'var(--bg)', cursor: creating ? 'not-allowed' : 'pointer' }}
+        onMouseEnter={e => !creating && ((e.currentTarget as HTMLElement).style.background = 'var(--accent-dim)')}
+        onMouseLeave={e => !creating && ((e.currentTarget as HTMLElement).style.background = 'var(--accent)')}
       >
         {creating ? (
           <span className="flex items-center justify-center gap-2">
@@ -369,103 +293,76 @@ function JoinRoomModal({ initialCode, onClose }: { initialCode?: string; onClose
   const navigate = useNavigate()
   const { clientId, displayName } = useAuth()
 
-  const [roomCode, setRoomCode]   = useState(initialCode?.toUpperCase() ?? '')
-  const [myName, setMyName]       = useState(displayName)
-  const [joining, setJoining]     = useState(false)
-  const [error, setError]         = useState<string | null>(null)
-  const [joinedCode, setJoinedCode] = useState<string | null>(null)  // set after successful join
-  const [teamName, setTeamName]   = useState('')
-  const [saving, setSaving]       = useState(false)
+  // When initialCode is present we skip the room-code step entirely
+  const hasCode = !!initialCode
 
-  const nameEdited = useRef(false)
-  useEffect(() => {
-    if (!nameEdited.current) setMyName(displayName)
-  }, [displayName])
+  const [roomCode, setRoomCode] = useState(initialCode?.toUpperCase() ?? '')
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState<string | null>(null)
 
-  async function handleJoin() {
-    if (!roomCode.trim()) { setError('Enter a room code'); return }
-    if (!myName.trim()) { setError('Enter your display name'); return }
-    setJoining(true); setError(null)
+  async function handleJoin(code: string) {
+    setLoading(true); setError(null)
     try {
-      await api.joinRoom(roomCode.trim(), { client_id: clientId, display_name: myName.trim() })
-      setJoinedCode(roomCode.trim())
+      await api.joinRoom(code, { client_id: clientId, display_name: displayName })
+      navigate(`/multiplayer/draft/${code}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to join room')
-    } finally {
-      setJoining(false)
+      setLoading(false)
     }
   }
 
-  async function handleEnter() {
-    if (!teamName.trim()) { setError('Enter your team name'); return }
-    if (!joinedCode) return
-    setSaving(true); setError(null)
-    try {
-      await api.updateRoomMember(joinedCode, { client_id: clientId, team_name: teamName.trim() })
-      navigate(`/multiplayer/draft/${joinedCode}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to set team name')
-    } finally {
-      setSaving(false)
-    }
+  async function handleFindRoom() {
+    if (!roomCode.trim()) { setError('Enter a room code'); return }
+    await handleJoin(roomCode.trim())
   }
 
-  // Step 2: team name after joining
-  if (joinedCode) {
+  const errBox = error && (
+    <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
+      {error}
+    </div>
+  )
+
+  const joinBtn = (onClick: () => void) => (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      className="w-full py-3 rounded-xl font-semibold text-sm transition-all"
+      style={{
+        background: loading ? 'var(--accent-tint)' : 'var(--accent)',
+        color: loading ? 'var(--text-dim)' : 'var(--bg)',
+        cursor: loading ? 'not-allowed' : 'pointer',
+      }}
+      onMouseEnter={e => !loading && ((e.currentTarget as HTMLElement).style.background = 'var(--accent-dim)')}
+      onMouseLeave={e => !loading && ((e.currentTarget as HTMLElement).style.background = 'var(--accent)')}
+    >
+      {loading
+        ? <span className="flex items-center justify-center gap-2">
+            <span className="spin inline-block w-4 h-4 rounded-full border-2" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#fff' }} />
+            Joining…
+          </span>
+        : 'Join Room'}
+    </button>
+  )
+
+  // Path A: opened via share link — join immediately
+  if (hasCode) {
     return (
-      <Modal title="You're In!" onClose={onClose}>
+      <Modal title="Join Room" onClose={onClose}>
         <div className="flex flex-col gap-4">
-          <div
-            className="text-xs px-3 py-2 rounded-lg text-center"
-            style={{ background: 'rgba(59,130,246,0.06)', color: 'var(--text-muted)', border: '1px solid rgba(59,130,246,0.2)' }}
-          >
-            Joined room <span className="font-mono font-bold" style={{ color: 'var(--accent)' }}>{joinedCode}</span>. Enter a team name to continue.
+          <div className="text-center">
+            <div className="font-mono text-xl font-bold tracking-[0.2em]" style={{ color: 'var(--accent)' }}>{roomCode}</div>
+            <div className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>You'll join as <strong>{displayName}</strong></div>
           </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Your Team Name</label>
-            <input
-              className="input"
-              placeholder="e.g. Royal Strikers"
-              value={teamName}
-              onChange={e => { setTeamName(e.target.value); setError(null) }}
-              onKeyDown={e => { if (e.key === 'Enter') handleEnter() }}
-              autoFocus
-            />
-          </div>
-
-          {error && (
-            <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
-              {error}
-            </div>
-          )}
-
-          <button
-            onClick={handleEnter}
-            disabled={saving}
-            className="w-full py-3 rounded-xl font-semibold text-sm transition-all"
-            style={{
-              background: saving ? 'rgba(59,130,246,0.25)' : 'var(--accent)',
-              color: saving ? 'var(--text-dim)' : 'var(--bg)',
-              cursor: saving ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {saving ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="spin inline-block w-4 h-4 rounded-full border-2" style={{ borderColor: 'rgba(59,130,246,0.3)', borderTopColor: 'var(--accent)' }} />
-                Saving…
-              </span>
-            ) : 'Enter Draft Room →'}
-          </button>
+          {errBox}
+          {joinBtn(() => handleJoin(roomCode))}
         </div>
       </Modal>
     )
   }
 
-  // Step 1: room code + display name
+  // Path B, step 1: enter room code manually
   return (
     <Modal title="Join Room" onClose={onClose}>
-      {/* Room code */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Room Code</label>
         <input
@@ -473,50 +370,32 @@ function JoinRoomModal({ initialCode, onClose }: { initialCode?: string; onClose
           placeholder="ABC123"
           maxLength={8}
           value={roomCode}
-          onChange={e => setRoomCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
+          onChange={e => { setRoomCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)); setError(null) }}
           style={{ letterSpacing: '0.2em' }}
-          onKeyDown={e => { if (e.key === 'Enter') handleJoin() }}
+          onKeyDown={e => { if (e.key === 'Enter') handleFindRoom() }}
+          autoFocus
         />
       </div>
-
-      {/* Display name */}
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Your Display Name</label>
-        <input
-          className="input"
-          placeholder="CricketFan99"
-          value={myName}
-          onChange={e => { nameEdited.current = true; setMyName(e.target.value) }}
-          onKeyDown={e => { if (e.key === 'Enter') handleJoin() }}
-        />
-      </div>
-
-      {error && (
-        <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
-          {error}
-        </div>
-      )}
-
+      {errBox}
       <button
-        onClick={handleJoin}
-        disabled={joining || !roomCode.trim()}
+        onClick={handleFindRoom}
+        disabled={loading || !roomCode.trim()}
         className="w-full py-3 rounded-xl font-semibold text-sm transition-all"
         style={{
-          background: joining || !roomCode.trim() ? 'rgba(59,130,246,0.25)' : 'var(--accent)',
-          color: joining || !roomCode.trim() ? 'var(--text-dim)' : 'var(--bg)',
-          cursor: joining || !roomCode.trim() ? 'not-allowed' : 'pointer',
+          background: loading || !roomCode.trim() ? 'var(--accent-tint)' : 'var(--accent)',
+          color: loading || !roomCode.trim() ? 'var(--text-dim)' : 'var(--bg)',
+          cursor: loading || !roomCode.trim() ? 'not-allowed' : 'pointer',
         }}
       >
-        {joining ? (
-          <span className="flex items-center justify-center gap-2">
-            <span className="spin inline-block w-4 h-4 rounded-full border-2" style={{ borderColor: 'rgba(59,130,246,0.3)', borderTopColor: 'var(--accent)' }} />
-            Joining…
-          </span>
-        ) : 'Join Room'}
+        {loading
+          ? <span className="flex items-center justify-center gap-2">
+              <span className="spin inline-block w-4 h-4 rounded-full border-2" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#fff' }} />
+              Finding room…
+            </span>
+          : 'Join Room'}
       </button>
-
       <div className="text-xs text-center" style={{ color: 'var(--text-dim)' }}>
-        Ask the room creator for the 6-character code or join via share link.
+        Ask the room creator for their 6-character code.
       </div>
     </Modal>
   )
@@ -551,7 +430,7 @@ export function MultiplayerLobbyPage() {
 
       {/* Page header */}
       <div className="flex flex-col items-center text-center px-6 pt-10 pb-12">
-        <div className="text-xs font-semibold tracking-widest uppercase mb-3" style={{ color: '#a855f7' }}>
+        <div className="text-xs font-semibold tracking-widest uppercase mb-3" style={{ color: 'var(--accent)' }}>
           Real-time Draft
         </div>
         <h1
@@ -569,9 +448,9 @@ export function MultiplayerLobbyPage() {
           <button
             onClick={() => setModal('create')}
             className="flex items-center gap-2.5 px-7 py-3.5 rounded-xl font-semibold text-sm transition-all"
-            style={{ background: '#a855f7', color: '#fff', boxShadow: '0 4px 20px rgba(168,85,247,0.35)' }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#9333ea'}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = '#a855f7'}
+            style={{ background: 'var(--accent)', color: 'var(--bg)', boxShadow: '0 4px 20px var(--accent-glow)' }}
+            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--accent-dim)'}
+            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'var(--accent)'}
           >
             <Users size={16} />
             Create Room
@@ -582,8 +461,8 @@ export function MultiplayerLobbyPage() {
             style={{ background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}
             onMouseEnter={e => {
               const el = e.currentTarget as HTMLElement
-              el.style.borderColor = 'rgba(168,85,247,0.4)'
-              el.style.color = '#a855f7'
+              el.style.borderColor = 'var(--accent)'
+              el.style.color = 'var(--accent)'
             }}
             onMouseLeave={e => {
               const el = e.currentTarget as HTMLElement
@@ -598,26 +477,32 @@ export function MultiplayerLobbyPage() {
       </div>
 
       {/* How-it-works strip */}
-      <div className="max-w-2xl mx-auto px-6 pb-16">
-        <div className="grid grid-cols-3 gap-4 text-center">
+      <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 24px 64px' }}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start' }}>
+          {/* connector line */}
+          <div style={{
+            position: 'absolute', top: 13, left: '16%', right: '16%',
+            height: 1, background: 'var(--border)', zIndex: 0,
+          }} />
           {[
-            { step: '1', label: 'Create or join', sub: 'Share a 6-char code with friends' },
-            { step: '2', label: 'Snake draft', sub: 'Pick players in turns — 60s per pick' },
-            { step: '3', label: 'Simulate', sub: 'See whose XI comes out on top' },
+            { step: '1', label: 'Create or join', sub: 'Share a 6-char code' },
+            { step: '2', label: 'Snake draft', sub: '60s per pick, in turns' },
+            { step: '3', label: 'Simulate', sub: 'See whose XI wins' },
           ].map(({ step, label, sub }) => (
-            <div
-              key={step}
-              className="rounded-xl p-4 flex flex-col items-center gap-2"
-              style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
-            >
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                style={{ background: 'rgba(168,85,247,0.12)', color: '#a855f7' }}
-              >
+            <div key={step} style={{
+              flex: 1, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', textAlign: 'center', gap: 8, position: 'relative', zIndex: 1,
+            }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%',
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                color: 'var(--accent)', fontWeight: 700, fontSize: 13,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
                 {step}
               </div>
-              <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{label}</div>
-              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{sub}</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>{label}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.45 }}>{sub}</div>
             </div>
           ))}
         </div>

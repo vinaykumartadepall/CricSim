@@ -497,7 +497,7 @@ class SimulationRepository:
         row = self._dict_cur.fetchone()
         return dict(row) if row else None
 
-    def list_simulations(self, limit: int = 50, client_id: str | None = None) -> List[dict]:
+    def list_simulations(self, limit: int = 50, offset: int = 0, client_id: str | None = None) -> List[dict]:
         """Return enriched simulation summaries for the home page cards."""
         self._dict_cur.execute(
             f"""
@@ -532,12 +532,19 @@ class SimulationRepository:
             {_PLAYOFF_LATERAL}
             {_MATCH_LATERAL}
             WHERE (%s IS NULL OR s.client_id = %s OR %s = ANY(s.participant_ids))
+              AND s.status != 'failed'
             ORDER BY s.created_at DESC
-            LIMIT %s
+            LIMIT %s OFFSET %s
             """,
-            (client_id, client_id, client_id, client_id, limit),
+            (client_id, client_id, client_id, client_id, limit, offset),
         )
         return [dict(r) for r in self._dict_cur.fetchall()]
+
+    def get_total_simulation_count(self) -> int:
+        self.cur.execute(
+            "SELECT COUNT(*) FROM simulation.simulations WHERE status = 'completed'"
+        )
+        return self.cur.fetchone()[0]
 
     def save_game_session(
         self,
@@ -611,6 +618,8 @@ class SimulationRepository:
             SELECT m.match_id, m.match_label, m.name,
                    ht.name AS home_team, at.name AS away_team,
                    wt.name AS winner,
+                   v.name  AS venue,
+                   c.name  AS venue_country,
                    m.win_type, m.win_by, m.result,
                    (m.is_super_over OR EXISTS (
                        SELECT 1 FROM simulation.deliveries dso
@@ -630,6 +639,8 @@ class SimulationRepository:
             JOIN simulation.teams ht ON ht.team_id = m.home_team_id
             JOIN simulation.teams at ON at.team_id = m.away_team_id
             LEFT JOIN simulation.teams wt ON wt.team_id = m.winner_id
+            LEFT JOIN history.venues   v  ON v.venue_id  = m.venue_id
+            LEFT JOIN history.countries c ON c.country_id = v.country_id
             LEFT JOIN LATERAL (
                 SELECT SUM(COALESCE(runs_batter, 0) + COALESCE(runs_extras, 0)) AS runs,
                        SUM(CASE WHEN outcome_type = 'Wicket' THEN 1 ELSE 0 END) AS wkts,

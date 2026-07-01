@@ -7,14 +7,14 @@ from pydantic import BaseModel, Field
 
 class TeamConfig(BaseModel):
     name: str
-    players: List[str]
+    players: List[int]
     primary_color: Optional[str] = None
     secondary_color: Optional[str] = None
 
 
 class MatchSimRequest(BaseModel):
     simulation_type: Literal["match"]
-    format: str = "T20"
+    match_format: str = "T20"
     venue: Optional[str] = None
     bowling_strategy: str = "historical"
     ball_outcome_strategy: str = "enhanced"

@@ -85,8 +85,10 @@ export const api = {
   getSimStatus: (simId: string) =>
     get<{ sim_id: string; status: string; error?: string }>(`/simulations/${simId}/status`),
 
-  getSimResult: (simId: string) =>
-    get<TournamentResult>(`/simulations/${simId}/result`),
+  getSimResult: (simId: string, clientId?: string) => {
+    const qs = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''
+    return get<TournamentResult>(`/simulations/${simId}/result${qs}`)
+  },
 
   getLeaderboards: (simId: string) =>
     get<LeaderboardsDashboard>(`/simulations/${simId}/leaderboards`),
@@ -115,11 +117,19 @@ export const api = {
       `/simulations/${simId}/awards`
     ),
 
+  getLineups: (simId: string) =>
+    get<{ sim_id: string; teams: { team_name: string; players: { player_id: number; player_name: string; player_role: string | null; matches: number; runs: number; wickets: number; mvp_points: number; batting_pts: number; bowling_pts: number; fielding_pts: number }[] }[] }>(
+      `/simulations/${simId}/lineups`
+    ),
+
   getLeaderboardPage: (simId: string, type: string, limit = 50, offset = 0) =>
     get<{ entries: unknown[]; total: number }>(`/simulations/${simId}/leaderboards/${type}?limit=${limit}&offset=${offset}`),
 
-  listSimulations: (clientId: string, limit = 5) =>
-    get<SimSummary[]>(`/simulations?client_id=${encodeURIComponent(clientId)}&limit=${limit}`),
+  listSimulations: (clientId: string, limit = 5, offset = 0) =>
+    get<SimSummary[]>(`/simulations?client_id=${encodeURIComponent(clientId)}&limit=${limit}&offset=${offset}`),
+
+  getTotalSimulations: () =>
+    get<{ total: number }>('/simulations/total'),
 
   getSimHistoryNameCounts: (clientId: string, mode?: string) => {
     const params = new URLSearchParams({ client_id: clientId })
@@ -163,9 +173,6 @@ export const api = {
 
   getRoom: (roomId: string) =>
     get<RoomState>(`/multiplayer/rooms/${roomId}`),
-
-  updateRoomMember: (roomId: string, body: { client_id: string; team_name: string }) =>
-    patch<{ ok: boolean }>(`/multiplayer/rooms/${roomId}/member`, body),
 }
 
 export type { SwapEntry }

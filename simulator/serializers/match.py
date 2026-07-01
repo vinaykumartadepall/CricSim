@@ -28,6 +28,7 @@ def get_scorecard(cur, match_id: int) -> dict:
         "home_team":          match_row['home_team'],
         "away_team":          match_row['away_team'],
         "venue":              match_row['venue_name'],
+        "venue_country":      match_row['venue_country'],
         "match_format":       match_row['match_format'],
         "result_description": _build_result_description(match_row),
         "innings":            innings,
@@ -102,6 +103,7 @@ def get_match_result(cur, match_id: int) -> Optional[dict]:
                ht.name  AS home_team,
                at.name  AS away_team,
                v.name   AS venue,
+               c.name   AS venue_country,
                m.match_format,
                wt.name  AS winner,
                m.result, m.win_type, m.win_by, m.is_super_over
@@ -110,6 +112,7 @@ def get_match_result(cur, match_id: int) -> Optional[dict]:
         JOIN   simulation.teams at  ON at.team_id = m.away_team_id
         LEFT JOIN simulation.teams wt ON wt.team_id = m.winner_id
         LEFT JOIN history.venues   v  ON v.venue_id  = m.venue_id
+        LEFT JOIN history.countries c ON c.country_id = v.country_id
         WHERE  m.match_id = %s
         """,
         (match_id,),
@@ -134,7 +137,7 @@ def get_match_result(cur, match_id: int) -> Optional[dict]:
 
 # ── Tournament result reconstruction ──────────────────────────────────────────
 
-def get_tournament_result(cur, sim_id: str) -> dict:
+def get_tournament_result(cur, sim_id: str, client_id: str | None = None) -> dict:
     cur.execute(
         """
         SELECT tournament_name, season, format
@@ -207,9 +210,11 @@ def get_tournament_result(cur, sim_id: str) -> dict:
             LIMIT 1
         ) mpo ON true
         WHERE gs.sim_id = %s
+          AND (%s IS NULL OR gs.client_id = %s)
+        ORDER BY CASE WHEN gs.client_id = %s THEN 0 ELSE 1 END
         LIMIT 1
         """,
-        (sim_id, sim_id, sim_id),
+        (sim_id, sim_id, sim_id, client_id, client_id, client_id),
     )
     gs_row = cur.fetchone()
 
@@ -240,6 +245,7 @@ def _fetch_match_row(cur, match_id: int) -> Optional[dict]:
                at.name AS away_team,
                wt.name AS winner,
                v.name  AS venue_name,
+               c.name  AS venue_country,
                m.result, m.win_type, m.win_by,
                (m.is_super_over OR (m.match_format != 'Test' AND EXISTS (
                    SELECT 1 FROM simulation.deliveries dso
@@ -250,6 +256,7 @@ def _fetch_match_row(cur, match_id: int) -> Optional[dict]:
         JOIN   simulation.teams at  ON at.team_id = m.away_team_id
         LEFT JOIN simulation.teams wt ON wt.team_id = m.winner_id
         LEFT JOIN history.venues   v  ON v.venue_id  = m.venue_id
+        LEFT JOIN history.countries c ON c.country_id = v.country_id
         WHERE  m.match_id = %s
         """,
         (match_id,),
@@ -267,6 +274,8 @@ def _fetch_innings_deliveries(cur, match_id: int) -> Dict[int, list]:
                COALESCE(bowler_p.display_name, bowler_p.name)  AS bowler_name,
                COALESCE(op.display_name, op.name)              AS outcome_player_name,
                COALESCE(ns.display_name, ns.name)              AS non_striker_name,
+               batter_p.cricinfo_id                            AS batter_cricinfo_id,
+               bowler_p.cricinfo_id                            AS bowler_cricinfo_id,
                d.runs_batter, d.runs_extras,
                d.outcome_type, d.outcome_kind,
                bat_t.name AS batting_team_name,
@@ -303,21 +312,22 @@ def _build_inning_scorecard(inning_num: int, rows: list) -> dict:
     batter_order: list = []
     batter_stats: Dict[int, dict] = {}
 
-    def _ensure_batter(bid, name):
+    def _ensure_batter(bid, name, cricinfo_id=None):
         if bid and bid not in batter_stats:
             batter_order.append(bid)
             batter_stats[bid] = {
                 'name': name or str(bid),
                 'runs': 0, 'balls': 0, 'fours': 0, 'sixes': 0,
                 'dismissal': 'not out',
+                'cricinfo_id': cricinfo_id,
             }
 
-    _ensure_batter(rows[0]['batter_id'],      rows[0]['batter_name'])
-    _ensure_batter(rows[0]['non_striker_id'], rows[0]['non_striker_name'])
+    _ensure_batter(rows[0]['batter_id'],      rows[0]['batter_name'],     rows[0]['batter_cricinfo_id'])
+    _ensure_batter(rows[0]['non_striker_id'], rows[0]['non_striker_name'], None)
 
     for row in rows:
         bid = row['batter_id']
-        _ensure_batter(bid, row['batter_name'])
+        _ensure_batter(bid, row['batter_name'], row['batter_cricinfo_id'])
         if bid:
             b = batter_stats[bid]
             b['runs'] += row['runs_batter']
@@ -374,10 +384,12 @@ def _build_inning_scorecard(inning_num: int, rows: list) -> dict:
     for bid in batter_order:
         b  = batter_stats[bid]
         sr = round(b['runs'] / b['balls'] * 100, 2) if b['balls'] else 0.0
+        cid = b.get('cricinfo_id')
         batter_rows.append({
             'name': b['name'], 'runs': b['runs'], 'balls': b['balls'],
             'fours': b['fours'], 'sixes': b['sixes'],
             'strike_rate': sr, 'dismissal': b['dismissal'],
+            'headshot_url': f"https://a.espncdn.com/i/headshots/cricket/players/full/{cid}.png" if cid else None,
         })
 
     bowler_rows = []

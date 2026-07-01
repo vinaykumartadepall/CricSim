@@ -1,80 +1,137 @@
 @import "tailwindcss";
 
-/* ── Themes ──────────────────────────────────────────────────────────────── */
+/* ── Ember themes (main app) ─────────────────────────────────────────────── */
 :root,
-[data-theme="night-stadium"] {
-  --bg:         #0F1117;
-  --surface:    #1A1F2E;
-  --surface-2:  #242B3D;
-  --border:     #2D3748;
-  --accent:     #3B82F6;
-  --accent-dim: #2563EB;
-  --score:      #F59E0B;
-  --text:       #F1F5F9;
-  --text-muted: #94A3B8;
-  --text-dim:   #475569;
-  --win:        #22C55E;
-  --loss:       #EF4444;
+[data-theme="ember-amber"] {
+  --bg:          #080808;
+  --surface:     #0F0F0F;
+  --surface-2:   #181818;
+  --border:      #252525;
+  --accent:      #FFB700;
+  --accent-dim:  #E0A000;
+  --score:       #FFB700;
+  --text:        #F0EDE6;
+  --text-muted:  #9A9690;
+  --text-dim:    #504C48;
+  --win:         #2ECC71;
+  --loss:        #FF4545;
+  --accent-glow: rgba(255, 183, 0, 0.32);
+  --accent-tint: rgba(255, 183, 0, 0.10);
 }
 
-[data-theme="digital-scoreboard"] {
-  --bg:         #000000;
-  --surface:    #0D0D0D;
+[data-theme="ember-emerald"] {
+  --bg:          #080808;
+  --surface:     #0F0F0F;
+  --surface-2:   #181818;
+  --border:      #252525;
+  --accent:      #0ECB81;
+  --accent-dim:  #0AAF6E;
+  --score:       #FFB700;
+  --text:        #F0EDE6;
+  --text-muted:  #9A9690;
+  --text-dim:    #504C48;
+  --win:         #0ECB81;
+  --loss:        #FF4545;
+  --accent-glow: rgba(14, 203, 129, 0.28);
+  --accent-tint: rgba(14, 203, 129, 0.10);
+}
+
+[data-theme="ember-crimson"] {
+  --bg:          #080808;
+  --surface:     #0F0F0F;
+  --surface-2:   #181818;
+  --border:      #252525;
+  --accent:      #E8364F;
+  --accent-dim:  #C42B41;
+  --score:       #FFB700;
+  --text:        #F0EDE6;
+  --text-muted:  #9A9690;
+  --text-dim:    #504C48;
+  --win:         #2ECC71;
+  --loss:        #E8364F;
+  --accent-glow: rgba(232, 54, 79, 0.28);
+  --accent-tint: rgba(232, 54, 79, 0.10);
+}
+
+[data-theme="ember-ice"] {
+  --bg:          #080808;
+  --surface:     #0F0F0F;
+  --surface-2:   #181818;
+  --border:      #252525;
+  --accent:      #4FACFF;
+  --accent-dim:  #3090E0;
+  --score:       #FFB700;
+  --text:        #F0EDE6;
+  --text-muted:  #9A9690;
+  --text-dim:    #504C48;
+  --win:         #2ECC71;
+  --loss:        #FF4545;
+  --accent-glow: rgba(79, 172, 255, 0.28);
+  --accent-tint: rgba(79, 172, 255, 0.10);
+}
+
+/* ── Theme A: The Pavilion ───────────────────────────────────────────────── */
+[data-theme="pavilion"] {
+  --bg:         #0B1810;
+  --surface:    #112117;
+  --surface-2:  #182E1E;
+  --border:     #274530;
+  --accent:     #C9A84C;
+  --accent-dim: #A8893D;
+  --score:      #C9A84C;
+  --text:       #F2EDD8;
+  --text-muted: #BFBA9A;
+  --text-dim:   #7A7660;
+  --win:        #4BAD6E;
+  --loss:       #D94F4F;
+}
+
+/* ── Theme B: Floodlit ───────────────────────────────────────────────────── */
+[data-theme="floodlit"] {
+  --bg:         #080808;
+  --surface:    #111111;
   --surface-2:  #1A1A1A;
-  --border:     #2A2A2A;
-  --accent:     #F97316;
-  --accent-dim: #c75f0f;
-  --score:      #F97316;
-  --text:       #F1F5F9;
-  --text-muted: #6B7280;
-  --text-dim:   #374151;
-  --win:        #22C55E;
-  --loss:       #EF4444;
+  --border:     #282828;
+  --accent:     #FFB700;
+  --accent-dim: #E0A000;
+  --score:      #FFB700;
+  --text:       #F0EDE6;
+  --text-muted: #9A9690;
+  --text-dim:   #5A5650;
+  --win:        #2ECC71;
+  --loss:       #FF4545;
 }
 
-[data-theme="pitch-dark"] {
-  --bg:         #111827;
-  --surface:    #1F2937;
-  --surface-2:  #2D3748;
-  --border:     #374151;
-  --accent:     #0EA5E9;
-  --accent-dim: #0284c7;
-  --score:      #EF4444;
-  --text:       #F9FAFB;
-  --text-muted: #9CA3AF;
-  --text-dim:   #4B5563;
-  --win:        #22C55E;
-  --loss:       #EF4444;
+/* ── Theme D: Ember — Pavilion layout × Floodlit palette ────────────────── */
+[data-theme="ember"] {
+  --bg:         #080808;
+  --surface:    #0F0F0F;
+  --surface-2:  #181818;
+  --border:     #252525;
+  --accent:     #FFB700;
+  --accent-dim: #E0A000;
+  --score:      #FFB700;
+  --text:       #F0EDE6;
+  --text-muted: #9A9690;
+  --text-dim:   #504C48;
+  --win:        #2ECC71;
+  --loss:       #FF4545;
 }
 
-[data-theme="slate-gold"] {
-  --bg:         #0F172A;
-  --surface:    #1E293B;
-  --surface-2:  #2D3E52;
-  --border:     #334155;
-  --accent:     #EAB308;
-  --accent-dim: #b98e07;
-  --score:      #EAB308;
-  --text:       #F8FAFC;
-  --text-muted: #94A3B8;
-  --text-dim:   #475569;
-  --win:        #22C55E;
-  --loss:       #EF4444;
-}
-
-[data-theme="day-match"] {
-  --bg:         #D8E0EC;
-  --surface:    #E4EAF4;
-  --surface-2:  #C8D3E3;
-  --border:     #B0BDD0;
-  --accent:     #2563EB;
-  --accent-dim: #1D4ED8;
-  --score:      #D97706;
-  --text:       #0F172A;
-  --text-muted: #334155;
-  --text-dim:   #64748B;
-  --win:        #16A34A;
-  --loss:       #DC2626;
+/* ── Theme C: Broadsheet ─────────────────────────────────────────────────── */
+[data-theme="broadsheet"] {
+  --bg:         #F2EDE4;
+  --surface:    #FAF8F3;
+  --surface-2:  #EAE5DC;
+  --border:     #D4CEC4;
+  --accent:     #C41E3A;
+  --accent-dim: #9E1830;
+  --score:      #8B5E0A;
+  --text:       #1C1612;
+  --text-muted: #4A4440;
+  --text-dim:   #8A8480;
+  --win:        #1F6B36;
+  --loss:       #C41E3A;
 }
 
 /* ── Base ────────────────────────────────────────────────────────────────── */

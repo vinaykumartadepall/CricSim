@@ -185,13 +185,25 @@ def create_tournament_from_id(body: TournamentFromIdRequest, background_tasks: B
 
 
 
+# ── GET /total ─────────────────────────────────────────────────────────────────
+
+@router.get("/total")
+def get_total_simulations():
+    repo = SimulationRepository()
+    try:
+        count = repo.get_total_simulation_count()
+    finally:
+        repo.close()
+    return {"total": count}
+
+
 # ── GET  (no trailing slash — avoids 307 CORS redirect) ──────────────────────
 
 @router.get("", response_model=List[SimSummaryItem])
-def list_simulations(limit: int = 5, client_id: Optional[str] = None):
+def list_simulations(limit: int = 5, offset: int = 0, client_id: Optional[str] = None):
     repo = SimulationRepository()
     try:
-        rows = repo.list_simulations(limit=limit, client_id=client_id)
+        rows = repo.list_simulations(limit=limit, offset=offset, client_id=client_id)
     finally:
         repo.close()
     return [SimSummaryItem(**r) for r in rows]
@@ -230,7 +242,7 @@ def get_session(sim_id: str):
 # ── GET /{sim_id}/result ───────────────────────────────────────────────────────
 
 @router.get("/{sim_id}/result")
-def get_result(sim_id: str):
+def get_result(sim_id: str, client_id: Optional[str] = None):
     repo = SimulationRepository()
     try:
         sim = repo.get_simulation(sim_id)
@@ -259,7 +271,7 @@ def get_result(sim_id: str):
             )
 
         # Tournament
-        t_data = get_tournament_result(repo.dict_cursor, sim_id)
+        t_data = get_tournament_result(repo.dict_cursor, sim_id, client_id=client_id)
         return TournamentResultResponse(
             sim_id               = sim_id,
             status               = sim['status'],
@@ -292,6 +304,122 @@ def get_awards(sim_id: str):
     finally:
         repo.close()
     return {"sim_id": sim_id, "awards": awards}
+
+
+# ── GET /{sim_id}/lineups  (tournament only) ──────────────────────────────────
+
+@router.get("/{sim_id}/lineups")
+def get_lineups(sim_id: str):
+    """Per-team player list with batting/bowling/MVP stats for the tournament."""
+    repo = SimulationRepository()
+    try:
+        sim = _require_completed(repo, sim_id)
+        _require_type(sim, 'tournament', '/lineups')
+
+        # Batting aggregates
+        repo.dict_cursor.execute(
+            """
+            WITH inning_bat AS (
+                SELECT d.batter_id,
+                       d.batting_team_id,
+                       d.match_id,
+                       SUM(d.runs_batter)                                         AS runs,
+                       COUNT(*) FILTER (
+                           WHERE d.outcome_kind IS DISTINCT FROM 'Wide'
+                             AND d.outcome_kind IS DISTINCT FROM 'Noball'
+                       )                                                           AS balls,
+                       MAX(CASE WHEN d.outcome_type = 'Wicket' THEN 0 ELSE 1 END) AS not_out
+                FROM simulation.deliveries d
+                JOIN simulation.matches m ON m.match_id = d.match_id
+                WHERE m.sim_id = %(sim_id)s AND m.is_super_over = FALSE
+                GROUP BY d.batter_id, d.batting_team_id, d.match_id
+            )
+            SELECT ib.batter_id                                             AS player_id,
+                   COALESCE(hp.display_name, hp.name)                      AS player_name,
+                   hp.player_role,
+                   st.name                                                  AS team_name,
+                   COUNT(DISTINCT ib.match_id)                             AS matches,
+                   SUM(ib.runs)                                             AS runs,
+                   SUM(ib.balls)                                            AS balls
+            FROM inning_bat ib
+            JOIN history.players hp ON hp.player_id = ib.batter_id
+            JOIN simulation.teams  st ON st.team_id  = ib.batting_team_id
+            GROUP BY ib.batter_id, hp.display_name, hp.name, hp.player_role, st.name
+            """,
+            {"sim_id": sim_id},
+        )
+        bat_rows = {(r["player_id"], r["team_name"]): r for r in repo.dict_cursor.fetchall()}
+
+        # Bowling aggregates
+        repo.dict_cursor.execute(
+            """
+            SELECT d.bowler_id                                              AS player_id,
+                   st.name                                                  AS team_name,
+                   SUM(CASE
+                       WHEN d.outcome_type = 'Wicket'
+                        AND (d.outcome_kind IS NULL OR d.outcome_kind != 'run out')
+                       THEN 1 ELSE 0 END)                                   AS wickets
+            FROM simulation.deliveries d
+            JOIN simulation.matches m ON m.match_id = d.match_id
+            JOIN simulation.teams  st ON st.team_id  = d.bowling_team_id
+            WHERE m.sim_id = %(sim_id)s AND m.is_super_over = FALSE
+              AND d.bowler_id IS NOT NULL
+            GROUP BY d.bowler_id, st.name
+            """,
+            {"sim_id": sim_id},
+        )
+        bowl_rows = {(r["player_id"], r["team_name"]): r for r in repo.dict_cursor.fetchall()}
+
+        # MVP points
+        mvp_by_key: dict = {}
+        for a in repo.get_player_awards(sim_id):
+            key = (a["player_id"], a["team_name"])
+            mvp_by_key[key] = a
+
+        # Batting order from sim config (list of player IDs in declared order per team)
+        config_teams = sim.get("config", {}).get("teams", [])
+        batting_order: dict = {}  # team_name -> [player_id, ...]
+        for t in config_teams:
+            batting_order[t["name"]] = [int(pid) for pid in t.get("players", [])]
+
+        # Collect all player+team combos
+        all_keys = set(bat_rows) | set(bowl_rows) | set(mvp_by_key)
+
+        # Group by team
+        team_players: dict = {}
+        for pid, tname in all_keys:
+            bat = bat_rows.get((pid, tname), {})
+            bowl = bowl_rows.get((pid, tname), {})
+            mvp = mvp_by_key.get((pid, tname), {})
+
+            entry = {
+                "player_id":   pid,
+                "player_name": bat.get("player_name") or mvp.get("player_name", ""),
+                "player_role": bat.get("player_role"),
+                "runs":        int(bat.get("runs", 0) or 0),
+                "balls":       int(bat.get("balls", 0) or 0),
+                "wickets":     int(bowl.get("wickets", 0) or 0),
+                "mvp_points":  round(float(mvp.get("total_pts", 0) or 0), 1),
+                "batting_pts": round(float(mvp.get("batting_pts", 0) or 0), 1),
+                "bowling_pts": round(float(mvp.get("bowling_pts", 0) or 0), 1),
+                "fielding_pts":round(float(mvp.get("fielding_pts", 0) or 0), 1),
+            }
+            team_players.setdefault(tname, []).append(entry)
+
+        # Sort by batting lineup order from config; unknown players go to end
+        for tname, players in team_players.items():
+            order = batting_order.get(tname, [])
+            order_idx = {pid: i for i, pid in enumerate(order)}
+            players.sort(key=lambda p: order_idx.get(p["player_id"], 999))
+
+        teams_out = [
+            {"team_name": tname, "players": players}
+            for tname, players in sorted(team_players.items())
+        ]
+    finally:
+        repo.close()
+
+    return {"sim_id": sim_id, "teams": teams_out}
 
 
 # ── GET /{sim_id}/scorecard  (match only) ─────────────────────────────────────

@@ -82,6 +82,7 @@ class BatterRow(BaseModel):
     sixes: int
     strike_rate: float
     dismissal: Optional[str]       # e.g. "c Salt b Bumrah", "not out", "did not bat"
+    headshot_url: Optional[str] = None
 
 
 class BowlerRow(BaseModel):
@@ -115,6 +116,7 @@ class ScorecardResponse(BaseModel):
     home_team: str
     away_team: str
     venue: Optional[str]
+    venue_country: Optional[str] = None
     result_description: Optional[str]
     innings: List[InningScorecard]
 
@@ -172,6 +174,8 @@ class TournamentMatchItem(BaseModel):
     win_type: Optional[str]
     win_by: Optional[int]
     is_super_over: bool
+    venue: Optional[str] = None
+    venue_country: Optional[str] = None
     home_score: Optional[int] = None
     home_wickets: Optional[int] = None
     home_overs: Optional[str] = None

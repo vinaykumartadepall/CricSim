@@ -17,7 +17,6 @@ PICK_TIMEOUT_S = 60
 class Member:
     client_id: str
     display_name: str
-    team_name: str = ''
     draft_order: int = 0
     squad: List[int] = field(default_factory=list)      # player_ids in batting order
     ws: Optional[WebSocket] = field(default=None, repr=False)
@@ -71,6 +70,7 @@ class RoomState:
     def to_dict(self) -> dict:
         return {
             "room_id": self.room_id,
+            "host_id": self.host_id,
             "mode": self.mode,
             "tournament_name": self.tournament_name,
             "player_count": self.player_count,
@@ -84,7 +84,7 @@ class RoomState:
                 {
                     "client_id": m.client_id,
                     "display_name": m.display_name,
-                    "team_name": m.team_name or m.display_name,
+                    "team_name": m.display_name,
                     "draft_order": m.draft_order,
                     "squad": m.squad,
                     "connected": m.ws is not None,
@@ -104,7 +104,7 @@ class DraftManager:
 
     def create_room(self, host_id: str, display_name: str, mode: str,
                     tournament_name: str, player_count: int,
-                    match_format: str = 'T20', team_name: str = '') -> RoomState:
+                    match_format: str = 'T20') -> RoomState:
         room_id = self._unique_code()
         room = RoomState(
             room_id=room_id,
@@ -114,7 +114,7 @@ class DraftManager:
             player_count=player_count,
             match_format=match_format,
         )
-        host = Member(client_id=host_id, display_name=display_name, team_name=team_name)
+        host = Member(client_id=host_id, display_name=display_name)
         room.members[host_id] = host
         self._rooms[room_id] = room
         return room
@@ -122,7 +122,7 @@ class DraftManager:
     def get_room(self, room_id: str) -> Optional[RoomState]:
         return self._rooms.get(room_id.upper())
 
-    def join_room(self, room_id: str, client_id: str, display_name: str, team_name: str = '') -> RoomState:
+    def join_room(self, room_id: str, client_id: str, display_name: str) -> RoomState:
         room = self._rooms.get(room_id.upper())
         if not room:
             raise ValueError("Room not found")
@@ -131,21 +131,11 @@ class DraftManager:
         if len(room.members) >= room.player_count:
             raise ValueError("Room is full")
         if client_id not in room.members:
-            room.members[client_id] = Member(client_id=client_id, display_name=display_name, team_name=team_name)
+            room.members[client_id] = Member(client_id=client_id, display_name=display_name)
         return room
 
     def remove_room(self, room_id: str) -> None:
         self._rooms.pop(room_id, None)
-
-    def update_team_name(self, room_id: str, client_id: str, team_name: str) -> bool:
-        room = self._rooms.get(room_id.upper())
-        if not room:
-            return False
-        m = room.members.get(client_id)
-        if not m:
-            return False
-        m.team_name = team_name
-        return True
 
     # ── WebSocket connect/disconnect ───────────────────────────────────────────
 
@@ -156,6 +146,16 @@ class DraftManager:
     def disconnect(self, room: RoomState, client_id: str) -> None:
         if client_id in room.members:
             room.members[client_id].ws = None
+
+    def transfer_host(self, room: RoomState, leaving_client_id: str) -> bool:
+        """Pass host to the next joined member when the current host leaves. Returns True if transferred."""
+        if room.host_id != leaving_client_id:
+            return False
+        remaining = [cid for cid in room.members if cid != leaving_client_id]
+        if not remaining:
+            return False
+        room.host_id = remaining[0]
+        return True
 
     # ── draft start ────────────────────────────────────────────────────────────
 

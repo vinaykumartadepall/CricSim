@@ -133,9 +133,10 @@ class SquadRepository:
                     "headshot_url": _headshot_url(cricinfo_id),
                 })
             teams_out.append({
-                "team_id":   team.get("team_id"),
-                "team_name": team.get("name", ""),
-                "players":   players_out,
+                "team_id":    team.get("team_id"),
+                "team_name":  team.get("name", ""),
+                "short_name": team.get("short_name"),
+                "players":    players_out,
             })
 
         return {"tournament_id": tournament_id, "teams": teams_out}

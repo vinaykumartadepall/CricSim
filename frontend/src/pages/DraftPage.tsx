@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Copy, Check, ArrowUp, ArrowDown, Search, Shield, Zap, AlertTriangle, Clock, CheckCircle2 } from 'lucide-react'
+import { Copy, Check, ArrowUp, ArrowDown, Search, Shield, Zap, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import type { MultiplayerPlayer, RoomState } from '@/types'
 
@@ -16,13 +16,14 @@ const PING_INTERVAL_MS   = 30_000
 
 const AVATAR_COLORS = ['#00E5CC', '#F59E0B', '#0EA5E9', '#8B5CF6', '#EF4444', '#22C55E']
 
-function Headshot({ url, name, size = 32 }: { url: string | null | undefined; name: string; size?: number }) {
+function Headshot({ url, name, size = 32 }: { url: string | null | undefined; name: string | null | undefined; size?: number }) {
   const [errored, setErrored] = useState(false)
-  const initials = name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
-  const color = AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length]
+  const safeName = name || '?'
+  const initials = safeName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
+  const color = AVATAR_COLORS[safeName.charCodeAt(0) % AVATAR_COLORS.length]
   if (url && !errored) {
     return (
-      <img src={url} alt={name} width={size} height={size}
+      <img src={url} alt={safeName} width={size} height={size}
         className="rounded-full object-cover flex-shrink-0"
         style={{ width: size, height: size }}
         onError={() => setErrored(true)}
@@ -45,7 +46,7 @@ function RoleBadge({ role }: { role: string | null | undefined }) {
     'Batter':      { bg: 'rgba(59,130,246,0.12)',   color: 'var(--accent)' },
     'Bowler':      { bg: 'rgba(249,115,22,0.12)',  color: '#f97316' },
     'All-rounder': { bg: 'rgba(14,165,233,0.12)',  color: '#0ea5e9' },
-    'Keeper':      { bg: 'rgba(168,85,247,0.12)',  color: '#a855f7' },
+    'Keeper':      { bg: 'rgba(245,158,11,0.12)',   color: 'var(--score)' },
   }
   const s = styles[role] ?? { bg: 'rgba(255,255,255,0.08)', color: 'var(--text-muted)' }
   return (
@@ -84,7 +85,7 @@ function TimerRing({ seconds, total = PICK_TIMER_TOTAL, size = 56 }: { seconds: 
   const circumference = 2 * Math.PI * r
   const pct = Math.max(0, Math.min(1, seconds / total))
   const urgent = seconds < 10
-  const color = urgent ? 'var(--loss)' : '#a855f7'
+  const color = urgent ? 'var(--loss)' : 'var(--accent)'
   return (
     <div className="relative flex items-center justify-center flex-shrink-0" style={{ width: size, height: size }}>
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
@@ -116,27 +117,111 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 
 interface PickNotif { playerName: string; teamName: string; displayName: string; autoPicked: boolean }
 
+const NOTIF_DURATION = 15_000
+const NW = 360, NH = 52, NR = 12
+// Perimeter of the rounded rect used for the SVG timer border
+const NOTIF_PERIM = 2 * (NW - 2 * NR) + 2 * (NH - 2 * NR) + 2 * Math.PI * NR
+
 function PickNotification({ notif, onDone }: { notif: PickNotif; onDone: () => void }) {
-  useEffect(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t) }, [onDone])
+  const [dx, setDx]           = useState(0)
+  const [leaving, setLeaving] = useState(false)
+  const dragStartX            = useRef<number | null>(null)
+  const dragging              = useRef(false)
+
+  const onDoneRef = useRef(onDone)
+  useEffect(() => { onDoneRef.current = onDone })
+  useEffect(() => {
+    const t = setTimeout(() => onDoneRef.current(), NOTIF_DURATION)
+    return () => clearTimeout(t)
+  }, [])
+
+  function startDrag(clientX: number) {
+    dragStartX.current = clientX
+    dragging.current   = true
+  }
+  function moveDrag(clientX: number) {
+    if (!dragging.current || dragStartX.current === null) return
+    setDx(clientX - dragStartX.current)
+  }
+  function endDrag() {
+    if (!dragging.current) return
+    dragging.current = false
+    if (Math.abs(dx) > 80) {
+      setLeaving(true)
+      setTimeout(onDone, 200)
+    } else {
+      setDx(0)
+    }
+    dragStartX.current = null
+  }
+
+  const opacity    = leaving ? 0 : Math.max(0, 1 - Math.abs(dx) / 200)
+  const translateX = leaving ? (dx >= 0 ? 440 : -440) : dx
+  const isSpring   = !leaving && dx === 0
+
   return (
-    <div
-      className="fixed top-0 left-0 right-0 z-50 flex justify-center py-2 px-4 fade-in"
-      style={{ pointerEvents: 'none' }}
-    >
+    <div className="fixed top-0 left-0 right-0 z-50 flex justify-center py-2 px-4 fade-in"
+      style={{ pointerEvents: 'none' }}>
+      <style>{`
+        @keyframes pick-border-drain {
+          from { stroke-dashoffset: 0; }
+          to   { stroke-dashoffset: ${NOTIF_PERIM.toFixed(1)}; }
+        }
+      `}</style>
       <div
-        className="px-4 py-2 rounded-xl text-sm font-medium shadow-lg flex items-center gap-2"
         style={{
-          background: 'rgba(168,85,247,0.92)',
-          color: '#fff',
-          backdropFilter: 'blur(8px)',
-          maxWidth: 360,
+          position: 'relative', width: NW,
+          transform: `translateX(${translateX}px)`,
+          opacity,
+          transition: leaving
+            ? 'transform 0.2s ease, opacity 0.2s ease'
+            : isSpring ? 'transform 0.25s cubic-bezier(.22,1,.36,1)' : 'none',
+          pointerEvents: 'auto',
+          cursor: dragging.current ? 'grabbing' : 'grab',
+          userSelect: 'none',
         }}
+        onMouseDown={e => startDrag(e.clientX)}
+        onMouseMove={e => moveDrag(e.clientX)}
+        onMouseUp={endDrag}
+        onMouseLeave={endDrag}
+        onTouchStart={e => startDrag(e.touches[0].clientX)}
+        onTouchMove={e => { e.preventDefault(); moveDrag(e.touches[0].clientX) }}
+        onTouchEnd={endDrag}
       >
-        <span style={{ fontWeight: 700 }}>{notif.playerName}</span>
-        <span style={{ opacity: 0.8 }}>picked by</span>
-        <span style={{ fontWeight: 600 }}>{notif.teamName}</span>
-        <span style={{ opacity: 0.65 }}>({notif.displayName})</span>
-        {notif.autoPicked && <span style={{ opacity: 0.65 }}>· auto</span>}
+        {/* SVG timer border — drains over NOTIF_DURATION */}
+        <svg width={NW} height={NH} style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}>
+          {/* dim base border */}
+          <rect x={0.5} y={0.5} width={NW - 1} height={NH - 1} rx={NR} ry={NR}
+            fill="none" stroke="var(--border)" strokeWidth={1} />
+          {/* animated accent border */}
+          <rect x={0.5} y={0.5} width={NW - 1} height={NH - 1} rx={NR} ry={NR}
+            fill="none" stroke="var(--accent)" strokeWidth={1.5} strokeLinecap="round"
+            strokeDasharray={NOTIF_PERIM.toFixed(1)}
+            strokeDashoffset={0}
+            style={{ animation: `pick-border-drain ${NOTIF_DURATION}ms linear forwards` }}
+          />
+        </svg>
+
+        {/* Content */}
+        <div style={{
+          width: NW, height: NH, borderRadius: NR,
+          background: 'var(--surface)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '0 16px',
+        }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {notif.playerName}
+          </span>
+          <span style={{ opacity: 0.45, flexShrink: 0, fontSize: 13 }}>→</span>
+          <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {notif.teamName}
+          </span>
+          {notif.autoPicked && (
+            <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, flexShrink: 0,
+              background: 'rgba(245,158,11,0.12)', color: 'var(--score)' }}>
+              timer
+            </span>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -172,12 +257,12 @@ function TeamChips({
             onClick={() => onSelect(m.client_id)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all flex-shrink-0"
             style={{
-              background: active ? 'rgba(168,85,247,0.15)' : 'var(--surface-2)',
-              color: active ? '#a855f7' : 'var(--text-muted)',
-              border: `1px solid ${active ? 'rgba(168,85,247,0.4)' : 'var(--border)'}`,
+              background: active ? 'var(--accent-tint)' : 'var(--surface-2)',
+              color: active ? 'var(--accent)' : 'var(--text-muted)',
+              border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
             }}>
             {isReady && <CheckCircle2 size={11} style={{ color: 'var(--win)' }} />}
-            {isPicker && !isReady && <span className="pulse-accent inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#a855f7' }} />}
+            {isPicker && !isReady && <span className="pulse-accent inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: 'var(--accent)' }} />}
             {m.display_name}{isMe ? ' (you)' : ''}
             <span style={{ color: 'var(--text-dim)' }}>{m.squad.length}/11</span>
           </button>
@@ -299,7 +384,7 @@ function PickPanel({
           <div className="flex items-center gap-2">
             {isMyTurn ? (
               <>
-                <span className="text-sm font-bold" style={{ color: '#a855f7' }}>YOUR TURN</span>
+                <span className="text-sm font-bold" style={{ color: 'var(--accent)' }}>YOUR TURN</span>
                 <TimerRing seconds={timer} size={36} />
               </>
             ) : (
@@ -317,19 +402,16 @@ function PickPanel({
 
         {/* Search bar */}
         <div className="px-4 py-3 flex-shrink-0 flex flex-col gap-2">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-muted)' }} />
-            <input ref={inputRef} className="input w-full pl-9" placeholder="Search players…"
-              value={query} onChange={e => setQuery(e.target.value)} />
-          </div>
+          <input ref={inputRef} className="input w-full" placeholder="Search players…"
+            value={query} onChange={e => setQuery(e.target.value)} />
           <button
             onClick={() => !(needsKeeper && isMyTurn) && setKeeperOnly(k => !k)}
             disabled={needsKeeper && isMyTurn}
             className="self-start flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-all"
             style={{
-              background: keeperOnly ? 'rgba(168,85,247,0.12)' : 'var(--surface-2)',
-              color: keeperOnly ? '#a855f7' : 'var(--text-muted)',
-              border: `1px solid ${keeperOnly ? 'rgba(168,85,247,0.4)' : 'var(--border)'}`,
+              background: keeperOnly ? 'var(--accent-tint)' : 'var(--surface-2)',
+              color: keeperOnly ? 'var(--accent)' : 'var(--text-muted)',
+              border: `1px solid ${keeperOnly ? 'var(--accent)' : 'var(--border)'}`,
               cursor: needsKeeper && isMyTurn ? 'not-allowed' : 'pointer',
               opacity: needsKeeper && isMyTurn ? 0.8 : 1,
             }}>
@@ -341,7 +423,7 @@ function PickPanel({
         <div className="overflow-y-auto flex-1 px-2 pb-4" style={{ minHeight: 0 }}>
           {loading && (
             <div className="flex justify-center py-6">
-              <span className="spin inline-block w-5 h-5 rounded-full border-2" style={{ borderColor: 'rgba(168,85,247,0.2)', borderTopColor: '#a855f7' }} />
+              <span className="spin inline-block w-5 h-5 rounded-full border-2" style={{ borderColor: 'var(--accent-tint)', borderTopColor: 'var(--accent)' }} />
             </div>
           )}
           {!loading && results.length === 0 && (query.trim() || keeperOnly) && (
@@ -360,7 +442,7 @@ function PickPanel({
                 disabled={drafted || !isMyTurn}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-xl w-full text-left transition-all"
                 style={{ opacity: drafted ? 0.38 : 1, cursor: drafted || !isMyTurn ? 'not-allowed' : 'pointer' }}
-                onMouseEnter={e => { if (!drafted && isMyTurn) (e.currentTarget as HTMLElement).style.background = 'rgba(168,85,247,0.07)' }}
+                onMouseEnter={e => { if (!drafted && isMyTurn) (e.currentTarget as HTMLElement).style.background = 'var(--accent-tint)' }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
                 <Headshot url={p.headshot_url} name={p.name} size={32} />
                 <div className="flex-1 min-w-0">
@@ -393,16 +475,22 @@ function PickPanel({
 function WaitingRoom({ room, clientId, onStart, starting }: {
   room: FullRoomState; clientId: string; onStart: () => void; starting: boolean
 }) {
-  const shareUrl = `${window.location.origin}/join/${room.room_id}`
-  const isHost   = clientId === room.host_id
+  const shareUrl    = `${window.location.origin}/join/${room.room_id}`
+  const isHost      = clientId === room.host_id
+  const isTournament = room.mode === 'tournament'
+  const minToStart  = isTournament ? 4 : 2
+  const canStart    = room.members.length >= minToStart
+  const allJoined   = room.members.length >= room.player_count
+  const needed      = minToStart - room.members.length
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] px-6">
+    <div className="flex flex-col items-center px-6 pt-12 pb-8">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="text-xs font-medium tracking-widest uppercase mb-2" style={{ color: '#a855f7' }}>Waiting Room</div>
+          <div className="text-xs font-medium tracking-widest uppercase mb-2" style={{ color: 'var(--accent)' }}>Waiting Room</div>
           <h2 className="text-2xl font-bold mb-1" style={{ color: 'var(--text)' }}>{room.tournament_name}</h2>
           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-            {room.mode === '1v1' ? '1 vs 1 Match' : 'Tournament'} · {room.match_format ?? 'T20'} · {room.members.length}/{room.player_count} joined
+            {isTournament ? 'Tournament' : '1 vs 1 Match'} · {room.match_format ?? 'T20'} · {room.members.length}/{room.player_count} joined
           </p>
         </div>
 
@@ -410,7 +498,7 @@ function WaitingRoom({ room, clientId, onStart, starting }: {
           <div className="text-xs mb-2" style={{ color: 'var(--text-dim)' }}>Room Code</div>
           <div className="flex items-center gap-3">
             <div className="font-mono text-2xl font-bold tracking-[0.2em] px-4 py-2 rounded-lg flex-1 text-center"
-              style={{ background: 'var(--surface-2)', color: '#a855f7', letterSpacing: '0.25em' }}>
+              style={{ background: 'var(--surface-2)', color: 'var(--accent)', letterSpacing: '0.25em' }}>
               {room.room_id}
             </div>
             <CopyButton text={room.room_id} />
@@ -426,42 +514,59 @@ function WaitingRoom({ room, clientId, onStart, starting }: {
 
         <div className="card p-4 mb-5">
           <div className="text-xs font-medium mb-3" style={{ color: 'var(--text-muted)' }}>
-            Players ({room.members.length}/{room.player_count})
+            Players · {room.members.length}/{room.player_count}
           </div>
           <div className="flex flex-col gap-2">
             {room.members.map(m => (
               <div key={m.client_id} className="flex items-center gap-2.5">
                 <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: m.connected ? 'var(--win)' : 'var(--text-dim)' }} />
-                <span className="text-sm" style={{ color: m.connected ? 'var(--text)' : 'var(--text-muted)' }}>{m.display_name}</span>
+                <span className="text-sm flex-1" style={{ color: m.connected ? 'var(--text)' : 'var(--text-muted)' }}>
+                  {m.display_name}
+                  {m.client_id === clientId && <span className="ml-1 text-xs" style={{ color: 'var(--text-dim)' }}>(you)</span>}
+                </span>
                 {m.client_id === room.host_id && (
-                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(168,85,247,0.12)', color: '#a855f7' }}>Host</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--accent-tint)', color: 'var(--accent)' }}>Host</span>
                 )}
-                {m.client_id === clientId && <span className="text-xs" style={{ color: 'var(--text-dim)' }}>(you)</span>}
               </div>
             ))}
             {Array.from({ length: Math.max(0, room.player_count - room.members.length) }).map((_, i) => (
               <div key={`empty-${i}`} className="flex items-center gap-2.5">
                 <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: 'var(--border)' }} />
-                <span className="text-xs" style={{ color: 'var(--text-dim)' }}>Waiting for player…</span>
+                <span className="text-xs" style={{ color: 'var(--text-dim)' }}>Empty slot</span>
               </div>
             ))}
           </div>
         </div>
 
         {isHost ? (
-          <button onClick={onStart} disabled={starting || room.members.length < 2}
-            className="w-full py-3 rounded-xl font-semibold text-base transition-all"
-            style={{
-              background: (starting || room.members.length < 2) ? 'rgba(168,85,247,0.35)' : '#a855f7',
-              color: '#fff', cursor: (starting || room.members.length < 2) ? 'not-allowed' : 'pointer',
-            }}>
-            {starting ? 'Starting…' : room.members.length < 2 ? 'Waiting for players…' : 'Start Draft'}
-          </button>
+          <>
+            <button onClick={onStart} disabled={starting || !canStart}
+              className="w-full py-3 rounded-xl font-semibold text-base transition-all"
+              style={{
+                background: (starting || !canStart) ? 'var(--accent-tint)' : 'var(--accent)',
+                color: (starting || !canStart) ? 'var(--text-dim)' : 'var(--bg)',
+                cursor: (starting || !canStart) ? 'not-allowed' : 'pointer',
+              }}
+              onMouseEnter={e => canStart && !starting && ((e.currentTarget as HTMLElement).style.background = 'var(--accent-dim)')}
+              onMouseLeave={e => canStart && !starting && ((e.currentTarget as HTMLElement).style.background = 'var(--accent)')}>
+              {starting ? 'Starting…' : 'Start Draft'}
+            </button>
+            {isTournament && !canStart && (
+              <p className="text-xs text-center mt-2" style={{ color: 'var(--text-dim)' }}>
+                Need {needed} more player{needed > 1 ? 's' : ''} to start ({minToStart} minimum)
+              </p>
+            )}
+            {isTournament && canStart && !allJoined && (
+              <p className="text-xs text-center mt-2" style={{ color: 'var(--text-dim)' }}>
+                You can start now or wait for more players (up to {room.player_count})
+              </p>
+            )}
+          </>
         ) : (
           <div className="w-full py-3 rounded-xl text-center text-sm font-medium"
             style={{ background: 'var(--surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
-            <span className="pulse-accent inline-block mr-2" style={{ width: 8, height: 8, borderRadius: '50%', background: '#a855f7', verticalAlign: 'middle' }} />
-            Draft starts automatically when all {room.player_count} players join
+            <span className="pulse-accent inline-block mr-2" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', verticalAlign: 'middle' }} />
+            Waiting for host to start the draft…
           </div>
         )}
       </div>
@@ -530,19 +635,33 @@ export function DraftPage() {
 
     switch (msg.type) {
       case 'room_state': {
-        const data = msg.data as FullRoomState
+        const data = msg.data as FullRoomState & { player_details?: PickedPlayer[] }
         setRoom(data)
         const me = data.members.find(m => m.client_id === clientId)
         if (me) setMySquadOrder(me.squad)
         if (data.ready_members) setReadyMembers(data.ready_members)
+        if (data.player_details?.length) {
+          setPlayerMap(prev => {
+            const next = new Map(prev)
+            for (const p of data.player_details!) next.set(p.player_id, p)
+            return next
+          })
+        }
         break
       }
-      case 'member_connected':
-      case 'member_disconnected': {
-        const { client_id, connected } = msg.data as { client_id: string; connected: boolean }
+      case 'member_connected': {
+        const { client_id } = msg.data as { client_id: string }
         setRoom(prev => prev ? {
           ...prev,
-          members: prev.members.map(m => m.client_id === client_id ? { ...m, connected } : m),
+          members: prev.members.map(m => m.client_id === client_id ? { ...m, connected: true } : m),
+        } : prev)
+        break
+      }
+      case 'member_disconnected': {
+        const { client_id } = msg.data as { client_id: string }
+        setRoom(prev => prev ? {
+          ...prev,
+          members: prev.members.map(m => m.client_id === client_id ? { ...m, connected: false } : m),
         } : prev)
         break
       }
@@ -567,7 +686,7 @@ export function DraftPage() {
         if (picker) {
           setPickNotif({
             playerName: data.player.name,
-            teamName: picker.team_name || picker.display_name,
+            teamName: picker.display_name,
             displayName: picker.display_name,
             autoPicked: data.auto_picked,
           })
@@ -640,15 +759,17 @@ export function DraftPage() {
   // Auto-navigate when simulation completes
   useEffect(() => {
     if (room?.status !== 'completed' || !simId) return
+    const myMember = room.members.find(m => m.client_id === clientId)
+    const myTeamName = myMember?.display_name || null
     const t = setTimeout(() => {
       if (simMode === '1v1' && matchId) {
-        navigate(`/results/${simId}/matches/${matchId}`, { state: { backPath: '/' } })
+        navigate(`/results/${simId}/matches/${matchId}`, { state: { backPath: '/', userTeam: myTeamName } })
       } else {
         navigate(`/results/${simId}`)
       }
     }, 1000)
     return () => clearTimeout(t)
-  }, [room?.status, simId, matchId, simMode, navigate])
+  }, [room?.status, simId, matchId, simMode, navigate, clientId])
 
   // Default viewing to my team when first connected
   useEffect(() => {
@@ -689,6 +810,7 @@ export function DraftPage() {
         if (!mountedRef.current) return
         clearPing()
         if (e.code === 4004) { setConnStatus('dead'); setDeadReason('not_found'); return }
+        if (e.code === 4003) { navigate(`/join/${roomId}`); return }
         if (e.code === 1000) return
         if (reconnectCountRef.current >= MAX_RECONNECTS) { setConnStatus('dead'); setDeadReason('lost'); return }
         const delay = Math.min(500 * 2 ** reconnectCountRef.current, 8000)
@@ -731,7 +853,7 @@ export function DraftPage() {
     const map = new Map<number, string>()
     if (room) {
       for (const m of room.members) {
-        const label = m.team_name || m.display_name
+        const label = m.display_name
         for (const pid of m.squad) map.set(pid, label)
       }
     }
@@ -771,7 +893,7 @@ export function DraftPage() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-3">
-          <span className="spin inline-block w-8 h-8 rounded-full border-2" style={{ borderColor: 'rgba(168,85,247,0.2)', borderTopColor: '#a855f7' }} />
+          <span className="spin inline-block w-8 h-8 rounded-full border-2" style={{ borderColor: 'var(--accent-tint)', borderTopColor: 'var(--accent)' }} />
           <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
             {connStatus === 'reconnecting' ? 'Reconnecting…' : 'Connecting to draft room…'}
           </span>
@@ -797,9 +919,9 @@ export function DraftPage() {
         <div className="flex flex-col items-center gap-6 text-center px-6 max-w-sm">
           <div
             className="w-20 h-20 rounded-full flex items-center justify-center"
-            style={{ background: 'rgba(168,85,247,0.1)', border: '2px solid rgba(168,85,247,0.3)' }}
+            style={{ background: 'var(--accent-tint)', border: '2px solid var(--accent)' }}
           >
-            <span className="spin inline-block w-10 h-10 rounded-full border-4" style={{ borderColor: 'rgba(168,85,247,0.2)', borderTopColor: '#a855f7' }} />
+            <span className="spin inline-block w-10 h-10 rounded-full border-4" style={{ borderColor: 'var(--accent-tint)', borderTopColor: 'var(--accent)' }} />
           </div>
           <div>
             <div className="text-xl font-bold mb-2" style={{ color: 'var(--text)' }}>Simulating…</div>
@@ -818,7 +940,7 @@ export function DraftPage() {
       <>
         {toast && <Toast message={toast} onDone={() => setToast(null)} />}
 
-        <div className="flex flex-col" style={{ height: 'calc(100vh - 60px)', background: 'var(--bg)' }}>
+        <div className="flex flex-col" style={{ height: '100vh', background: 'var(--bg)' }}>
           {/* Header */}
           <div className="flex-shrink-0 px-4 py-3 flex items-center justify-between"
             style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
@@ -831,26 +953,7 @@ export function DraftPage() {
             </div>
           </div>
 
-          {/* Ready status */}
-          <div className="flex-shrink-0 px-4 py-2 flex gap-2 flex-wrap" style={{ borderBottom: '1px solid var(--border)' }}>
-            {room.members.map(m => {
-              const isReady = readyMembers.includes(m.client_id)
-              return (
-                <span key={m.client_id}
-                  className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium"
-                  style={{
-                    background: isReady ? 'rgba(34,197,94,0.12)' : 'var(--surface-2)',
-                    color: isReady ? 'var(--win)' : 'var(--text-muted)',
-                    border: `1px solid ${isReady ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`,
-                  }}>
-                  {isReady ? <CheckCircle2 size={11} /> : <Clock size={11} />}
-                  {m.display_name}{m.client_id === clientId ? ' (you)' : ''}
-                </span>
-              )
-            })}
-          </div>
-
-          {/* Team chips */}
+          {/* Team chips — ready state shown via CheckCircle2 in each chip */}
           <TeamChips room={room} clientId={clientId} viewingId={viewingId} onSelect={setViewingId} readyMembers={readyMembers} />
 
           {/* Squad view */}
@@ -867,9 +970,9 @@ export function DraftPage() {
             <div className="flex-shrink-0 p-4" style={{ borderTop: '1px solid var(--border)' }}>
               <button onClick={handleReady}
                 className="w-full py-3 rounded-xl font-semibold text-base transition-all flex items-center justify-center gap-2"
-                style={{ background: '#a855f7', color: '#fff' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#9333ea'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = '#a855f7'}>
+                style={{ background: 'var(--accent)', color: 'var(--bg)' }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--accent-dim)'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'var(--accent)'}>
                 <CheckCircle2 size={18} /> I'm Ready
               </button>
               <div className="text-xs text-center mt-2" style={{ color: 'var(--text-dim)' }}>
@@ -905,7 +1008,7 @@ export function DraftPage() {
         </div>
       )}
 
-      <div className="flex flex-col" style={{ height: 'calc(100vh - 60px)', background: 'var(--bg)' }}>
+      <div className="flex flex-col" style={{ height: '100vh', background: 'var(--bg)' }}>
 
         {/* Sticky header */}
         <div className="flex-shrink-0 px-4 py-3 flex items-center justify-between"
@@ -921,7 +1024,7 @@ export function DraftPage() {
               <div className="flex items-center gap-2">
                 <TimerRing seconds={timer} size={40} />
                 <span className="text-xs px-2 py-1 rounded-full font-semibold"
-                  style={{ background: 'rgba(168,85,247,0.15)', color: '#a855f7' }}>
+                  style={{ background: 'var(--accent-tint)', color: 'var(--accent)' }}>
                   Your pick!
                 </span>
               </div>
@@ -951,15 +1054,6 @@ export function DraftPage() {
           </div>
         )}
 
-        {/* Team label for non-my-team view */}
-        {!isViewingMyTeam && viewedMember && (
-          <div className="flex-shrink-0 px-4 py-1.5">
-            <span className="text-xs font-medium" style={{ color: 'var(--text-dim)' }}>
-              👁 Viewing {viewedMember.display_name}'s team (read-only)
-            </span>
-          </div>
-        )}
-
         {/* Squad view */}
         <SquadView
           squad={viewedSquad}
@@ -974,9 +1068,9 @@ export function DraftPage() {
           {isMyTurn ? (
             <button onClick={() => setPickPanelOpen(true)}
               className="w-full py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all"
-              style={{ background: '#a855f7', color: '#fff', boxShadow: '0 4px 16px rgba(168,85,247,0.4)' }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#9333ea'}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = '#a855f7'}>
+              style={{ background: 'var(--accent)', color: 'var(--bg)', boxShadow: '0 4px 16px var(--accent-glow)' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--accent-dim)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'var(--accent)'}>
               <Zap size={16} />
               Pick a Player
             </button>

@@ -6,7 +6,9 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from api.multiplayer.manager import SQUAD_SIZE, RoomState, draft_manager
+import json as _json
+
+from api.multiplayer.manager import SQUAD_SIZE, RoomState, draft_manager, _snake_sequence
 from db.database import get_db_connection
 
 router = APIRouter(prefix="/cricsimapi/multiplayer", tags=["multiplayer"])
@@ -64,7 +66,6 @@ def search_players(
 class CreateRoomRequest(BaseModel):
     client_id: str
     display_name: str = Field(..., min_length=1, max_length=32)
-    team_name: str = Field("", max_length=32)
     mode: str = Field("1v1", pattern="^(1v1|tournament)$")
     tournament_name: str = Field("", max_length=64)
     player_count: int = Field(2, ge=2, le=10)
@@ -74,7 +75,6 @@ class CreateRoomRequest(BaseModel):
 class JoinRoomRequest(BaseModel):
     client_id: str
     display_name: str = Field(..., min_length=1, max_length=32)
-    team_name: str = Field("", max_length=32)
 
 
 @router.post("/rooms")
@@ -88,7 +88,6 @@ def create_room(body: CreateRoomRequest):
     room = draft_manager.create_room(
         host_id=body.client_id,
         display_name=body.display_name,
-        team_name=body.team_name.strip(),
         mode=body.mode,
         tournament_name=name,
         player_count=body.player_count,
@@ -100,25 +99,15 @@ def create_room(body: CreateRoomRequest):
 
 @router.post("/rooms/{room_id}/join")
 def join_room(room_id: str, body: JoinRoomRequest):
+    if not _room_exists_in_db(room_id):
+        draft_manager.remove_room(room_id)
+        raise HTTPException(status_code=404, detail="Room no longer exists")
     try:
-        room = draft_manager.join_room(room_id, body.client_id, body.display_name, body.team_name.strip())
+        room = draft_manager.join_room(room_id, body.client_id, body.display_name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     _persist_member(room.room_id, body.client_id, body.display_name)
     return room.to_dict()
-
-
-class UpdateMemberRequest(BaseModel):
-    client_id: str
-    team_name: str = Field(..., min_length=1, max_length=32)
-
-
-@router.patch("/rooms/{room_id}/member")
-def update_room_member(room_id: str, body: UpdateMemberRequest):
-    ok = draft_manager.update_team_name(room_id, body.client_id, body.team_name.strip())
-    if not ok:
-        raise HTTPException(status_code=404, detail="Room or member not found")
-    return {"ok": True}
 
 
 @router.get("/rooms/{room_id}")
@@ -136,12 +125,23 @@ def get_room(room_id: str):
 async def room_ws(ws: WebSocket, room_id: str, client_id: str = Query(...)):
     await ws.accept()
     room = draft_manager.get_room(room_id)
-    if not room or client_id not in room.members:
-        await ws.close(code=4004, reason="Room not found or not a member")
+    if not room:
+        room = _restore_room_from_db(room_id)
+    if not room:
+        await ws.close(code=4004, reason="Room not found")
+        return
+    if client_id not in room.members:
+        await ws.close(code=4003, reason="Not a member of this room")
         return
     draft_manager.connect(room, client_id, ws)
-    await draft_manager.send(ws, {"type": "room_state", "data": room.to_dict()})
+    room_dict = room.to_dict()
+    if room.drafted_ids:
+        room_dict["player_details"] = _fetch_player_details(list(room.drafted_ids))
+    await draft_manager.send(ws, {"type": "room_state", "data": room_dict})
     await draft_manager.broadcast(room, {"type": "member_connected", "data": {"client_id": client_id}})
+    # During waiting, push full room_state so all clients refresh the member list
+    if room.status == "waiting":
+        await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
 
     # Auto-start when all members are connected and room is at capacity
     if (room.status == 'waiting'
@@ -150,6 +150,7 @@ async def room_ws(ws: WebSocket, room_id: str, client_id: str = Query(...)):
         try:
             keeper_ids = _load_keeper_ids()
             draft_manager.start_draft(room, keeper_ids)
+            _persist_draft_start(room)
             all_pids = _load_all_player_ids()
             await draft_manager.broadcast(room, {"type": "draft_started", "data": room.to_dict()})
             _start_pick_timer(room, all_pids)
@@ -169,7 +170,13 @@ async def room_ws(ws: WebSocket, room_id: str, client_id: str = Query(...)):
         pass
     finally:
         draft_manager.disconnect(room, client_id)
+        # Transfer host to next player if host leaves during waiting
+        if room.status == "waiting":
+            draft_manager.transfer_host(room, client_id)
         await draft_manager.broadcast(room, {"type": "member_disconnected", "data": {"client_id": client_id}})
+        # During waiting, push full room_state so member list and host badge refresh
+        if room.status == "waiting":
+            await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
 
 
 # ── message handler ────────────────────────────────────────────────────────────
@@ -190,6 +197,7 @@ async def _handle_message(room: RoomState, client_id: str, ws: WebSocket, msg: d
         except ValueError as e:
             await draft_manager.send(ws, {"type": "error", "data": {"message": str(e)}})
             return
+        _persist_draft_start(room)
         all_pids = _load_all_player_ids()
         await draft_manager.broadcast(room, {"type": "draft_started", "data": room.to_dict()})
         _start_pick_timer(room, all_pids)
@@ -204,6 +212,7 @@ async def _handle_message(room: RoomState, client_id: str, ws: WebSocket, msg: d
         except ValueError as e:
             await draft_manager.send(ws, {"type": "error", "data": {"message": str(e)}})
             return
+        _persist_squad(room.room_id, client_id, room.members[client_id].squad)
 
         draft_manager.cancel_timer(room)
         player_info = _player_info(player_id)
@@ -252,6 +261,7 @@ async def _on_timeout(room: RoomState, all_player_ids: list):
     result = draft_manager.auto_pick(room, all_player_ids)
     if not result:
         return
+    _persist_squad(room.room_id, result["picker"], room.members[result["picker"]].squad)
     player_info = _player_info(result["player_id"])
     await draft_manager.broadcast(room, {
         "type": "pick_made",
@@ -309,8 +319,74 @@ async def _start_simulation(room: RoomState):
         room.status = "reordering"
         await draft_manager.broadcast(room, {"type": "error", "data": {"message": f"Simulation failed: {e}"}})
     finally:
-        _cleanup_room_db(room.room_id)
+        try:
+            _cleanup_room_db(room.room_id)
+        except Exception:
+            pass  # DB already gone or connection issue — proceed to evict in-memory state
         draft_manager.remove_room(room.room_id)
+
+
+_INTERNATIONAL_VENUES: dict[str, list[str]] = {
+    "T20": [
+        "Melbourne Cricket Ground",
+        "Sydney Cricket Ground",
+        "Sher-e-Bangla National Cricket Stadium",
+        "Sylhet International Cricket Stadium",
+        "Wankhede Stadium",
+        "Eden Gardens",
+        "Eden Park",
+        "Sky Stadium",
+        "Gaddafi Stadium",
+        "National Stadium, Karachi",
+        "The Wanderers Stadium",
+        "Newlands",
+        "R Premadasa Stadium",
+        "Pallekele International Cricket Stadium",
+        "Daren Sammy National Cricket Stadium",
+        "Kensington Oval",
+    ],
+    "ODI": [
+        "Sydney Cricket Ground",
+        "Melbourne Cricket Ground",
+        "Sher-e-Bangla National Cricket Stadium",
+        "Zahur Ahmed Chowdhury Stadium, Chattogram",
+        "Narendra Modi Stadium",
+        "M Chinnaswamy Stadium",
+        "Seddon Park",
+        "Eden Park",
+        "Gaddafi Stadium",
+        "National Stadium, Karachi",
+        "SuperSport Park",
+        "The Wanderers Stadium",
+        "R Premadasa Stadium",
+        "Rangiri Dambulla International Stadium",
+        "Kensington Oval",
+        "Queen's Park Oval",
+    ],
+    "Test": [
+        "Adelaide Oval",
+        "Western Australia Cricket Association Ground",
+        "Sher-e-Bangla National Cricket Stadium",
+        "Zahur Ahmed Chowdhury Stadium, Chattogram",
+        "Eden Gardens",
+        "MA Chidambaram Stadium, Chepauk",
+        "Basin Reserve",
+        "Seddon Park",
+        "Rawalpindi Cricket Stadium",
+        "National Stadium, Karachi",
+        "Newlands",
+        "SuperSport Park",
+        "Galle International Stadium",
+        "Sinhalese Sports Club Ground",
+        "Kensington Oval",
+        "Sabina Park, Kingston",
+    ],
+}
+
+
+def _venues_for_format(fmt: str) -> list[dict]:
+    names = _INTERNATIONAL_VENUES.get(fmt, _INTERNATIONAL_VENUES["T20"])
+    return [{"name": n} for n in names]
 
 
 def _run_simulation(room: RoomState) -> tuple:
@@ -322,28 +398,31 @@ def _run_simulation(room: RoomState) -> tuple:
 
     def _team_cfg(member) -> dict:
         return {
-            "name": member.team_name or member.display_name,
+            "name": member.display_name,
             "players": member.squad,
             "primary_color": "#1a1a2e",
             "secondary_color": "#16213e",
         }
 
     # client_id → team name for game_session creation after sim
-    team_name_by_client: dict = {m.client_id: (m.team_name or m.display_name) for m in members}
+    team_name_by_client: dict = {m.client_id: m.display_name for m in members}
     participant_ids = [m.client_id for m in members]
 
     repo = SimulationRepository()
     try:
         fmt = room.match_format
+        venues = _venues_for_format(fmt)
         if room.mode == "1v1":
+            import random
             home, away = members[0], members[1]
+            venue_name = random.choice(venues)["name"] if venues else None
             config = {
                 "simulation_type": "match",
                 "match_format": fmt,
                 "gender": "male",
                 "team_a": _team_cfg(home),
                 "team_b": _team_cfg(away),
-                "venue": None,
+                "venue": venue_name,
             }
             sim_id = repo.create_simulation("match", config, client_id=None, mode="multiplayer",
                                             participant_ids=participant_ids)
@@ -361,14 +440,18 @@ def _run_simulation(room: RoomState) -> tuple:
             return sim_id, (row[0] if row else None)
         else:
             teams = [_team_cfg(m) for m in members]
+            n_teams = len(teams)
+            playoffs_fmt = "ipl" if n_teams >= 4 else "none"
             config = {
                 "simulation_type": "tournament",
                 "tournament_name": room.tournament_name,
-                "season": "2025",
                 "format": fmt,
                 "gender": "male",
                 "teams": teams,
-                "outcome_strategy": "enhanced_historical_stats",
+                "venues": venues,
+                "schedule": {"type": "double_round_robin", "matches_per_pair": 2},
+                "playoffs": {"format": playoffs_fmt, "top_n": 4},
+                "outcome_strategy": "enhanced",
                 "bowling_strategy": "historical",
             }
             sim_id = repo.create_simulation("tournament", config, client_id=None, mode="multiplayer",
@@ -423,6 +506,107 @@ def _save_multiplayer_game_sessions(
 
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
+
+def _persist_draft_start(room: RoomState) -> None:
+    """Persist room status=drafting and each member's draft_order to DB."""
+    conn = get_db_connection(autocommit=True); cur = conn.cursor()
+    cur.execute("UPDATE simulation.rooms SET status='drafting' WHERE room_id=%s", (room.room_id,))
+    for m in room.members.values():
+        cur.execute(
+            "UPDATE simulation.room_members SET draft_order=%s WHERE room_id=%s AND client_id=%s",
+            (m.draft_order, room.room_id, m.client_id),
+        )
+    cur.close(); conn.close()
+
+
+def _persist_squad(room_id: str, client_id: str, squad: list) -> None:
+    """Update a member's squad in DB after each pick."""
+    conn = get_db_connection(autocommit=True); cur = conn.cursor()
+    cur.execute(
+        "UPDATE simulation.room_members SET squad=%s::jsonb WHERE room_id=%s AND client_id=%s",
+        (_json.dumps(squad), room_id, client_id),
+    )
+    cur.close(); conn.close()
+
+
+def _fetch_player_details(player_ids: list) -> list:
+    """Return player info dicts for a list of player_ids (used to rebuild frontend playerMap)."""
+    if not player_ids:
+        return []
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute(
+        "SELECT player_id, display_name, player_role, cricinfo_id "
+        "FROM history.players WHERE player_id = ANY(%s)",
+        (player_ids,),
+    )
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [
+        {"player_id": r[0], "name": r[1], "role": r[2],
+         "headshot_url": _headshot(r[3]), "is_keeper": r[2] == "Keeper"}
+        for r in rows
+    ]
+
+
+def _room_exists_in_db(room_id: str) -> bool:
+    conn = get_db_connection(autocommit=True); cur = conn.cursor()
+    try:
+        cur.execute("SELECT 1 FROM simulation.rooms WHERE room_id = %s", (room_id.upper(),))
+        return cur.fetchone() is not None
+    finally:
+        cur.close(); conn.close()
+
+
+def _restore_room_from_db(room_id: str) -> "RoomState | None":
+    """Reconstruct an in-memory RoomState from DB records (e.g. after server restart)."""
+    from api.multiplayer.manager import Member, RoomState as RS
+    conn = get_db_connection(autocommit=True); cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT host_id, mode, status, tournament_name, player_count, match_format "
+            "FROM simulation.rooms WHERE room_id = %s",
+            (room_id.upper(),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        host_id, mode, status, tournament_name, player_count, match_format = row
+        if status not in ("waiting", "drafting", "reordering"):
+            return None
+
+        cur.execute(
+            "SELECT client_id, display_name, draft_order, squad "
+            "FROM simulation.room_members WHERE room_id = %s ORDER BY joined_at",
+            (room_id.upper(),),
+        )
+        members_rows = cur.fetchall()
+
+        room = RS(
+            room_id=room_id.upper(),
+            host_id=host_id,
+            mode=mode,
+            tournament_name=tournament_name,
+            player_count=player_count,
+            match_format=match_format or "T20",
+            status=status,
+        )
+        for cid, dname, draft_order, squad_raw in members_rows:
+            squad = squad_raw if isinstance(squad_raw, list) else (_json.loads(squad_raw) if squad_raw else [])
+            room.members[cid] = Member(client_id=cid, display_name=dname, draft_order=draft_order or 0, squad=squad)
+
+        if status in ("drafting", "reordering"):
+            ordered = sorted(room.members.keys(), key=lambda c: room.members[c].draft_order)
+            room.pick_sequence = _snake_sequence(ordered, SQUAD_SIZE)
+            room.current_pick_idx = sum(len(m.squad) for m in room.members.values())
+            room.drafted_ids = {pid for m in room.members.values() for pid in m.squad}
+            cur.execute("SELECT player_id FROM history.players WHERE gender='male' AND player_role='Keeper'")
+            room.keeper_ids = {r[0] for r in cur.fetchall()}
+
+        draft_manager._rooms[room_id.upper()] = room
+        return room
+    finally:
+        cur.close(); conn.close()
+
 
 def _persist_room(room: RoomState) -> None:
     conn = get_db_connection(autocommit=True); cur = conn.cursor()

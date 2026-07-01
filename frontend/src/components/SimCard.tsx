@@ -80,11 +80,6 @@ function RightChip({ sim }: { sim: SimSummary }) {
 
   // Completed + no user team = spectator
   if (sim.mode && !sim.user_team_name) {
-    // For spectator, show winner if known, otherwise "Spectator"
-    if (sim.winner_name) {
-      const short = sim.winner_name.length > 14 ? sim.winner_name.slice(0, 13) + '…' : sim.winner_name
-      return <Chip bg="rgba(245,158,11,0.12)" color="var(--score)">🏆 {short}</Chip>
-    }
     return <Chip bg="rgba(255,255,255,0.05)" color="var(--text-dim)">Spectator</Chip>
   }
 

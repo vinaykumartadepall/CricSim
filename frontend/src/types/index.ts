@@ -24,6 +24,7 @@ export interface Player {
 export interface Team {
   team_id: number
   team_name: string
+  short_name?: string | null
   players: Player[]
 }
 
@@ -53,7 +54,7 @@ export interface SimHistoryTeamBest {
 }
 
 export type SimMode = 'fun' | 'challenge'
-export type Theme = 'night-stadium' | 'digital-scoreboard' | 'pitch-dark' | 'slate-gold' | 'day-match'
+export type Theme = 'ember-amber' | 'ember-emerald' | 'ember-crimson' | 'ember-ice'
 
 export interface SwapEntry {
   player_out_id: number
@@ -177,6 +178,8 @@ export interface MatchItem {
   win_type: string | null
   win_by: number | null
   is_super_over: boolean
+  venue?: string | null
+  venue_country?: string | null
   home_score: number | null
   home_wickets: number | null
   home_overs: string | null
@@ -193,6 +196,7 @@ export interface BatterRow {
   sixes: number
   strike_rate: number
   dismissal: string | null
+  headshot_url?: string | null
 }
 
 export interface BowlerRow {
@@ -226,6 +230,7 @@ export interface Scorecard {
   home_team: string
   away_team: string
   venue: string | null
+  venue_country?: string | null
   match_format: string | null
   result_description: string | null
   innings: Innings[]
@@ -263,6 +268,7 @@ export interface RoomMember {
 
 export interface RoomState {
   room_id: string
+  host_id?: string
   mode: '1v1' | 'tournament'
   tournament_name: string
   player_count: number
