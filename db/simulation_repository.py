@@ -915,6 +915,7 @@ class SimulationRepository:
                 JOIN simulation.teams       st ON st.team_id  = gs.user_team_id
                 {_FINAL_LATERAL}
                 {_PLAYOFF_LATERAL}
+                {_MATCH_LATERAL}
                 WHERE s.client_id = %s
                   AND s.status = 'completed'
                   AND gs.source_tournament_id = %s
