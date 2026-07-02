@@ -10,6 +10,7 @@ import json as _json
 
 from api.multiplayer.manager import SQUAD_SIZE, RoomState, draft_manager, _snake_sequence
 from db.database import get_db_connection
+from simulator.logger import get_logger
 
 router = APIRouter(prefix="/cricsimapi/multiplayer", tags=["multiplayer"])
 
@@ -157,6 +158,7 @@ async def room_ws(ws: WebSocket, room_id: str, client_id: str = Query(...)):
         except ValueError:
             pass  # already started by another connection racing here
         except Exception as exc:
+            get_logger().exception("Auto-start draft failed for room %s", room.room_id)
             await draft_manager.send(ws, {"type": "error", "data": {"message": f"Auto-start failed: {exc}"}})
 
     try:
@@ -316,6 +318,7 @@ async def _start_simulation(room: RoomState):
             "data": {"sim_id": sim_id, "mode": room.mode, "match_id": match_id},
         })
     except Exception as e:
+        get_logger().exception("Simulation failed to start for room %s", room.room_id)
         room.status = "reordering"
         await draft_manager.broadcast(room, {"type": "error", "data": {"message": f"Simulation failed: {e}"}})
     finally:

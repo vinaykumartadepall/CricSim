@@ -105,10 +105,11 @@ try:
 except ImportError:
     HAS_DB = False
 
-import logging as _logging
 import threading
 
-_repo_log = _logging.getLogger(__name__)
+from simulator.logger import get_logger
+
+_repo_log = get_logger()
 
 class StatsRepository:
     """
@@ -135,8 +136,8 @@ class StatsRepository:
                     if HAS_DB:
                         try:
                             StatsRepository._conn = get_db_connection(autocommit=True)
-                        except Exception as e:
-                            print(f"Warning: Could not connect to DB for stats: {e}")
+                        except Exception:
+                            get_logger().exception("Could not connect to DB for stats")
         self.conn = StatsRepository._conn
             
     def get_player_by_name(self, name: str) -> Optional[Tuple[int, str]]:
@@ -201,8 +202,8 @@ class StatsRepository:
                 res = cur.fetchall()
                 cur.close()
                 return res
-            except Exception as e:
-                print(f"DB Query failed: {e}")
+            except Exception:
+                get_logger().exception("DB query failed")
                 return []
             
     def _parse_rows_to_probs(self, rows) -> Dict[Tuple[int, int, str, Optional[str]], float]:

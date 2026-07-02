@@ -18,8 +18,9 @@ import time
 from contextlib import asynccontextmanager
 
 import psutil
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from api.routes.admin import router as admin_router
 from api.routes.admin_squads import router as admin_squads_router
@@ -89,3 +90,11 @@ app.include_router(sim_router)
 app.include_router(lb_router)
 app.include_router(sim_history_router)
 app.include_router(multiplayer_router)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch-all safety net: any exception a route doesn't handle itself still
+    gets logged with a traceback before the client sees a generic 500."""
+    get_logger().exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})

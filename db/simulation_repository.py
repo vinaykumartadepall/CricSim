@@ -26,7 +26,6 @@ Usage pattern (match):
 from __future__ import annotations
 
 import json
-import logging
 from typing import Dict, List, Optional
 
 import psycopg2.extras
@@ -35,8 +34,7 @@ from db.database import get_db_connection
 from simulator.entities.match import SimulationMatch
 from simulator.entities.team import MatchTeam
 from simulator.entities.inning import Inning
-
-logger = logging.getLogger(__name__)
+from simulator.logger import get_logger
 
 # ── Shared placement SQL fragments ────────────────────────────────────────────
 # Used by list_simulations and get_sim_history_best to avoid duplication.
@@ -610,6 +608,7 @@ class SimulationRepository:
             row = self._dict_cur.fetchone()
             return dict(row) if row else None
         except Exception:
+            get_logger().exception("Failed to fetch game session %s", sim_id)
             self.conn.rollback()
             return None
 

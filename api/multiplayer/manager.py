@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Set
 
 from fastapi import WebSocket
 
+from simulator.logger import get_logger
+
 SQUAD_SIZE = 11
 PICK_TIMEOUT_S = 60
 
@@ -234,7 +236,11 @@ class DraftManager:
             if member.ws:
                 try:
                     await member.ws.send_text(data)
-                except Exception:
+                except Exception as e:
+                    get_logger().warning(
+                        "Broadcast send failed for room %s, client %s: %s",
+                        room.room_id, member.client_id, e,
+                    )
                     dead.append(member.client_id)
         for cid in dead:
             room.members[cid].ws = None

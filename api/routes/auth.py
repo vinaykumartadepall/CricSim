@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from api.deps import get_current_user_id
 from db.profile_repository import ProfileRepository
 from db.simulation_repository import SimulationRepository
+from simulator.logger import get_logger
 
 router = APIRouter(prefix="/cricsimapi/auth", tags=["auth"])
 
@@ -41,6 +42,7 @@ def upsert_profile(
         profile = repo.upsert(user_id, body.display_name.strip())
         repo.commit()
     except Exception:
+        get_logger().exception("Failed to upsert profile for user %s", user_id)
         repo.rollback()
         raise
     finally:
@@ -61,6 +63,7 @@ def link_anonymous(
         migrated = repo.link_anonymous(user_id, body.anonymous_id)
         repo.commit()
     except Exception:
+        get_logger().exception("Failed to link anonymous history for user %s", user_id)
         repo.rollback()
         raise
     finally:
