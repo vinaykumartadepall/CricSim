@@ -38,6 +38,8 @@ function ScrollToTop() {
 function AppShell() {
   const { pathname } = useLocation()
   const hideHeader = pathname.startsWith('/multiplayer/draft/')
+  // Draft rooms and theme-preview mockups intentionally use the full viewport width.
+  const isFullBleed = hideHeader || pathname.startsWith('/preview/')
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       <Sidebar />
@@ -47,6 +49,7 @@ function AppShell() {
       <HelpModal />
       <ScrollToTop />
       <ErrorBoundary>
+        <div className={isFullBleed ? undefined : 'mx-auto w-full'} style={isFullBleed ? undefined : { maxWidth: 1400 }}>
         <Routes>
           <Route path="/"                                    element={<HomePage />} />
           <Route path="/play"                                element={<PlayModePage />} />
@@ -68,6 +71,7 @@ function AppShell() {
           <Route path="/preview/ember"                       element={<EmberPage />} />
           <Route path="*"                                    element={<NotFoundPage />} />
         </Routes>
+        </div>
       </ErrorBoundary>
     </div>
   )

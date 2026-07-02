@@ -6,6 +6,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { PlayoffBracket } from '@/components/PlayoffBracket'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
+import { useHelp } from '@/contexts/HelpContext'
 import type {
   TournamentResult, LeaderboardsDashboard,
   MatchItem,
@@ -632,6 +633,7 @@ export function ResultsPage() {
   const scrollToMatchId = useRef<number | undefined>((locState.scrollTo as number) || undefined)
   const hasScrolled = useRef(false)
 
+  const { setHelpBlocked } = useHelp()
   const [status, setStatus] = useState<'pending' | 'running' | 'completed' | 'failed'>('pending')
   const [errorMsg, setErrorMsg] = useState('')
   const [result, setResult] = useState<TournamentResult | null>(null)
@@ -688,6 +690,12 @@ export function ResultsPage() {
     pollRef.current = setInterval(fetchStatus, POLL_MS)
     return () => clearInterval(pollRef.current!)
   }, [simId])
+
+  // Don't let the auto-help popup appear while the simulation is still running.
+  useEffect(() => {
+    setHelpBlocked(status === 'pending' || status === 'running')
+    return () => setHelpBlocked(false)
+  }, [status, setHelpBlocked])
 
   useEffect(() => {
     if (tab === 'matches' && scrollToMatchId.current && !hasScrolled.current && matches.length > 0) {

@@ -5,14 +5,11 @@ import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useHelp } from '@/contexts/HelpContext'
 import { findHelpContent } from '@/config/helpContent'
 
-// Set to false to restore first-time-only-per-page behaviour
-const ALWAYS_SHOW_HELP = true
-
 // Pages that manage their own step-based help triggers — skip pathname auto-open for these
 const STEP_BASED_PATHS = ['/fun', '/challenge', '/custom']
 
 export function HelpModal() {
-  const { helpOpen, closeHelp, openHelp, helpInitialSlide, helpSingleSlide } = useHelp()
+  const { helpOpen, closeHelp, openHelp, helpInitialSlide, helpSingleSlide, helpBlocked } = useHelp()
   const { pathname } = useLocation()
   const [index, setIndex] = useState(0)
 
@@ -28,16 +25,17 @@ export function HelpModal() {
   // Reset to first slide on route change
   useEffect(() => { setIndex(0) }, [pathname])
 
-  // Auto-open on page arrival (non-stepped pages only)
+  // Auto-open on page arrival, first visit only (non-stepped pages only).
+  // Deferred while the page signals helpBlocked (e.g. a simulation is still running).
   useEffect(() => {
-    if (!content || isStepBased) return
+    if (!content || isStepBased || helpBlocked) return
     const key = `cricsim_help_seen_${pathname}`
-    if (ALWAYS_SHOW_HELP || !localStorage.getItem(key)) {
-      if (!ALWAYS_SHOW_HELP) localStorage.setItem(key, '1')
+    if (!localStorage.getItem(key)) {
+      localStorage.setItem(key, '1')
       openHelp(0, false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname])
+  }, [pathname, helpBlocked])
 
   if (!helpOpen || !content) return null
 
