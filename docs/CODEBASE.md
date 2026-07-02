@@ -110,8 +110,7 @@ cricket-simulator/
 ├── tools/                       # Developer tools
 ├── match_config.json            # Default squad + venue configuration for single-match runs
 ├── tournament_config.json       # 8-team ODI tournament configuration (Champions Trophy 2025)
-├── run_tournament.py            # Tournament entry point: python run_tournament.py --config tournament_config.json
-└── schema.txt                   # PostgreSQL schema reference
+└── run_tournament.py            # Tournament entry point: python run_tournament.py --config tournament_config.json
 ```
 
 ---

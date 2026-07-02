@@ -1,5 +1,5 @@
 """
-Unit tests for HistoricalBowlingOrder in run_comprehensive_validation_v2.py.
+Unit tests for HistoricalBowlingOrder in validation/run_comprehensive_v2.py.
 
 Covers the toss-flip bug: when the simulation toss goes opposite to the historical
 match, the bowling plan's player IDs belong to the batting team, not the bowling
