@@ -18,9 +18,17 @@ people.csv
 
 # Dev scratch files
 SQLs/running.sql
+SQLs/cache_analysis.py
+SQLs/db_size.py
+SQLs/measure_actual_rss.py
+SQLs/measure_male_only.py
 
 # Internal planning docs
 PLAN.md
+
+# Local tooling config (not needed to run the app)
+.mcp.json
+skills-lock.json
 
 # Images / charts
 *.png
