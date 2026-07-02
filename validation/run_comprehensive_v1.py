@@ -506,7 +506,7 @@ def preload_venue_caches(repo, unique_venues, all_player_ids, fmt, gender, is_te
             if country_group:
                 pc_dist = repo.get_player_country_distribution(
                     all_player_ids, country_group[0], fmt, gender,
-                    countries=country_group, exclude_venue_id=vid,
+                    countries=country_group,
                 )
 
         # Bowling model: over-frequency caches (limited overs)

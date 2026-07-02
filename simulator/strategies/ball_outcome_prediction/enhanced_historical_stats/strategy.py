@@ -453,7 +453,6 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             return repo.get_player_country_distribution(
                 all_player_ids, venue_country_group[0], match_format, gender,
                 countries=venue_country_group,
-                exclude_venue_id=venue.id if venue and venue.id else None,
             )
 
         tasks: list = [

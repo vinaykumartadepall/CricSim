@@ -343,64 +343,35 @@ class StatsRepository:
     def get_player_country_distribution(
         self, player_ids: List[int], country: str, match_format: str, gender: str = 'male',
         countries: Optional[List[str]] = None,
-        exclude_venue_id: Optional[int] = None,
     ) -> Dict[int, Tuple[Dict[Tuple, float], int]]:
         """Per-batter distributions at venues in a country or region.
 
-        countries:        when provided, pools all listed countries (e.g. West Indies islands).
-                          Overrides the single `country` argument.
-        exclude_venue_id: when provided, excludes deliveries at that venue so country data
-                          is strictly additive to (not overlapping with) venue-level data.
+        countries: when provided, pools all listed countries (e.g. West Indies islands).
+                  Overrides the single `country` argument.
         """
         if not player_ids or not self.conn:
             return {}
 
         c_list = countries if countries else [country]
 
-        if exclude_venue_id is None:
-            cached = self._load_player_country_stats_cache(match_format)
-            if cached:
-                result: Dict[int, Tuple[Dict[Tuple, float], int]] = {}
-                for pid in player_ids:
-                    combined: Dict[Tuple, float] = {}
-                    total_count = 0
-                    for c in c_list:
-                        entry = cached.get((pid, c))
-                        if entry:
-                            raw, _, count = entry
-                            for key, prob in raw.items():
-                                combined[key] = combined.get(key, 0.0) + prob * count
-                            total_count += count
-                    if total_count > 0 and combined:
-                        merged = {k: v / total_count for k, v in combined.items()}
-                        result[pid] = (merged, total_count)
-                return result
+        cached = self._load_player_country_stats_cache(match_format)
+        if not cached:
+            return {}
 
-        raw_fmts      = self._raw_formats(match_format)
-        venue_exclude = "AND m.venue_id != %s" if exclude_venue_id is not None else ""
-        query = f"""
-        SELECT d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
-               SUM({_D6Y})
-        FROM history.deliveries d
-        JOIN history.matches m ON d.match_id = m.match_id
-        JOIN history.venues  v ON m.venue_id = v.venue_id
-        WHERE d.batter_id = ANY(%s) AND v.country = ANY(%s)
-          AND m.match_format = ANY(%s) AND m.gender = %s
-          {venue_exclude}
-        GROUP BY d.batter_id, d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
-        """
-        params: tuple = (player_ids, c_list, raw_fmts, gender)
-        if exclude_venue_id is not None:
-            params = params + (exclude_venue_id,)
-        rows = self._run_query(query, params)
-        grouped = defaultdict(list)
-        for row in rows:
-            grouped[row[0]].append((row[1], row[2], row[3], row[4], row[5]))
-        result = {}
-        for pid, metrics in grouped.items():
-            probs, count = self._parse_rows_to_probs_with_count(metrics)
-            if probs:
-                result[pid] = (probs, count)
+        result: Dict[int, Tuple[Dict[Tuple, float], int]] = {}
+        for pid in player_ids:
+            combined: Dict[Tuple, float] = {}
+            total_count = 0
+            for c in c_list:
+                entry = cached.get((pid, c))
+                if entry:
+                    raw, _, count = entry
+                    for key, prob in raw.items():
+                        combined[key] = combined.get(key, 0.0) + prob * count
+                    total_count += count
+            if total_count > 0 and combined:
+                merged = {k: v / total_count for k, v in combined.items()}
+                result[pid] = (merged, total_count)
         return result
 
     def get_batting_position_baseline(self, match_format: str, gender: str = 'male') -> Dict[str, Dict[Tuple, float]]:
