@@ -537,90 +537,7 @@ function StatCard({
   )
 }
 
-// ── Lineups tab ───────────────────────────────────────────────────────────────
-
 type LineupTeam = { team_name: string; players: LineupPlayer[] }
-
-function LineupsTab({ simId, userTeamName }: { simId: string; userTeamName: string | null }) {
-  const [teams, setTeams] = useState<LineupTeam[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    api.getLineups(simId).then(r => {
-      setTeams(r.teams)
-      setLoading(false)
-    }).catch(() => setLoading(false))
-  }, [simId])
-
-  if (loading) return <div className="flex justify-center py-12"><Spinner /></div>
-  if (!teams.length) return <div className="text-center py-8 text-sm" style={{ color: 'var(--text-dim)' }}>No lineup data</div>
-
-  return (
-    <div className="fade-in flex flex-col gap-4">
-      {teams.map(team => {
-        const isMyTeam = !!userTeamName && team.team_name === userTeamName
-        return (
-          <div key={team.team_name} className="card overflow-hidden"
-            style={{ borderColor: isMyTeam ? 'var(--accent)' : 'var(--border)' }}>
-            {/* Team header */}
-            <div className="flex items-center gap-2 px-4 py-2.5"
-              style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
-              <div className="text-sm font-bold" style={{ color: isMyTeam ? 'var(--accent)' : 'var(--text)' }}>
-                {team.team_name}
-              </div>
-              {isMyTeam && (
-                <span className="text-xs px-1.5 py-px rounded font-semibold"
-                  style={{ background: 'rgba(59,130,246,0.12)', color: 'var(--accent)' }}>You</span>
-              )}
-              <div className="ml-auto text-xs" style={{ color: 'var(--text-dim)' }}>
-                {team.players.length} players
-              </div>
-            </div>
-
-            {/* Column headers */}
-            <div className="grid px-4 py-1.5"
-              style={{ gridTemplateColumns: '1fr 52px 52px 56px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
-              <div className="text-xs font-medium" style={{ color: 'var(--text-dim)' }}>Player</div>
-              <div className="text-xs font-medium text-right" style={{ color: 'var(--text-dim)' }}>Runs</div>
-              <div className="text-xs font-medium text-right" style={{ color: 'var(--text-dim)' }}>Wkts</div>
-              <div className="text-xs font-medium text-right" style={{ color: 'var(--score)' }}>MVP</div>
-            </div>
-
-            {/* Players */}
-            {team.players.map((p, i) => (
-              <div key={p.player_id}
-                className="grid items-center px-4 py-2.5"
-                style={{
-                  gridTemplateColumns: '1fr 52px 52px 56px',
-                  borderBottom: i < team.players.length - 1 ? '1px solid var(--border)' : 'none',
-                }}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs w-4 text-right shrink-0 font-mono" style={{ color: 'var(--text-dim)' }}>{i + 1}</span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-medium truncate" style={{ color: 'var(--text)' }}>{p.player_name}</span>
-                      <RoleBadge role={p.player_role} />
-                    </div>
-                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-dim)', fontSize: 10 }}>{p.matches}M</div>
-                  </div>
-                </div>
-                <div className="text-xs font-mono text-right" style={{ color: p.runs > 0 ? 'var(--text-muted)' : 'var(--text-dim)' }}>
-                  {p.runs > 0 ? p.runs : '—'}
-                </div>
-                <div className="text-xs font-mono text-right" style={{ color: p.wickets > 0 ? 'var(--text-muted)' : 'var(--text-dim)' }}>
-                  {p.wickets > 0 ? p.wickets : '—'}
-                </div>
-                <div className="text-xs font-bold text-right" style={{ color: p.mvp_points > 0 ? 'var(--score)' : 'var(--text-dim)' }}>
-                  {p.mvp_points > 0 ? p.mvp_points.toFixed(1) : '—'}
-                </div>
-              </div>
-            ))}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
@@ -1013,12 +930,6 @@ export function ResultsPage() {
           )}
         </div>
       )}
-
-      {/* ═══ Lineups tab — commented out until tab label spacing is fixed ═══
-      {tab === 'lineups' && (
-        <LineupsTab simId={simId!} userTeamName={userTeamName} />
-      )}
-      */}
 
       {/* ═══ Leaderboards ═══ */}
       {tab === 'leaderboards' && leaderboards && (

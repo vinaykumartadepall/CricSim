@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import logoUrl from '@/assets/logo.png'
 
 function GoogleIcon() {
   return (
@@ -65,7 +66,7 @@ export function AuthModal() {
           <X size={16} />
         </button>
 
-        <div style={{ fontSize: 28, marginBottom: 12 }}>◈</div>
+        <img src={logoUrl} alt="" style={{ width: 32, height: 35, objectFit: 'contain', display: 'block', margin: '0 auto 12px' }} />
         <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>
           Sign in to CricSim
         </div>
@@ -96,7 +97,7 @@ export function AuthModal() {
         )}
 
         <div style={{ marginTop: 20, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.6 }}>
-          You can also use the app without signing in —<br />your progress is saved locally.
+          You can also use the app without signing in, your progress is saved locally.
         </div>
       </div>
     </div>

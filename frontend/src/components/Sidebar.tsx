@@ -4,6 +4,7 @@ import { X, Home, BarChart2, Clock, Check, UserCircle, Palette, ChevronRight } f
 import { useSidebar } from '@/contexts/SidebarContext'
 import { useTheme } from '@/hooks/useTheme'
 import { useAuth } from '@/contexts/AuthContext'
+import logoUrl from '@/assets/logo.png'
 import type { Theme } from '@/types'
 
 const SERIF = "'DM Serif Display', Georgia, 'Times New Roman', serif"
@@ -103,8 +104,9 @@ export function Sidebar() {
           borderBottom: '1px solid var(--border)',
           flexShrink: 0,
         }}>
-          <span style={{ fontFamily: SERIF, color: 'var(--accent)', fontSize: 18, letterSpacing: '0.04em' }}>
-            ◈ CRICSIM
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: SERIF, fontSize: 19, letterSpacing: '0.01em' }}>
+            <img src={logoUrl} alt="" style={{ width: 20, height: 22, flexShrink: 0, objectFit: 'contain' }} />
+            <span>Cric<span style={{ color: 'var(--accent)' }}>Sim</span></span>
           </span>
           <button
             onClick={closeSidebar}
