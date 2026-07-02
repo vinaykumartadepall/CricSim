@@ -55,6 +55,7 @@ def _config(
 
 
 FOUR_TEAMS = [_team("Alpha"), _team("Beta"), _team("Gamma"), _team("Delta")]
+EIGHT_TEAMS = [_team(f"T{i}") for i in range(1, 9)]
 
 
 # ── Round-robin ────────────────────────────────────────────────────────────────
@@ -222,7 +223,7 @@ def test_playoffs_ipl_structure():
 
 
 def test_playoffs_quarters_semis_final_structure():
-    cfg = _config(STANDINGS_8, playoffs_fmt="quarters_semis_final", playoffs_top_n=8)
+    cfg = _config(EIGHT_TEAMS, playoffs_fmt="quarters_semis_final", playoffs_top_n=8)
     fixtures = generate_playoffs(cfg, STANDINGS_8, 20)
     labels = [f.match_label for f in fixtures]
     assert labels[:4] == ["QF 1", "QF 2", "QF 3", "QF 4"]

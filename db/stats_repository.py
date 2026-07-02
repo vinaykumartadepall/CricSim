@@ -163,7 +163,7 @@ class StatsRepository:
         Tries the full name first; if not found, strips any ', City' suffix and retries.
         """
         if not self.conn: return None
-        query = "SELECT venue_id, name, country FROM history.venues WHERE name ILIKE %s LIMIT 1"
+        query = "SELECT venue_id, name, city FROM history.venues WHERE name ILIKE %s LIMIT 1"
 
         def _search(n: str):
             s = '%' + '%'.join(n.split()) + '%'
@@ -173,7 +173,6 @@ class StatsRepository:
         if not rows and ',' in name:
             rows = _search(name.split(',')[0].strip())
         if not rows:
-            print(f"[DB] Lookup failed: Venue '{name}' not found.")
             return None
         return (rows[0][0], rows[0][1], rows[0][2])
 

@@ -118,6 +118,7 @@ class ScorecardResponse(BaseModel):
     away_team: str
     venue: Optional[str]
     venue_country: Optional[str] = None
+    match_format: Optional[str] = None
     result_description: Optional[str]
     innings: List[InningScorecard]
 

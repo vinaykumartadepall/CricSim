@@ -54,6 +54,7 @@ def _memory_monitor() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logger(log_dir="logs")
+    StatsRepository.warm_all_caches()
     threading.Thread(target=_memory_monitor, daemon=True, name="mem-monitor").start()
     yield
 

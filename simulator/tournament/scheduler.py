@@ -59,43 +59,53 @@ def generate_playoffs(
     Generate playoff fixtures from the final group-stage standings.
     standings: team names ordered by rank (index 0 = 1st place).
     Returns an ordered list of playoff fixtures.
+    Home-venue advantage: the higher-placed team plays at their home ground.
+    TBD fixtures have venue=None; it is resolved in _resolve_playoff_slot.
     """
     fmt = config.playoffs.format
     top_n = config.playoffs.top_n
     qualified = standings[:top_n]
-    venues = config.venue_names
-    neutral = venues[0] if venues else None
 
     if fmt == "none" or not qualified:
         return []
 
+    def home_venue(team_name: str) -> Optional[str]:
+        team = config.team_by_name.get(team_name)
+        return (team.home_venue or None) if team else None
+
     if fmt == "two_teams":
-        return [Fixture(home=qualified[0], away=qualified[1], venue=neutral,
+        return [Fixture(home=qualified[0], away=qualified[1],
+                        venue=home_venue(qualified[0]),
                         match_number=start_match_number)]
 
     if fmt == "semis_final":
         # 1v4, 2v3 → winners meet in final
         return [
-            Fixture(home=qualified[0], away=qualified[3], venue=neutral,
+            Fixture(home=qualified[0], away=qualified[3],
+                    venue=home_venue(qualified[0]),
                     match_number=start_match_number,     match_label="Semi-final 1"),
-            Fixture(home=qualified[1], away=qualified[2], venue=neutral,
+            Fixture(home=qualified[1], away=qualified[2],
+                    venue=home_venue(qualified[1]),
                     match_number=start_match_number + 1, match_label="Semi-final 2"),
-            Fixture(home="TBD", away="TBD", venue=neutral,
+            Fixture(home="TBD", away="TBD", venue=None,
                     match_number=start_match_number + 2, match_label="Final"),
         ]
 
     if fmt == "ipl":
-        # Qualifier 1: 1v2 (winner → final; loser → Q2)
-        # Eliminator: 3v4 (winner → Q2; loser eliminated)
-        # Qualifier 2: loser(Q1) vs winner(Elim) → winner → final
+        # Qualifier 1: 1v2  → home of 1st place
+        # Eliminator:  3v4  → home of 3rd place
+        # Qualifier 2: Q1-loser vs Elim-winner → venue resolved later (home of Q1 loser)
+        # Final:       Q1-winner vs Q2-winner  → venue resolved later (home of Q1 winner)
         return [
-            Fixture(home=qualified[0], away=qualified[1], venue=neutral,
+            Fixture(home=qualified[0], away=qualified[1],
+                    venue=home_venue(qualified[0]),
                     match_number=start_match_number,     match_label="Qualifier 1"),
-            Fixture(home=qualified[2], away=qualified[3], venue=neutral,
+            Fixture(home=qualified[2], away=qualified[3],
+                    venue=home_venue(qualified[2]),
                     match_number=start_match_number + 1, match_label="Eliminator"),
-            Fixture(home="TBD", away="TBD", venue=neutral,
+            Fixture(home="TBD", away="TBD", venue=None,
                     match_number=start_match_number + 2, match_label="Qualifier 2"),
-            Fixture(home="TBD", away="TBD", venue=neutral,
+            Fixture(home="TBD", away="TBD", venue=None,
                     match_number=start_match_number + 3, match_label="Final"),
         ]
 
@@ -105,19 +115,19 @@ def generate_playoffs(
         while len(q) < 8:
             q.append("TBD")
         return [
-            Fixture(home=q[0], away=q[7], venue=neutral,
+            Fixture(home=q[0], away=q[7], venue=home_venue(q[0]),
                     match_number=start_match_number,     match_label="QF 1"),
-            Fixture(home=q[1], away=q[6], venue=neutral,
+            Fixture(home=q[1], away=q[6], venue=home_venue(q[1]),
                     match_number=start_match_number + 1, match_label="QF 2"),
-            Fixture(home=q[2], away=q[5], venue=neutral,
+            Fixture(home=q[2], away=q[5], venue=home_venue(q[2]),
                     match_number=start_match_number + 2, match_label="QF 3"),
-            Fixture(home=q[3], away=q[4], venue=neutral,
+            Fixture(home=q[3], away=q[4], venue=home_venue(q[3]),
                     match_number=start_match_number + 3, match_label="QF 4"),
-            Fixture(home="TBD", away="TBD", venue=neutral,
+            Fixture(home="TBD", away="TBD", venue=None,
                     match_number=start_match_number + 4, match_label="SF 1"),
-            Fixture(home="TBD", away="TBD", venue=neutral,
+            Fixture(home="TBD", away="TBD", venue=None,
                     match_number=start_match_number + 5, match_label="SF 2"),
-            Fixture(home="TBD", away="TBD", venue=neutral,
+            Fixture(home="TBD", away="TBD", venue=None,
                     match_number=start_match_number + 6, match_label="Final"),
         ]
 

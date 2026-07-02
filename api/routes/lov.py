@@ -38,6 +38,7 @@ class PlayerItem(BaseModel):
 class TeamSquad(BaseModel):
     team_id: int
     team_name: str
+    short_name: Optional[str] = None
     players: list[PlayerItem]
 
 

@@ -164,32 +164,43 @@ class TestMatchEngine(BaseEngine):
 
         summary = {n: (team_totals[n], team_balls[n]) for n in team_names}
 
-        if self.match_overs_total >= 450:
-            result = MatchResult(winner=None, description="Match Drawn", is_no_result=True,
-                                 team_innings_summary=summary)
-        elif len(innings) <= 3:
-            innings_count = {n: 0 for n in team_names}
-            for inn in innings:
-                innings_count[inn.batting_team.name] += 1
-            winner = next(n for n, c in innings_count.items() if c == 1)
-            loser  = next(n for n, c in innings_count.items() if c == 2)
-            margin = team_totals[winner] - team_totals[loser]
-            desc = f"{winner} won by an innings and {margin} run{'s' if margin != 1 else ''}"
-            result = MatchResult(winner=winner, description=desc, team_innings_summary=summary)
-        elif len(innings) == 4:
+        if len(innings) == 4:
+            # Equal totals / a reached target / an all-out dismissal all decide the match
+            # outright — even if the global 450-over cap is hit on the same ball. Only
+            # fall back to a draw once none of those decisive conditions hold.
             batting_4th = innings[3].batting_team
-            if self.match.target_score and batting_4th.total_runs >= self.match.target_score:
+            target_reached = bool(self.match.target_score) and batting_4th.total_runs >= self.match.target_score
+            all_out = batting_4th.total_wickets >= 10
+            totals_equal = team_totals[team_names[0]] == team_totals[team_names[1]]
+
+            if totals_equal:
+                result = MatchResult(winner=None, description="Match Tied", is_tie=True,
+                                     team_innings_summary=summary)
+            elif target_reached:
                 wkts = 10 - batting_4th.total_wickets
                 desc = f"{batting_4th.name} won by {wkts} wicket{'s' if wkts != 1 else ''}"
                 result = MatchResult(winner=batting_4th.name, description=desc,
                                      team_innings_summary=summary)
-            elif team_totals[team_names[0]] == team_totals[team_names[1]]:
-                result = MatchResult(winner=None, description="Match Tied", is_tie=True,
-                                     team_innings_summary=summary)
-            else:
+            elif all_out:
                 winner = max(team_totals, key=team_totals.get)
                 margin = abs(team_totals[team_names[0]] - team_totals[team_names[1]])
                 desc = f"{winner} won by {margin} run{'s' if margin != 1 else ''}"
+                result = MatchResult(winner=winner, description=desc, team_innings_summary=summary)
+            else:
+                result = MatchResult(winner=None, description="Match Drawn", is_no_result=True,
+                                     team_innings_summary=summary)
+        elif len(innings) <= 3:
+            if self.match_overs_total >= 450:
+                result = MatchResult(winner=None, description="Match Drawn", is_no_result=True,
+                                     team_innings_summary=summary)
+            else:
+                innings_count = {n: 0 for n in team_names}
+                for inn in innings:
+                    innings_count[inn.batting_team.name] += 1
+                winner = next(n for n, c in innings_count.items() if c == 1)
+                loser  = next(n for n, c in innings_count.items() if c == 2)
+                margin = team_totals[winner] - team_totals[loser]
+                desc = f"{winner} won by an innings and {margin} run{'s' if margin != 1 else ''}"
                 result = MatchResult(winner=winner, description=desc, team_innings_summary=summary)
         else:
             result = MatchResult(winner=None, description="Match Drawn", is_no_result=True,

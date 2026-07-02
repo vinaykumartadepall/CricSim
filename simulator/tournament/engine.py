@@ -161,7 +161,11 @@ class TournamentEngine:
             for p in away_cfg.players
         ]
 
-        venue = resolve_venue(self._repo, fixture.venue) if fixture.venue else None
+        venue_name = fixture.venue
+        if not venue_name and self._config.venue_names:
+            import random
+            venue_name = random.choice(self._config.venue_names)
+        venue = resolve_venue(self._repo, venue_name) if venue_name else None
 
         match = SimulationMatch(
             id=self._match_counter,
@@ -263,15 +267,28 @@ class TournamentEngine:
 
         return results.get("Final")
 
+    def _home_venue(self, team_name: str) -> Optional[str]:
+        """Return the configured home venue name for a team, or None."""
+        team = self._config.team_by_name.get(team_name)
+        return (team.home_venue or None) if team else None
+
+    def _higher_placed_venue(self, team_a: str, team_b: str) -> Optional[str]:
+        """Return home venue of whichever team finished higher in the group stage."""
+        standings = [r.name for r in self._points_table.standings()]
+        rank_a = standings.index(team_a) if team_a in standings else 999
+        rank_b = standings.index(team_b) if team_b in standings else 999
+        return self._home_venue(team_a if rank_a <= rank_b else team_b)
+
     def _resolve_playoff_slot(
         self,
         fixture: Fixture,
         results: Dict[str, Optional[str]],
         fmt: str,
     ) -> Fixture:
-        """Fill TBD team slots from earlier bracket results."""
+        """Fill TBD team slots from earlier bracket results and assign home-venue advantage."""
         home = fixture.home
         away = fixture.away
+        venue = fixture.venue  # already set for known-team fixtures
 
         if fmt == "ipl":
             if fixture.match_label == "Qualifier 2":
@@ -279,32 +296,39 @@ class TournamentEngine:
                 elim_winner = results.get("Eliminator")
                 standings   = [r.name for r in self._points_table.standings()]
                 q1_loser    = standings[1] if q1_winner == standings[0] else standings[0]
-                home = q1_loser
-                away = elim_winner or "TBD"
+                home  = q1_loser
+                away  = elim_winner or "TBD"
+                venue = self._home_venue(home)   # Q1 loser has home advantage
             elif fixture.match_label == "Final":
-                home = results.get("Qualifier 1") or "TBD"
-                away = results.get("Qualifier 2") or "TBD"
+                home  = results.get("Qualifier 1") or "TBD"
+                away  = results.get("Qualifier 2") or "TBD"
+                venue = self._home_venue(home)   # Q1 winner has home advantage
 
         elif fmt == "semis_final":
             if fixture.match_label == "Final":
-                home = results.get("Semi-final 1") or "TBD"
-                away = results.get("Semi-final 2") or "TBD"
+                home  = results.get("Semi-final 1") or "TBD"
+                away  = results.get("Semi-final 2") or "TBD"
+                # Higher group-stage finisher gets home advantage
+                if home != "TBD" and away != "TBD":
+                    venue = self._higher_placed_venue(home, away)
 
         elif fmt == "quarters_semis_final":
             if fixture.match_label == "SF 1":
-                home = results.get("QF 1") or "TBD"
-                away = results.get("QF 2") or "TBD"
+                home  = results.get("QF 1") or "TBD"
+                away  = results.get("QF 2") or "TBD"
             elif fixture.match_label == "SF 2":
-                home = results.get("QF 3") or "TBD"
-                away = results.get("QF 4") or "TBD"
+                home  = results.get("QF 3") or "TBD"
+                away  = results.get("QF 4") or "TBD"
             elif fixture.match_label == "Final":
-                home = results.get("SF 1") or "TBD"
-                away = results.get("SF 2") or "TBD"
+                home  = results.get("SF 1") or "TBD"
+                away  = results.get("SF 2") or "TBD"
+            if fixture.match_label in ("SF 1", "SF 2", "Final") and home != "TBD" and away != "TBD":
+                venue = self._higher_placed_venue(home, away)
 
         return Fixture(
             home=home or fixture.home,
             away=away or fixture.away,
-            venue=fixture.venue,
+            venue=venue,
             match_number=fixture.match_number,
             match_label=fixture.match_label,
         )

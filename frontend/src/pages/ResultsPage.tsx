@@ -792,7 +792,7 @@ export function ResultsPage() {
         const theme: BannerTheme = (() => {
           if (userTeam) {
             if (placement === 'Winner')    return { icon: '🏆', headline: 'Champions!',             sub: `${userTeam} won the title`,             border: 'var(--score)', bg: 'rgba(245,158,11,0.07)', color: 'var(--score)' }
-            if (placement === 'Runner-up') return { icon: '🥈', headline: 'Runner-up',               sub: `${userTeam} — Finished 2nd`,            border: 'rgba(148,163,184,0.4)', bg: 'rgba(148,163,184,0.05)', color: '#94a3b8' }
+            if (placement === 'Runner-up') return { icon: '💔', headline: 'So close…',              sub: `${userTeam} — Runner-up`,               border: 'rgba(239,68,68,0.4)', bg: 'rgba(239,68,68,0.05)', color: 'var(--loss)' }
             if (placement === 'Playoffs')  return { icon: '✨', headline: 'You made the Playoffs!', sub: `${userTeam} reached the knockout stage`, border: 'var(--accent)', bg: 'rgba(59,130,246,0.05)', color: 'var(--accent)' }
             return { icon: '😞', headline: 'Did not qualify', sub: `${userTeam} was eliminated in the group stage`, border: 'var(--border)', bg: 'transparent', color: 'var(--text-muted)' }
           }

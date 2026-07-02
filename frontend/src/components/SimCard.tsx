@@ -107,7 +107,7 @@ export function SimCard({ sim }: { sim: SimSummary }) {
 
   return (
     <button
-      onClick={() => navigate(simPath(sim), sim.simulation_type === 'match' ? { state: { backPath: '/' } } : undefined)}
+      onClick={() => navigate(simPath(sim), sim.simulation_type === 'match' ? { state: { backPath: '/', userTeam: sim.user_team_name ?? null } } : undefined)}
       className="card p-5 cursor-pointer w-full text-left transition-all duration-200"
       onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'}
       onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}
@@ -127,11 +127,6 @@ export function SimCard({ sim }: { sim: SimSummary }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
               <FormatBadge format={sim.match_format} />
               <ModeBadge mode={sim.mode} simulationType={sim.simulation_type} />
-              {sim.swap_count != null && sim.swap_count > 0 && (
-                <span style={{ fontSize: 12, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
-                  · {sim.swap_count} trade{sim.swap_count !== 1 ? 's' : ''}
-                </span>
-              )}
             </div>
           )}
 
@@ -142,6 +137,11 @@ export function SimCard({ sim }: { sim: SimSummary }) {
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block',
               }}>
                 {sim.user_team_name}
+                {sim.swap_count != null && sim.swap_count > 0 && (
+                  <span style={{ fontSize: 12, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+                    {' ·'} {sim.swap_count} trade{sim.swap_count !== 1 ? 's' : ''}
+                  </span>
+                )}
               </span>
             </div>
           )}

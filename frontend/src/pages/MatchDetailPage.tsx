@@ -70,6 +70,7 @@ interface InningsCtx {
   isSuperOverInnings: boolean
   isOnlyOneOver: boolean       // super over — skip "in Y balls"
   ovPerInnings: number | null  // effective overs (derived from format, not stored value)
+  batTeam: string
 }
 
 // ── Ball symbol ───────────────────────────────────────────────────────────────
@@ -315,15 +316,15 @@ function OverSummaryCard({ snap, ctx, isFinalOver }: {
     } else if (!ctx.isOnlyOneOver && ctx.ovPerInnings != null) {
       const legalInOver = balls.filter(d => !['wide','noball'].includes(d.outcome_kind?.toLowerCase() ?? '')).length
       const ballsLeft   = ctx.ovPerInnings * 6 - (overNum * 6 + legalInOver)
-      if (ballsLeft > 0) statusLine = `Need ${runsNeeded} runs to win in ${ballsLeft} ball${ballsLeft !== 1 ? 's' : ''}`
-      else statusLine = `Need ${runsNeeded} runs to win`
+      if (ballsLeft > 0) statusLine = `${ctx.batTeam} need ${runsNeeded} runs to win in ${ballsLeft} ball${ballsLeft !== 1 ? 's' : ''}`
+      else statusLine = `${ctx.batTeam} need ${runsNeeded} runs to win`
     } else {
-      statusLine = `Need ${runsNeeded} runs to win`
+      statusLine = `${ctx.batTeam} need ${runsNeeded} runs to win`
     }
   } else if (!isFinalOver && !ctx.isChase && ctx.leadOffset != null) {
     const lead = cumulativeScore.runs + ctx.leadOffset
-    if (lead > 0) statusLine = `${ctx.leadTeamWhenPositive} lead by ${lead}`
-    else if (lead < 0) statusLine = `${ctx.leadTeamWhenNegative} lead by ${Math.abs(lead)}`
+    if (lead > 0) statusLine = `${ctx.batTeam} lead by ${lead}`
+    else if (lead < 0) statusLine = `${ctx.batTeam} trail by ${Math.abs(lead)}`
     else statusLine = 'Scores level'
   }
 
@@ -689,11 +690,14 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
   const desc = scorecard.result_description ?? null
 
   // Parse winner from result description
+  const soMatch = desc?.match(/^Match tied · (.+) won Super Over$/)
+  const soWinner = soMatch ? soMatch[1].trim() : null
   const winnerMatch = desc?.match(/^(.+?)\s+won\s+by\s+(.+)$/)
-  const winner = winnerMatch ? winnerMatch[1].trim() : null
+  const winner = soWinner ?? (winnerMatch ? winnerMatch[1].trim() : null)
   const margin = winnerMatch ? winnerMatch[2].trim() : null
-  const isTied = desc === 'Match tied' || desc?.startsWith('Match tied')
+  const isTied = desc === 'Match tied'
   const isNoResult = desc === 'No result'
+  const isDrawn = desc === 'Match drawn'
 
   const userWon  = !!userTeam && !!winner && winner.toLowerCase() === userTeam.toLowerCase()
   const userLost = !!userTeam && !!winner && winner.toLowerCase() !== userTeam.toLowerCase()
@@ -729,28 +733,44 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
         >
           {userWon ? (
             <>
-              <div className="text-xl font-extrabold" style={{ color: 'var(--score)' }}>You won!</div>
-              {margin && <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{winner} won by {margin}</div>}
+              <div className="text-xl font-extrabold flex items-center justify-center gap-2" style={{ color: 'var(--score)' }}>
+                <span className="text-2xl leading-none">🏆</span> You won!
+              </div>
+              {soWinner ? (
+                <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Won on Super Over</div>
+              ) : margin && (
+                <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{winner} won by {margin}</div>
+              )}
             </>
           ) : userLost ? (
             <>
-              <div className="text-base font-bold" style={{ color: 'var(--text-muted)' }}>You lost</div>
-              {winner && margin && (
+              <div className="text-base font-bold flex items-center justify-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                <span className="text-2xl leading-none">💔</span> You lost
+              </div>
+              {soWinner ? (
+                <div className="text-xs" style={{ color: 'var(--text-dim)' }}>{winner} won on Super Over</div>
+              ) : winner && margin && (
                 <div className="text-xs" style={{ color: 'var(--text-dim)' }}>{winner} won by {margin}</div>
               )}
             </>
           ) : isTied ? (
-            <div className="text-sm font-bold" style={{ color: 'var(--score)' }}>Match tied!</div>
+            <div className="text-sm font-bold flex items-center justify-center gap-2" style={{ color: 'var(--score)' }}>
+              <span className="text-2xl leading-none">⚖️</span> Match tied!
+            </div>
           ) : isNoResult ? (
-            <div className="text-sm font-bold" style={{ color: 'var(--text-muted)' }}>No result</div>
+            <div className="text-sm font-bold flex items-center justify-center gap-2" style={{ color: 'var(--text-muted)' }}>
+              <span className="text-2xl leading-none">🌧️</span> No result
+            </div>
+          ) : isDrawn ? (
+            <div className="text-sm font-bold flex items-center justify-center gap-2" style={{ color: 'var(--text-muted)' }}>
+              <span className="text-2xl leading-none">🤝</span> Match drawn
+            </div>
           ) : (
-            <div className="text-sm font-bold" style={{ color: 'var(--score)' }}>{bannerText(desc)}</div>
-          )}
-          {scorecard.venue && (
-            <div className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
-              {scorecard.venue}{scorecard.venue_country ? `, ${scorecard.venue_country}` : ''}
+            <div className="text-sm font-bold flex items-center justify-center gap-2" style={{ color: 'var(--score)' }}>
+              <span className="text-2xl leading-none">🏆</span> {bannerText(desc)}
             </div>
           )}
+
         </div>
       )}
 
@@ -979,33 +999,33 @@ export function MatchDetailPage() {
               const buildCtx = (innNum: number): InningsCtx => {
                 const i1 = inn(1), i2 = inn(2), i3 = inn(3), i4 = inn(4)
 
-                const base = { leadOffset: null, leadTeamWhenPositive: '', leadTeamWhenNegative: '', isSuperOverInnings: false, isOnlyOneOver: false }
+                const base = { leadOffset: null, leadTeamWhenPositive: '', leadTeamWhenNegative: '', isSuperOverInnings: false, isOnlyOneOver: false, batTeam: '' }
 
                 if (isTestFormat) {
                   if (innNum === 1) {
                     return { ...base, isChase: false, target: null, finalBanner: null, ovPerInnings: null }
                   }
                   if (innNum === 2) {
-                    return { ...base, isChase: false, target: null, leadOffset: -(i1?.total_runs ?? 0), leadTeamWhenPositive: i2?.batting_team ?? '', leadTeamWhenNegative: i1?.batting_team ?? '', finalBanner: null, ovPerInnings: null }
+                    return { ...base, isChase: false, target: null, leadOffset: -(i1?.total_runs ?? 0), leadTeamWhenPositive: i2?.batting_team ?? '', leadTeamWhenNegative: i1?.batting_team ?? '', finalBanner: null, ovPerInnings: null, batTeam: i2?.batting_team ?? ''}
                   }
                   if (innNum === 3) {
                     const offset = (i1?.total_runs ?? 0) - (i2?.total_runs ?? 0)
-                    return { ...base, isChase: false, target: null, leadOffset: offset, leadTeamWhenPositive: i1?.batting_team ?? '', leadTeamWhenNegative: i2?.batting_team ?? '', finalBanner: null, ovPerInnings: null }
+                    return { ...base, isChase: false, target: null, leadOffset: offset, leadTeamWhenPositive: i1?.batting_team ?? '', leadTeamWhenNegative: i2?.batting_team ?? '', finalBanner: null, ovPerInnings: null, batTeam: i1?.batting_team ?? '' }
                   }
                   if (innNum === 4) {
                     const testTarget = (i1?.total_runs ?? 0) + (i3?.total_runs ?? 0) - (i2?.total_runs ?? 0) + 1
-                    return { ...base, isChase: true, target: testTarget, finalBanner: scorecard.result_description ?? null, ovPerInnings: null }
+                    return { ...base, isChase: true, target: testTarget, finalBanner: scorecard.result_description ?? null, ovPerInnings: null, batTeam: i4?.batting_team ?? '' }
                   }
                 } else {
                   if (innNum === 1) {
                     const target = (i1?.total_runs ?? 0) + 1
                     const overs  = mainMatchOvPerInnings
                     const banner = i2 ? (overs ? `${i2.batting_team} need ${target} to win in ${overs} over${overs !== 1 ? 's' : ''}` : `${i2.batting_team} need ${target} to win`) : null
-                    return { ...base, isChase: false, target: null, finalBanner: banner, ovPerInnings: mainMatchOvPerInnings }
+                    return { ...base, isChase: false, target: null, finalBanner: banner, ovPerInnings: mainMatchOvPerInnings, batTeam: i1?.batting_team ?? '' }
                   }
                   if (innNum === 2) {
                     const banner = hasSO ? 'Match tied — Super Over to follow' : (scorecard.result_description ?? null)
-                    return { ...base, isChase: true, target: (i1?.total_runs ?? 0) + 1, finalBanner: banner, ovPerInnings: mainMatchOvPerInnings }
+                    return { ...base, isChase: true, target: (i1?.total_runs ?? 0) + 1, finalBanner: banner, ovPerInnings: mainMatchOvPerInnings, batTeam: i2?.batting_team ?? '' }
                   }
                   if (innNum === 3 && hasSO) {
                     const soTarget = (i3?.total_runs ?? 0) + 1

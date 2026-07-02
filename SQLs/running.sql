@@ -40,7 +40,7 @@ select * from history.matches m where m.venue_id = '5605';
 commit;
 
 select * from history.matches m where m.name like '%Ranji%' order by m.date desc;
-
+select match_format, count(*) from history.bowler_order_stats group by match_format;
 --write a query to find list of all matches (not deliveries) played by A Zampa, also show the date, opponent team bowled by A Zampa in those matches. Order the results by date in descending order.
 select m.match_id, m.name, m.date, m.match_format, m.original_match_id, m.match_type, p.name
 from history.matches m, history.match_players mp, history.players p
@@ -145,7 +145,12 @@ commit;
 select * from simulation.game_sessions where source_tournament_id=3039;
 select * from simulation.teams where team_id in (10354,10364);
 select * from simulation.tournament_seeded;
-
+select * from simulation.matches where sim_id='72502d74-0ff7-4037-8507-a1799bc32d8d';
+select * from history.matches;
+select * from simulation.game_sessions where sim_id='73e82ad6-61f9-4819-a5d3-245908766346';
+select * from simulation.matches where sim_id='73e82ad6-61f9-4819-a5d3-245908766346';
+select * from simulation.tournaments where sim_id='8f5f102a-dcd9-4649-a34a-62a07d7488d0';
+select * from simulation.simulations where sim_id='73e82ad6-61f9-4819-a5d3-245908766346';
 SELECT 
     column_name, 
     data_type, 
@@ -159,6 +164,7 @@ WHERE
 ORDER BY 
     ordinal_position;
 
-select * from history.players where display_name = 'Finn Allen' or display_name = 'Sunil Narine';
+select * from history.players where display_name = 'Angkrish Raghuvanshi' or display_name = 'Sunil Narine';
 select DISTINCT player_role from history.players;
-update history.players set player_role='Keeper' where display_name='Finn Allen';
+update history.players set player_role='Keeper' where display_name='Angkrish Raghuvanshi';
+COMMIT;

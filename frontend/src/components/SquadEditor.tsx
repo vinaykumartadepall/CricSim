@@ -259,7 +259,7 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
                   opacity: hasSwap && !isActive ? 0.7 : 1,
                 }}
               >
-                {team.team_name}{hasSwap && ' ✓'}
+                {team.short_name ?? team.team_name}{hasSwap && ' ✓'}
               </button>
             )
           })}
