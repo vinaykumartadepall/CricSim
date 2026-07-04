@@ -36,7 +36,10 @@ from simulator.logger import configure_logger, get_logger
 
 # Clear the stats cache when available RAM drops below this threshold.
 _LOW_RAM_THRESHOLD_MB = int(os.getenv("LOW_RAM_THRESHOLD_MB", "250"))
-_RAM_CHECK_INTERVAL_S = 30
+# 10s, not 30s — most simulations finish in well under 30s, so a 30s interval
+# would often take zero samples during a run's own lifetime. The check itself
+# is two cheap syscalls plus a dict len(), negligible even at this frequency.
+_RAM_CHECK_INTERVAL_S = 10
 
 # Startup default for simulation.log's level — same knob as PUT /admin/log-level,
 # just what it starts at before anyone changes it at runtime. Distinct from the
@@ -45,16 +48,32 @@ _SIM_LOG_LEVEL = getattr(logging, os.getenv("SIM_LOG_LEVEL", "INFO").upper(), lo
 
 
 def _memory_monitor() -> None:
-    """Daemon thread: evicts the stats cache under memory pressure."""
+    """Daemon thread: evicts the stats cache under memory pressure.
+
+    Logs available system RAM, this process's own RSS, and the cache's
+    top-level key count on EVERY check (not just when evicting) at INFO —
+    one short line every 10s, not high-volume enough to warrant gating behind
+    DEBUG. A below-threshold-only log only shows the moment the threshold was
+    crossed, not the shape of the decline leading up to it, which is what's
+    actually needed to tell "cache growth" apart from "RSS not being
+    released back to the OS" as the cause of a low-RAM period.
+    """
     log = get_logger()
+    proc = psutil.Process(os.getpid())
     while True:
         time.sleep(_RAM_CHECK_INTERVAL_S)
         available_mb = psutil.virtual_memory().available / 1024 / 1024
+        rss_mb = proc.memory_info().rss / 1024 / 1024
+        cache_keys = StatsRepository.cache_key_count()
+        log.info(
+            "[MemMonitor] available=%.0fMB rss=%.0fMB cache_keys=%d",
+            available_mb, rss_mb, cache_keys,
+        )
         if available_mb < _LOW_RAM_THRESHOLD_MB:
             cleared = StatsRepository.clear_cache()
             log.warning(
-                "[MemMonitor] Low RAM (%.0f MB free) — evicted %d cache entries",
-                available_mb, cleared,
+                "[MemMonitor] Low RAM (%.0f MB free, rss=%.0f MB) — evicted %d cache entries",
+                available_mb, rss_mb, cleared,
             )
 
 

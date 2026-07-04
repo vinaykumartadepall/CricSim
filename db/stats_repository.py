@@ -934,6 +934,13 @@ class StatsRepository:
         return {k: v for k, v in full.items() if k[0] in b_set and k[1] in bw_set}
 
     @classmethod
+    def cache_key_count(cls) -> int:
+        """Number of top-level keys currently in the cache (read-only, no eviction).
+        Each key is one (stat_type, match_format, ...) combination and can hold
+        thousands of nested per-player entries — this is a key count, not a row count."""
+        return len(_PRECOMPUTED_CACHE)
+
+    @classmethod
     def clear_cache(cls) -> int:
         """Clear the entire precomputed cache. Returns the number of entries removed.
         Safe to call at any time — lazy loading re-populates on next simulation."""
