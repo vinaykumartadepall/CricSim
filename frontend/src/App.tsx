@@ -21,10 +21,6 @@ import { ProfilePage } from '@/pages/ProfilePage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { MultiplayerLobbyPage } from '@/pages/MultiplayerLobbyPage'
 import { DraftPage } from '@/pages/DraftPage'
-import { PavilionPage } from '@/pages/preview/PavilionPage'
-import { FloodlitPage } from '@/pages/preview/FloodlitPage'
-import { BroadsheetPage } from '@/pages/preview/BroadsheetPage'
-import { EmberPage } from '@/pages/preview/EmberPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 const HEADER_H = 60
@@ -65,10 +61,6 @@ function AppShell() {
           <Route path="/multiplayer"                         element={<MultiplayerLobbyPage />} />
           <Route path="/multiplayer/draft/:roomId"           element={<DraftPage />} />
           <Route path="/join/:roomId"                        element={<MultiplayerLobbyPage />} />
-          <Route path="/preview/pavilion"                    element={<PavilionPage />} />
-          <Route path="/preview/floodlit"                    element={<FloodlitPage />} />
-          <Route path="/preview/broadsheet"                  element={<BroadsheetPage />} />
-          <Route path="/preview/ember"                       element={<EmberPage />} />
           <Route path="*"                                    element={<NotFoundPage />} />
         </Routes>
         </div>

@@ -111,7 +111,7 @@ export function HomePage() {
             lineHeight: 1.65, margin: 0, maxWidth: 300,
             textShadow: '0 1px 12px rgba(0,0,0,0.9)',
           }}>
-            Relive past tournaments, reshape your squad,<br />
+            Relive past tournaments, reshape your squad<br />
             and discover whether your team has what it takes to lift the trophy.
           </p>
         </div>

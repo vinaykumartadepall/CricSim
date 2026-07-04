@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { Trophy, TrendingUp, Swords, Star, RotateCcw, ChevronRight, X, Search } from 'lucide-react'
@@ -389,7 +389,6 @@ function LeaderboardModal({
             style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
             <Search size={13} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />
             <input
-              autoFocus
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search player or team…"
@@ -609,7 +608,11 @@ export function ResultsPage() {
   }, [simId])
 
   // Don't let the auto-help popup appear while the simulation is still running.
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) is required here: it runs synchronously for the
+  // whole tree before any passive effect fires, so HelpModal's own (passive) auto-open
+  // effect is guaranteed to see the up-to-date helpBlocked value on the very first
+  // render after navigating here, instead of racing it and opening before this can block it.
+  useLayoutEffect(() => {
     setHelpBlocked(status === 'pending' || status === 'running')
     return () => setHelpBlocked(false)
   }, [status, setHelpBlocked])

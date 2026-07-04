@@ -508,7 +508,7 @@ function WaitingRoom({ room, clientId, onStart, starting }: {
               style={{ background: 'var(--surface-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
               {shareUrl}
             </div>
-            <CopyButton text={shareUrl} label="Share" />
+            <CopyButton text={shareUrl}/>
           </div>
         </div>
 

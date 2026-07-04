@@ -708,7 +708,7 @@ class SimulationRepository:
         if tournament_ids is None:
             if mode == 'challenge':
                 self._dict_cur.execute(
-                    """
+                    f"""
                     WITH seeded AS (
                         SELECT ts.tournament_id
                         FROM simulation.tournament_seeded ts
@@ -745,14 +745,16 @@ class SimulationRepository:
                         SELECT tn.tournament_name AS name,
                                COUNT(DISTINCT (gs.source_tournament_id, st.name)) AS completed
                         FROM simulation.game_sessions gs
-                        JOIN simulation.simulations sim ON sim.sim_id = gs.sim_id
+                        JOIN simulation.simulations s ON s.sim_id = gs.sim_id
                         JOIN simulation.teams st ON st.team_id = gs.user_team_id
                         JOIN history.tournaments tn ON tn.tournament_id = gs.source_tournament_id
-                        WHERE sim.client_id = %s
-                          AND sim.status = 'completed'
+                        {_FINAL_LATERAL}
+                        WHERE s.client_id = %s
+                          AND s.status = 'completed'
                           AND gs.user_team_id IS NOT NULL
                           AND gs.source_tournament_id IS NOT NULL
                           AND gs.mode = 'challenge'
+                          AND mf.winner_id = gs.user_team_id
                         GROUP BY tn.tournament_name
                     )
                     SELECT t.name,
@@ -767,7 +769,7 @@ class SimulationRepository:
                 )
             else:
                 self._dict_cur.execute(
-                    """
+                    f"""
                     WITH seeded AS (
                         SELECT ts.tournament_id,
                                tn.tournament_name AS name
@@ -777,25 +779,27 @@ class SimulationRepository:
                           AND jsonb_array_length(ts.config->'teams') > 0
                     ),
                     totals AS (
-                        SELECT s.name,
-                               COUNT(*)                           AS total,
-                               ARRAY_AGG(DISTINCT s.tournament_id) AS tournament_ids
-                        FROM seeded s
-                        JOIN history.tournament_teams tt ON tt.tournament_id = s.tournament_id
-                        GROUP BY s.name
+                        SELECT sd.name,
+                               COUNT(*)                            AS total,
+                               ARRAY_AGG(DISTINCT sd.tournament_id) AS tournament_ids
+                        FROM seeded sd
+                        JOIN history.tournament_teams tt ON tt.tournament_id = sd.tournament_id
+                        GROUP BY sd.name
                     ),
                     done AS (
                         SELECT tn.tournament_name AS name,
                                COUNT(DISTINCT (gs.source_tournament_id, st.name)) AS completed
                         FROM simulation.game_sessions gs
-                        JOIN simulation.simulations sim ON sim.sim_id = gs.sim_id
+                        JOIN simulation.simulations s ON s.sim_id = gs.sim_id
                         JOIN simulation.teams st ON st.team_id = gs.user_team_id
                         JOIN history.tournaments tn ON tn.tournament_id = gs.source_tournament_id
-                        WHERE sim.client_id = %s
-                          AND sim.status = 'completed'
+                        {_FINAL_LATERAL}
+                        WHERE s.client_id = %s
+                          AND s.status = 'completed'
                           AND gs.user_team_id IS NOT NULL
                           AND gs.source_tournament_id IS NOT NULL
                           AND (%s IS NULL OR gs.mode = %s)
+                          AND mf.winner_id = gs.user_team_id
                         GROUP BY tn.tournament_name
                     )
                     SELECT t.name,
@@ -811,7 +815,7 @@ class SimulationRepository:
         else:
             if mode == 'challenge':
                 self._dict_cur.execute(
-                    """
+                    f"""
                     WITH underdog_combos AS (
                         SELECT tn.tournament_id,
                                t.team_id
@@ -838,13 +842,15 @@ class SimulationRepository:
                         SELECT gs.source_tournament_id AS tournament_id,
                                COUNT(DISTINCT st.name) AS completed
                         FROM simulation.game_sessions gs
-                        JOIN simulation.simulations sim ON sim.sim_id = gs.sim_id
+                        JOIN simulation.simulations s ON s.sim_id = gs.sim_id
                         JOIN simulation.teams st ON st.team_id = gs.user_team_id
-                        WHERE sim.client_id = %s
-                          AND sim.status = 'completed'
+                        {_FINAL_LATERAL}
+                        WHERE s.client_id = %s
+                          AND s.status = 'completed'
                           AND gs.source_tournament_id = ANY(%s)
                           AND gs.user_team_id IS NOT NULL
                           AND gs.mode = 'challenge'
+                          AND mf.winner_id = gs.user_team_id
                         GROUP BY gs.source_tournament_id
                     )
                     SELECT t.tournament_id,
@@ -857,7 +863,7 @@ class SimulationRepository:
                 )
             else:
                 self._dict_cur.execute(
-                    """
+                    f"""
                     WITH totals AS (
                         SELECT ts.tournament_id,
                                COUNT(DISTINCT tt.team_id) AS total
@@ -871,13 +877,15 @@ class SimulationRepository:
                         SELECT gs.source_tournament_id AS tournament_id,
                                COUNT(DISTINCT st.name) AS completed
                         FROM simulation.game_sessions gs
-                        JOIN simulation.simulations sim ON sim.sim_id = gs.sim_id
+                        JOIN simulation.simulations s ON s.sim_id = gs.sim_id
                         JOIN simulation.teams st ON st.team_id = gs.user_team_id
-                        WHERE sim.client_id = %s
-                          AND sim.status = 'completed'
+                        {_FINAL_LATERAL}
+                        WHERE s.client_id = %s
+                          AND s.status = 'completed'
                           AND gs.source_tournament_id = ANY(%s)
                           AND gs.user_team_id IS NOT NULL
                           AND (%s IS NULL OR gs.mode = %s)
+                          AND mf.winner_id = gs.user_team_id
                         GROUP BY gs.source_tournament_id
                     )
                     SELECT t.tournament_id,
