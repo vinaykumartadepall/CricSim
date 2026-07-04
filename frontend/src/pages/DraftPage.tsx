@@ -644,9 +644,6 @@ export function DraftPage() {
   const [toast, setToast]       = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
 
-  // Sim result
-  const [simId, setSimId]       = useState<string | null>(null)
-
   // Connection status
   const [connStatus, setConnStatus] = useState<'connecting' | 'connected' | 'reconnecting' | 'dead'>('connecting')
   const [deadReason, setDeadReason] = useState<'not_found' | 'lost' | 'kicked' | null>(null)
@@ -783,7 +780,6 @@ export function DraftPage() {
         // don't wait for the whole simulation (which can take 10-30s) to finish
         // just to show a bare spinner here in the meantime.
         const { sim_id } = msg.data as { sim_id: string }
-        setSimId(sim_id)
         // teamName is read by SimulatingPage; userTeam/backPath are read by
         // MatchDetailPage once SimulatingPage hands off to it on completion
         // (only relevant for 1v1 — tournament results ignore these).
