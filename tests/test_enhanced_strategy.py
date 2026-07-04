@@ -5,6 +5,10 @@ Covers:
 1. Batter phase cache prioritisation: phase-specific distribution is used
    when enough balls exist, and career distribution is used as fallback.
 2. Dynamic par score / pressure context: wicket-aware score_p logic.
+3. Venue context refresh: venue_cache/player_venue_cache/player_country_cache
+   reflect whichever match is CURRENTLY being simulated, not whatever venue
+   init_model happened to see first (the tournament prewarm's venueless
+   synthetic match, before this fix, froze these permanently empty).
 """
 import sys
 import os
@@ -15,9 +19,15 @@ from typing import Dict, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from db.entities.venue import Venue
+from db.stats_repository import StatsRepository
+from simulator.entities.match import SimulationMatch
+from simulator.entities.player import Player
+from simulator.entities.team import MatchTeam
 from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import (
     EnhancedBaseHistoricalStatsStrategy,
     PressureContext,
+    T20EnhancedHistoricalStatsStrategy,
 )
 from simulator.entities.rules import MatchRules
 
@@ -240,3 +250,107 @@ class TestDynamicPressure:
             assert -0.40 <= ctx.score_p <= 0.40, (
                 f"score_p={ctx.score_p} out of bounds for wkts_lost={wkts_lost}"
             )
+
+
+# ── Venue context refresh ──────────────────────────────────────────────────────
+
+VENUE_A_DIST = {(4, 0, 'Runs', None): 0.9}
+VENUE_B_DIST = {(6, 0, 'Runs', None): 0.9}
+
+
+def _make_match(venue):
+    home = MatchTeam(id=1, name="Home", players=[Player(id=1, name="P1")])
+    away = MatchTeam(id=2, name="Away", players=[Player(id=2, name="P2")])
+    return SimulationMatch(
+        id=0, home_team=home, away_team=away, venue=venue,
+        match_format="T20", balls_per_over=6, overs_per_innings=20, innings_per_match=2,
+    )
+
+
+def _venue(vid, name, country="India"):
+    return Venue.builder().with_id(vid).with_name(name).with_country(country).build()
+
+
+class TestVenueContextRefresh:
+    """Regression coverage for the bug where venue_cache/player_venue_cache/
+    player_country_cache were only ever populated from whichever match's venue
+    init_model happened to see FIRST — permanently, for the rest of the
+    tournament. In production this was always the prewarm step's venueless
+    synthetic match, so these caches were empty for every real match, every
+    tournament, always.
+
+    No live DB connection required — StatsRepository is bypassed via
+    conn=None (safe default returns everywhere) with get_venue_distribution
+    specifically monkeypatched so we can tell which venue's data a call
+    actually returned.
+    """
+
+    def setup_method(self):
+        self.fake_repo = StatsRepository.__new__(StatsRepository)
+        self.fake_repo.conn = None
+
+    def _strategy(self, venue_distributions: dict):
+        def fake_get_venue_distribution(repo_self, venue_id, match_format, gender):
+            return venue_distributions.get(venue_id, {})
+
+        patcher_method = patch.object(StatsRepository, "get_venue_distribution", fake_get_venue_distribution)
+        patcher_repo = patch(
+            "simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy.StatsRepository",
+            return_value=self.fake_repo,
+        )
+        patcher_method.start()
+        patcher_repo.start()
+        self._patcher_stops = [patcher_method.stop, patcher_repo.stop]
+        return T20EnhancedHistoricalStatsStrategy()
+
+    def teardown_method(self):
+        for stop in getattr(self, "_patcher_stops", []):
+            stop()
+
+    def test_first_call_with_no_venue_leaves_caches_empty(self):
+        strategy = self._strategy({})
+        strategy.init_model(_make_match(venue=None))
+        assert strategy.venue_cache == {}
+        assert strategy.player_venue_cache == {}
+        assert strategy.player_country_cache == {}
+
+    def test_real_match_venue_is_picked_up_after_venueless_prewarm(self):
+        """The exact production sequence: prewarm with no venue, then a real
+        match with a real venue — venue_cache must reflect the real match."""
+        strategy = self._strategy({42: VENUE_A_DIST})
+        strategy.init_model(_make_match(venue=None))          # prewarm
+        strategy.init_model(_make_match(venue=_venue(42, "Wankhede Stadium")))  # real match
+
+        assert strategy.venue_cache == VENUE_A_DIST
+
+    def test_venue_cache_switches_between_matches_at_different_venues(self):
+        """The core regression: match 2 at a different venue must not keep
+        seeing match 1's venue data."""
+        strategy = self._strategy({42: VENUE_A_DIST, 99: VENUE_B_DIST})
+        venue_a = _venue(42, "Wankhede Stadium")
+        venue_b = _venue(99, "Eden Gardens")
+
+        strategy.init_model(_make_match(venue=venue_a))
+        assert strategy.venue_cache == VENUE_A_DIST
+
+        strategy.init_model(_make_match(venue=venue_b))
+        assert strategy.venue_cache == VENUE_B_DIST, "venue_cache is stuck on the first match's venue"
+
+    def test_venue_cache_correct_when_returning_to_a_previously_seen_venue(self):
+        strategy = self._strategy({42: VENUE_A_DIST, 99: VENUE_B_DIST})
+        venue_a = _venue(42, "Wankhede Stadium")
+        venue_b = _venue(99, "Eden Gardens")
+
+        strategy.init_model(_make_match(venue=venue_a))
+        strategy.init_model(_make_match(venue=venue_b))
+        strategy.init_model(_make_match(venue=venue_a))
+
+        assert strategy.venue_cache == VENUE_A_DIST
+
+    def test_venue_cache_resets_to_empty_for_a_venueless_match_after_a_real_one(self):
+        strategy = self._strategy({42: VENUE_A_DIST})
+        strategy.init_model(_make_match(venue=_venue(42, "Wankhede Stadium")))
+        assert strategy.venue_cache == VENUE_A_DIST
+
+        strategy.init_model(_make_match(venue=None))
+        assert strategy.venue_cache == {}

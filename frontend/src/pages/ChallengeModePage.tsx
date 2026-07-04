@@ -115,6 +115,26 @@ export function ChallengeModePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // The resume flow above jumps straight to 'squad' without going through
+  // pickName(), so `underdogs` is never populated — backing up to the
+  // pick_team_season step then shows an empty list. Fill it in the same way
+  // pickName() would, but only if nothing has set it yet.
+  useEffect(() => {
+    const s = location.state as any
+    if (!s?.tryAgain || !s?.tournamentName || underdogs.length > 0) return
+    setLoadingUnderdogs(true)
+    api.getUnderdogs(s.tournamentName)
+      .then(data => {
+        setUnderdogs(data)
+        if (data.length === 0) {
+          setUnderdogError('No underdog teams found — all teams win > 33% of matches in every season')
+        }
+      })
+      .catch(() => setUnderdogError('Failed to load teams'))
+      .finally(() => setLoadingUnderdogs(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     setLoadingTournaments(true)
     api.getTournaments(search || undefined)

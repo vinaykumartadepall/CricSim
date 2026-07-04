@@ -26,7 +26,7 @@ from api.models.responses import (
     TournamentMatchResultResponse,
     TournamentResultResponse,
 )
-from api.worker import run_match_job, run_tournament_job
+from api.worker import get_tournament_progress, run_match_job, run_tournament_job
 from db.database import get_db_connection
 from db.simulation_repository import SimulationRepository, _parse_win
 from simulator.serializers.match import get_commentary, get_match_result, get_scorecard, get_tournament_result
@@ -220,7 +220,16 @@ def get_status(sim_id: str):
             raise HTTPException(status_code=404, detail="Simulation not found")
     finally:
         repo.close()
-    return {"sim_id": sim_id, "status": sim["status"], "error": sim.get("error_message")}
+
+    result = {"sim_id": sim_id, "status": sim["status"], "error": sim.get("error_message")}
+    progress = get_tournament_progress(sim_id)
+    if progress is not None:
+        result["matches_completed"] = progress["completed"]
+        result["matches_total"] = progress["total"]
+        result["teams"] = progress["teams"]
+        result["total_deliveries"] = progress["total_deliveries"]
+        result["results"] = progress["results"]
+    return result
 
 
 # ── GET /{sim_id}/session ─────────────────────────────────────────────────────

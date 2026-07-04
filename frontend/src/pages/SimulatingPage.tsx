@@ -5,6 +5,93 @@ import { api } from '@/api/client'
 
 const POLL_MS = 2500
 
+type Progress = {
+  completed: number
+  total: number
+  teams: number
+  totalDeliveries: number
+  results: { label: string; text: string }[]
+}
+
+// Ring doubles as the page's loading indicator and its progress readout —
+// one focal element instead of a spinner stacked on top of a separate bar.
+// Wrapped in the same pulse-glow beat the original loading badge used, so
+// the "alive, still working" cue survives even though the border is now a
+// real percentage arc instead of a plain static ring.
+function ProgressRing({ percent }: { percent: number }) {
+  const size = 136
+  const stroke = 9
+  const r = (size - stroke) / 2
+  const circumference = 2 * Math.PI * r
+  const clamped = Math.min(100, Math.max(0, percent))
+  const offset = circumference * (1 - clamped / 100)
+
+  return (
+    <div className="pulse-accent relative flex items-center justify-center rounded-full" style={{ width: size, height: size }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--surface-2)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none"
+          stroke="var(--accent)" strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={circumference} strokeDashoffset={offset}
+          style={{ transition: 'stroke-dashoffset 0.6s ease-out', filter: 'drop-shadow(0 0 5px var(--accent-glow))' }}
+        />
+      </svg>
+      <div className="absolute text-2xl font-bold tabular-nums" style={{ color: 'var(--text)' }}>
+        {Math.round(clamped)}%
+      </div>
+    </div>
+  )
+}
+
+function statusPhrase(percent: number): string {
+  if (percent >= 100) return 'Wrapping up…'
+  if (percent >= 75) return 'Almost there!'
+  if (percent >= 25) return 'Simulating ball by ball…'
+  return 'Just getting started…'
+}
+
+function formatCount(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n)
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex-1 flex flex-col items-center gap-0.5 py-3 rounded-lg"
+      style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+      <div className="text-[11px] uppercase tracking-wider" style={{ color: 'var(--text-dim)' }}>{label}</div>
+      <div className="text-base font-semibold tabular-nums" style={{ color: 'var(--text)' }}>{value}</div>
+    </div>
+  )
+}
+
+function LiveUpdates({ results }: { results: { label: string; text: string }[] }) {
+  const listRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = listRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [results.length])
+
+  if (results.length === 0) return null
+
+  return (
+    <div className="w-full max-w-xs rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+      <div className="px-3 pt-2.5 pb-1.5 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-dim)' }}>
+        Live updates
+      </div>
+      <div ref={listRef} className="flex flex-col gap-1 px-3 pb-2.5 overflow-y-auto" style={{ maxHeight: 88 }}>
+        {results.map((r, i) => (
+          <div key={i} className="text-xs leading-snug">
+            <span className="font-medium" style={{ color: 'var(--accent)' }}>{r.label}: </span>
+            <span style={{ color: 'var(--text-muted)' }}>{r.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // Dedicated route for "simulation in progress" — kept separate from ResultsPage
 // so ResultsPage only ever mounts once a simulation has actually completed.
 // This has no registered help content, so HelpModal's auto-open logic can
@@ -15,6 +102,7 @@ export function SimulatingPage() {
   const location = useLocation()
   const [status, setStatus] = useState<'pending' | 'running' | 'failed'>('pending')
   const [errorMsg, setErrorMsg] = useState('')
+  const [progress, setProgress] = useState<Progress | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -31,6 +119,17 @@ export function SimulatingPage() {
           setErrorMsg(s.error || 'Simulation failed')
         } else {
           setStatus(s.status as 'pending' | 'running')
+          setProgress(
+            s.matches_total
+              ? {
+                  completed: s.matches_completed ?? 0,
+                  total: s.matches_total,
+                  teams: s.teams ?? 0,
+                  totalDeliveries: s.total_deliveries ?? 0,
+                  results: s.results ?? [],
+                }
+              : null
+          )
         }
       } catch { /* keep polling */ }
     }
@@ -51,14 +150,48 @@ export function SimulatingPage() {
     )
   }
 
+  const percent = progress ? (progress.completed / progress.total) * 100 : 0
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] gap-4">
-      <div className="pulse-accent w-16 h-16 rounded-full flex items-center justify-center"
-        style={{ border: '2px solid var(--accent)' }}>
-        <Spinner size={28} />
-      </div>
+    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] gap-3 px-4">
       <div className="text-base font-medium" style={{ color: 'var(--text)' }}>Simulating tournament…</div>
-      <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Running ball-by-ball. Takes 10–30 seconds.</div>
+      <div className="text-xs -mt-2" style={{ color: 'var(--text-dim)' }}>Please wait while the action unfolds</div>
+
+      {progress ? (
+        <>
+          <ProgressRing percent={percent} />
+          <div className="text-sm font-medium" style={{ color: 'var(--accent)' }}>{statusPhrase(percent)}</div>
+          <div className="text-sm mb-1" style={{ color: 'var(--text-muted)' }}>
+            <span className="tabular-nums font-semibold" style={{ color: 'var(--text)' }}>{progress.completed}</span>
+            <span className="tabular-nums"> / {progress.total} matches simulated</span>
+          </div>
+
+          <div className="flex gap-2 w-full max-w-xs">
+            <StatCard label="Teams" value={String(progress.teams)} />
+            <StatCard label="Matches" value={String(progress.total)} />
+            <StatCard label="Deliveries" value={formatCount(progress.totalDeliveries)} />
+          </div>
+
+          <LiveUpdates results={progress.results} />
+        </>
+      ) : (
+        <>
+          <div className="pulse-accent w-16 h-16 rounded-full flex items-center justify-center mt-1"
+            style={{ border: '2px solid var(--accent)' }}>
+            <Spinner size={28} />
+          </div>
+          <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Running ball-by-ball. Takes 10–30 seconds.</div>
+        </>
+      )}
+
+      <button
+        className="text-sm mt-3 px-5 py-2 rounded-lg font-medium"
+        style={{ background: 'var(--accent-tint)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+        onClick={() => navigate('/')}
+      >
+        Back to home
+      </button>
+      <div className="text-xs" style={{ color: 'var(--text-dim)' }}>Keeps running in the background</div>
     </div>
   )
 }

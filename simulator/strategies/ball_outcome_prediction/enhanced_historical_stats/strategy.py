@@ -403,6 +403,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
     def init_model(self, match: SimulationMatch):
         if self._initialized:
             self._extend_player_caches(match)
+            self._refresh_venue_context(match)
             return
 
         match_format = MatchRules.get_unified_format(getattr(match, 'match_format', 'T20'))
@@ -413,46 +414,20 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         log.info("[EnhancedStrategy] Initialising — format: %s (%s)", match_format, gender)
 
         all_player_ids = collect_player_ids(match)
-        venue      = getattr(match, 'venue',      None)
         tournament = getattr(match, 'tournament', None)
 
         def _q(method, *args, **kw):
             return lambda repo: getattr(repo, method)(*args, **kw)
-
-        def _venue_fn(repo):
-            if not venue or not venue.id:
-                return {}
-            result = repo.get_venue_distribution(venue.id, match_format, gender)
-            if not result and getattr(venue, 'country', None):
-                result = repo.get_country_distribution(venue.country, match_format, gender)
-                log.info("[Model] Venue absent — using country distribution (%s)", venue.country)
-            return result
 
         def _tourn_fn(repo):
             if not tournament or not tournament.id:
                 return {}
             return repo.get_tournament_distribution(tournament.id)
 
-        venue_country        = getattr(venue, 'country', None) if venue else None
-        venue_country_group  = _region_countries(venue_country) if venue_country else None
-
         era_contexts = set(getattr(match, 'era_normalize_contexts', []))
         if match_format == 'Test':
             era_contexts = set()  # Era normalization not applicable to Test cricket
         self._era_normalize_contexts = era_contexts
-
-        def _player_venue_pc_fn(repo):
-            if not venue or not venue.id:
-                return {}
-            return repo.get_player_venue_probs_precomputed(all_player_ids, venue.id, match_format, gender)
-
-        def _player_country_fn(repo):
-            if not venue_country_group:
-                return {}
-            return repo.get_player_country_distribution(
-                all_player_ids, venue_country_group[0], match_format, gender,
-                countries=venue_country_group,
-            )
 
         tasks: list = [
             ("phase",             _q("get_phase_distribution",                match_format, gender)),
@@ -463,15 +438,12 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             ("position_baseline", _q("get_batting_position_baseline",         match_format, gender)),
             ("keepers",           _q("get_wicket_keepers",                    all_player_ids, gender)),
             ("spinners",          _q("get_spinner_ids",                       all_player_ids, gender, match_format)),
-            ("venue",             _venue_fn),
             ("tournament",        _tourn_fn),
-            ("player_country",    _player_country_fn),
             ("batters_pc",        _q("get_batters_probs_precomputed",         all_player_ids, match_format, gender)),
             ("bowlers_pc",        _q("get_bowlers_probs_precomputed",         all_player_ids, match_format, gender)),
             ("batter_phase_pc",   _q("get_batter_phase_probs_precomputed",   all_player_ids, match_format, gender)),
             ("milestone_pc",      _q("get_player_milestone_probs_precomputed", all_player_ids, match_format, gender)),
             ("matchups_pc",       _q("get_matchup_probs_precomputed",         all_player_ids, all_player_ids, match_format, gender)),
-            ("player_venue_pc",   _player_venue_pc_fn),
         ]
 
         repo = StatsRepository()
@@ -540,20 +512,12 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
                     self.player_milestone_cache[pid][milestone] = probs
 
         # ── Player venue cache ──────────────────────────────────────────────────
-        self.player_venue_cache = {}
-        for pid, (raw, era, count) in results.get("player_venue_pc", {}).items():
-            probs = era if ('player_venue' in era_contexts and era is not None) else raw
-            if probs:
-                self.player_venue_cache[pid] = (probs, count)
-
         # ── Remaining caches (no era normalization) ─────────────────────────────
         self.phase_cache            = results["phase"]
         self.milestone_cache        = results["milestone_global"]
         self.innings_cache          = results["innings"]
         self.fielding_cache         = results["fielding"]
-        self.venue_cache            = results["venue"]
         self.tournament_cache       = results["tournament"]
-        self.player_country_cache   = results["player_country"]
 
         self.position_baseline = results.get("position_baseline", {})
         self.parttime_bowler_probs = _make_parttime_probs(self.baseline_outcome_probs, match_format)
@@ -590,6 +554,73 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             len(self.baseline_outcome_probs), era_note,
         )
         self._initialized = True
+        self._refresh_venue_context(match)
+
+    def _refresh_venue_context(self, match: SimulationMatch) -> None:
+        """Resolve venue/player-venue/player-country context for the match
+        CURRENTLY being simulated. Runs on every init_model call, not just the
+        first — unlike the player/format caches _extend_player_caches only
+        ever grows, venue changes match to match within a tournament, so a
+        cache populated once from match 1 would silently stay wrong (or, for
+        the tournament prewarm's venueless synthetic match, permanently
+        empty) for every other match.
+
+        Cheap on repeat: get_venue_distribution / get_player_venue_probs_precomputed
+        / get_player_country_distribution are all cached by venue_id/country at
+        the StatsRepository layer already, so calling this again for an
+        already-seen venue is a dict lookup, not a query — TournamentEngine's
+        _prewarm_strategies() calls init_model once per distinct tournament
+        venue before match 1 for exactly this reason, so real match simulation
+        never pays a live DB round-trip here.
+        """
+        venue = getattr(match, 'venue', None)
+        if not venue or not venue.id:
+            self.venue_cache = {}
+            self.player_venue_cache = {}
+            self.player_country_cache = {}
+            return
+
+        match_format = self._match_format
+        gender = self._gender
+        era_contexts = self._era_normalize_contexts
+        all_player_ids = collect_player_ids(match)
+        repo = StatsRepository()
+
+        try:
+            venue_result = repo.get_venue_distribution(venue.id, match_format, gender)
+            if not venue_result and getattr(venue, 'country', None):
+                venue_result = repo.get_country_distribution(venue.country, match_format, gender)
+                log.info("[Model] Venue absent — using country distribution (%s)", venue.country)
+        except Exception as e:
+            log.warning("[EnhancedModel] Cache 'venue' failed: %s", e)
+            venue_result = {}
+        self.venue_cache = venue_result
+
+        try:
+            pv_raw = repo.get_player_venue_probs_precomputed(all_player_ids, venue.id, match_format, gender)
+        except Exception as e:
+            log.warning("[EnhancedModel] Cache 'player_venue_pc' failed: %s", e)
+            pv_raw = {}
+        player_venue_cache = {}
+        for pid, (raw, era, count) in pv_raw.items():
+            probs = era if ('player_venue' in era_contexts and era is not None) else raw
+            if probs:
+                player_venue_cache[pid] = (probs, count)
+        self.player_venue_cache = player_venue_cache
+
+        venue_country = getattr(venue, 'country', None)
+        venue_country_group = _region_countries(venue_country) if venue_country else None
+        if venue_country_group:
+            try:
+                self.player_country_cache = repo.get_player_country_distribution(
+                    all_player_ids, venue_country_group[0], match_format, gender,
+                    countries=venue_country_group,
+                )
+            except Exception as e:
+                log.warning("[EnhancedModel] Cache 'player_country' failed: %s", e)
+                self.player_country_cache = {}
+        else:
+            self.player_country_cache = {}
 
     def _extend_player_caches(self, match: SimulationMatch) -> None:
         """Load stats for players in this match not seen in the first match's init_model call."""

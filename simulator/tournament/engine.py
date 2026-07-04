@@ -352,7 +352,19 @@ class TournamentEngine:
                     self._player_cache[pid] = resolve_player(self._repo, pid)
 
     def _prewarm_strategies(self) -> None:
-        """Pre-warm both strategy caches for every tournament player before match 1."""
+        """Pre-warm both strategy caches for every tournament player before match 1,
+        plus every distinct venue this tournament could use.
+
+        The venue priming matters beyond just avoiding a live DB round-trip on
+        whichever match first touches a new venue: EnhancedStrategy's venue
+        context (venue/player_venue/player_country) is refreshed on every
+        init_model call, keyed off whatever venue the match it's given
+        carries. Priming here with the synthetic warm_match's venue swapped
+        to each real venue in turn populates StatsRepository's per-venue
+        cache for all of them before any real match runs, so every real
+        match's own init_model call — which sees its own real venue — is a
+        cache hit rather than a fresh query.
+        """
         all_players = [p for p in self._player_cache.values() if p is not None]
         if not all_players:
             return
@@ -369,8 +381,22 @@ class TournamentEngine:
         )
         self._outcome_strat.init_model(warm_match)
         self._bowling_strat.init_model(warm_match)
-        _log.warning("[Tournament] Pre-warmed strategy caches for %d players in %.3fs",
-                     len(all_players), time.perf_counter() - t0)
+
+        cfg = self._config
+        venue_names = set(cfg.venue_names) | {t.home_venue for t in cfg.teams if t.home_venue}
+        primed = 0
+        for name in venue_names:
+            venue = resolve_venue(self._repo, name)
+            if venue:
+                warm_match.venue = venue
+                self._outcome_strat.init_model(warm_match)
+                primed += 1
+        warm_match.venue = None
+
+        _log.warning(
+            "[Tournament] Pre-warmed strategy caches for %d players and %d/%d venues in %.3fs",
+            len(all_players), primed, len(venue_names), time.perf_counter() - t0,
+        )
 
     def _read_result(
         self,

@@ -19,11 +19,53 @@ from db.stats_repository import StatsRepository
 from simulator.admin_settings import get_admin_settings
 from simulator.logger import log_context
 from simulator.match_runner import MatchRunner
-from simulator.strategies.factory import resolve_venue
+from simulator.strategies.factory import FORMAT_SETTINGS, resolve_venue
 from simulator.tournament.config import TournamentConfig
 from simulator.tournament.engine import TournamentEngine
+from simulator.tournament.scheduler import generate_fixtures
 
 logger = logging.getLogger(__name__)
+
+# Process-level progress tracker for in-flight tournament jobs, keyed by sim_id.
+# In-memory only (see api/main.py's _memory_monitor / _PRECOMPUTED_CACHE for the
+# same pattern) — fine because this deploys as a single uvicorn process; a
+# multi-worker deployment would need this moved to shared storage instead.
+# Populated at job start (everything below is fully known before any match
+# runs — see _PLAYOFF_MATCH_COUNTS and _estimate_total_deliveries), updated
+# per match, popped on job end.
+_TOURNAMENT_PROGRESS: Dict[str, Dict[str, Any]] = {}
+
+# Playoff match count is deterministic from format alone (scheduler.py's
+# generate_playoffs) — doesn't depend on standings, so the total is knowable
+# before the group stage even starts. Must stay in sync with every branch of
+# generate_playoffs; an unrecognized format falls back to 0 there too.
+_PLAYOFF_MATCH_COUNTS = {
+    "none": 0,
+    "two_teams": 1,
+    "semis_final": 3,
+    "ipl": 4,
+    "quarters_semis_final": 7,
+}
+
+# Test matches have no fixed overs_per_innings (FORMAT_SETTINGS["Test"] is
+# days-based, not over-based) — there's no exact delivery count to compute.
+# This is a flavor stat, not a simulation guarantee, so a labeled rough
+# estimate (5 days x 90 overs/day, spanning all innings) is good enough.
+_TEST_OVERS_ESTIMATE = 5 * 90
+
+
+def _estimate_total_deliveries(match_format: str, total_matches: int) -> int:
+    settings = FORMAT_SETTINGS.get(match_format)
+    if match_format == "Test" or not settings or settings.get("overs_per_innings") is None:
+        return _TEST_OVERS_ESTIMATE * 6 * total_matches
+    return settings["overs_per_innings"] * settings["innings_per_match"] * 6 * total_matches
+
+
+def get_tournament_progress(sim_id: str) -> Dict[str, Any] | None:
+    """Progress snapshot for an in-flight tournament job, or None if sim_id
+    isn't a currently-running tournament (single-match job, not yet started,
+    or already finished)."""
+    return _TOURNAMENT_PROGRESS.get(sim_id)
 
 
 def run_match_job(sim_id: str, config: dict) -> None:
@@ -95,6 +137,15 @@ def run_tournament_job(
             tc = _build_tournament_config(config)
             stats_repo = StatsRepository()
 
+            total_matches = len(generate_fixtures(tc)) + _PLAYOFF_MATCH_COUNTS.get(tc.playoffs.format, 0)
+            _TOURNAMENT_PROGRESS[sim_id] = {
+                "completed": 0,
+                "total": total_matches,
+                "teams": len(tc.teams),
+                "total_deliveries": _estimate_total_deliveries(tc.format, total_matches),
+                "results": [],
+            }
+
             # Save tournament metadata
             tournament_id = repo.save_tournament(
                 sim_id          = sim_id,
@@ -158,6 +209,7 @@ def run_tournament_job(
         finally:
             repo.close()
             StatsRepository.on_job_end()
+            _TOURNAMENT_PROGRESS.pop(sim_id, None)
 
 
 def _build_tournament_config(raw: dict) -> TournamentConfig:
@@ -264,14 +316,24 @@ class _PersistingTournamentEngine(TournamentEngine):
     def _on_fixture_complete(self, match, fixture, stage: str) -> None:
         home_name   = fixture.home
         away_name   = fixture.away
+        match_label = (getattr(fixture, 'match_label', '') or
+                       f"Match {self._match_counter}")
+
+        progress = _TOURNAMENT_PROGRESS.get(self._sim_id)
+        if progress is not None:
+            progress["completed"] += 1
+            if match.result:
+                progress["results"].append({
+                    "label": match_label,
+                    "text": f"{home_name} vs {away_name} — {match.result.description}",
+                })
+
         home_sim_id = self._team_id_map.get(home_name)
         away_sim_id = self._team_id_map.get(away_name)
 
         if home_sim_id is None or away_sim_id is None:
             return  # TBD playoff slot — teams not yet known
 
-        match_label = (getattr(fixture, 'match_label', '') or
-                       f"Match {self._match_counter}")
         venue_id = match.venue.id if match.venue else None
 
         try:

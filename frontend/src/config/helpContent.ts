@@ -90,14 +90,9 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
         instructions: [
           'Search or scroll to find the tournament you want',
           'Each tournament shows how many seasons are available',
+          'Selecting a tournament shows all seasons available for that tournament',
         ],
         tip: 'Number of different challenges played are shown for each tournament/season — try to finish all of them!',
-      },
-      {
-        header: 'Pick a Season',
-        instructions: [
-          'Select the season you want to simulate',
-        ]
       },
       {
         header: 'Pick a Team',
@@ -115,8 +110,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
           'Trade out weak players and bring in stronger ones from other teams',
           'You can trade up to 3 players, limited to 1 player from each opposing team - choose wisely',
           'You cannot trade a batter for a bowler or vice versa — roles must match',
-          'You need to have atleast 1 wicket keeper in your final XI',
-          'You can also reorder your batting lineup using arrows to the right of each player\'s slot'
+          'Click reorder lineup to change the batting order of your team',
         ],
         tip: 'Try to make it a perfect season with no losses!',
       },
@@ -150,8 +144,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
           'Trade out weak players and bring in stronger ones from other teams',
           'No limit on number of trades, but you can only trade 1 player from each team',
           'You cannot trade a batter for a bowler or vice versa — roles must match',
-          'You need to have atleast 1 wicket keeper in your final XI',
-          'You can also reorder your batting lineup using ↑ ↓ arrows'
+          'Click reorder lineup to change the batting order of your team'
         ],
         tip: 'Try to win the title with minimum trades!',
       },
@@ -166,22 +159,16 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
         instructions: [
           'Search or scroll to find the tournament you want',
           'Each tournament shows how many seasons are available',
+          'Selecting a tournament shows all seasons available for that tournament',
         ],
-      },
-      {
-        header: 'Pick a Season',
-        instructions: [
-          'Select the season you want to simulate',
-        ]
       },
       {
         header: 'Draft Your XI',
         instructions: [
           'Draft 11 players from available player pool',
-          'players already in opposition teams are not available',
+          'Players already in opposition teams are not available',
           'Tap a player to add them — tap × to remove',
-          'You need to have atleast 1 wicket keeper in your final XI',
-          'Use the ↑ ↓ arrows to reorder your batting lineup',
+          'Click reorder lineup to change the batting order of your team',
         ]
       }
     ],
@@ -202,7 +189,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
         header: '1v1 vs Tournament',
         instructions: [
           '1v1: two players each draft an XI, then play a single match',
-          'Tournament: everyone drafts an XI and teams compete in a full bracket',
+          'Tournament: everyone drafts an XI and teams compete in a full tournament',
         ]
       },
       {
@@ -223,7 +210,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
         header: 'Pick Order',
         instructions: [
           'Picks go in snake order: P1, P2, … then back in reverse',
-          'You have 60 seconds per pick before a player is auto-selected',
+          'You have 60 seconds per pick before a random player is auto-selected',
         ],
         tip: 'Watch the notification banner — it shows every pick as it happens',
       },
@@ -254,8 +241,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
         header: 'Standings',
         instructions: [
           'Full points table for all teams in the tournament',
-          'Top 4 teams (marked Q) qualify for the playoffs',
-          'NRR (net run rate) breaks ties on points',
+          ''
         ],
         tip: 'The winner row shows a trophy icon after playoffs complete',
       },

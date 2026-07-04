@@ -83,7 +83,12 @@ export const api = {
   }) => post<{ sim_id: string; status: string }>('/simulations/tournament', body),
 
   getSimStatus: (simId: string) =>
-    get<{ sim_id: string; status: string; error?: string }>(`/simulations/${simId}/status`),
+    get<{
+      sim_id: string; status: string; error?: string
+      matches_completed?: number; matches_total?: number
+      teams?: number; total_deliveries?: number
+      results?: { label: string; text: string }[]
+    }>(`/simulations/${simId}/status`),
 
   getSimResult: (simId: string, clientId?: string) => {
     const qs = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''

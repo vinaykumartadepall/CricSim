@@ -4,6 +4,9 @@ import type { SimSummary } from '@/types'
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function simPath(sim: SimSummary): string {
+  if (sim.status === 'running' || sim.status === 'pending') {
+    return `/simulating/${sim.sim_id}`
+  }
   if (sim.simulation_type === 'match' && sim.match_id) {
     return `/results/${sim.sim_id}/matches/${sim.match_id}`
   }
@@ -79,10 +82,11 @@ function RightChip({ sim }: { sim: SimSummary }) {
   if (sim.status === 'failed') {
     return <Chip bg="rgba(239,68,68,0.12)" color="var(--loss)">Failed</Chip>
   }
+  if (sim.status === 'running') {
+    return <Chip bg="rgba(245,158,11,0.12)" color="var(--score)">⏳ In progress</Chip>
+  }
   if (sim.status !== 'completed') {
-    return <Chip bg="rgba(245,158,11,0.12)" color="var(--score)">
-      {sim.status === 'running' ? 'Running…' : 'Pending'}
-    </Chip>
+    return <Chip bg="rgba(245,158,11,0.12)" color="var(--score)">Pending</Chip>
   }
 
   // Completed + placement

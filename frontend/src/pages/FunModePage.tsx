@@ -108,6 +108,21 @@ export function FunModePage() {
       .finally(() => setLoadingTournaments(false))
   }, [search])
 
+  // The try-again resume flow above jumps straight to 'team'/'squad' without going
+  // through selectTournamentName(), so `seasons` is never populated — backing up
+  // to the season step then shows an empty list. Fill it in once tournaments load,
+  // but only if nothing has set it yet (normal selectTournamentName() calls always
+  // take precedence once the user actually interacts with the flow).
+  useEffect(() => {
+    const s = location.state as any
+    if (!s?.tryAgain || !s?.tournamentName || seasons.length > 0 || tournaments.length === 0) return
+    const nameSeasons = tournaments
+      .filter(t => t.name === s.tournamentName)
+      .sort((a, b) => b.season.localeCompare(a.season))
+    setSeasons(nameSeasons)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tournaments])
+
   const grouped = tournaments.reduce<Record<string, Tournament[]>>((acc, t) => {
     if (!acc[t.name]) acc[t.name] = []
     acc[t.name].push(t)
