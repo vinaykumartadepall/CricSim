@@ -1,4 +1,4 @@
-import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody } from '@/types'
+import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse } from '@/types'
 import { supabase } from '@/lib/supabase'
 
 const BASE = '/cricsimapi'
@@ -39,6 +39,19 @@ async function authPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { detail?: string }).detail || `${res.status} ${res.statusText}`)
+  }
+  return res.json()
+}
+
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
   if (!res.ok) {
@@ -160,6 +173,20 @@ export const api = {
 
   getRoom: (roomId: string) =>
     get<RoomState>(`/multiplayer/rooms/${roomId}`),
+
+  // ── Admin endpoints (ops-only page, not linked from main nav) ───────────────
+
+  getAdminSettings: () =>
+    get<AdminSettings>('/admin/settings'),
+
+  setLogLevel: (level: string) =>
+    put<{ level: string }>('/admin/log-level', { level }),
+
+  setCacheStrategy: (strategy: string) =>
+    put<AdminCacheStrategyResponse>('/admin/cache-strategy', { strategy }),
+
+  setSimulationDefaults: (body: { outcome_strategy?: string; bowling_strategy?: string }) =>
+    put<AdminSimulationDefaultsResponse>('/admin/simulation-defaults', body),
 }
 
 export type { SwapEntry }

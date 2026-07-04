@@ -1,3 +1,4 @@
+import os
 from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
 
@@ -31,8 +32,76 @@ _FORMAT_ALIASES: Dict[str, List[str]] = {
 
 # ── Precomputed-table helpers ──────────────────────────────────────────────────
 
+# ── Cache retention strategy ────────────────────────────────────────────────
+#
+# _PRECOMPUTED_CACHE backs every lookup below, keyed by things like
+# ('pos', fmt, stat_type) or ('agg', fmt, gender). Every strategy subclasses
+# dict directly, so all the existing `key in _PRECOMPUTED_CACHE`,
+# `_PRECOMPUTED_CACHE[key]`, `.get(...)`, `.setdefault(...)`, `.clear()` call
+# sites throughout this file work unchanged no matter which strategy is active
+# — strategies only differ in *retention*, not in how they're read/written.
+#
+# - PersistentCacheStrategy (default, current behavior): entries live for the
+#   whole process lifetime until StatsRepository.clear_cache() is called (the
+#   low-RAM monitor in api/main.py). Best when many simulations reuse the same
+#   players/teams across separate runs, but can grow unbounded over a
+#   long-lived process — a single simulation job never sees it shrink.
+# - PerJobCacheStrategy: entries only live for the duration of one simulation
+#   job. StatsRepository.on_job_end() — called in the `finally` block of both
+#   run_match_job and run_tournament_job in api/worker.py, so it fires whether
+#   the job succeeds or fails — wipes it as soon as that job is done. Bounded,
+#   predictable footprint; the cache never sits around holding memory during
+#   idle gaps between simulations, and a failed job's entries don't linger
+#   either. Trades away cache reuse *across* separate simulations (each job
+#   re-fetches from the precomputed tables), while still fully reusing entries
+#   *within* one job (e.g. across every match of the same tournament, which
+#   touches the same ~100-400 players repeatedly).
+#
+# Selected via the STATS_CACHE_STRATEGY env var ("persistent" | "per_job");
+# defaults to "persistent" so existing deployments are unaffected unless they
+# opt in.
+#
+# Adding a future LRU strategy (bounded by entry count, evicting
+# least-recently-used) is a matter of adding another subclass here — override
+# __setitem__/__getitem__ to track recency and evict past a size cap, and
+# on_job_end() only if it should also reset per-job. No other file needs to
+# change.
+
+class _CacheStrategy(dict):
+    """Base class for _PRECOMPUTED_CACHE backends. Behaves exactly like a
+    plain dict — the only addition is the on_job_end() lifecycle hook."""
+
+    def on_job_end(self) -> None:
+        """Called once at the end of every simulation job (match or
+        tournament), whether it succeeded or failed. Base behavior is a
+        no-op; override to scope retention to a single job's lifetime."""
+
+
+class PersistentCacheStrategy(_CacheStrategy):
+    """Default: entries live for the process lifetime (original behavior)."""
+
+
+class PerJobCacheStrategy(_CacheStrategy):
+    """Entries only live for the duration of one simulation job."""
+
+    def on_job_end(self) -> None:
+        self.clear()
+
+
+_CACHE_STRATEGIES = {
+    'persistent': PersistentCacheStrategy,
+    'per_job':    PerJobCacheStrategy,
+}
+
+
+def _make_cache_strategy() -> _CacheStrategy:
+    name = os.getenv('STATS_CACHE_STRATEGY', 'persistent').strip().lower()
+    strategy_cls = _CACHE_STRATEGIES.get(name, PersistentCacheStrategy)
+    return strategy_cls()
+
+
 # Process-level cache: keyed by ('pos', fmt, stat_type) or ('pcs_venue', fmt, venue_id)
-_PRECOMPUTED_CACHE: Dict[Tuple, Any] = {}
+_PRECOMPUTED_CACHE: _CacheStrategy = _make_cache_strategy()
 
 _PHASE_STAT_TYPES: Dict[str, List[str]] = {
     'T20':  ['phase_pp1', 'phase_pp2', 'phase_mid1', 'phase_mid2', 'phase_death1', 'phase_death2'],
@@ -839,6 +908,37 @@ class StatsRepository:
         count = len(_PRECOMPUTED_CACHE)
         _PRECOMPUTED_CACHE.clear()
         return count
+
+    @classmethod
+    def on_job_end(cls) -> None:
+        """Notify the active cache strategy that a simulation job has ended
+        (success or failure). No-op under PersistentCacheStrategy; clears the
+        cache under PerJobCacheStrategy. Call from the `finally` block of every
+        simulation job (see api/worker.py) so it fires unconditionally."""
+        _PRECOMPUTED_CACHE.on_job_end()
+
+    @classmethod
+    def set_cache_strategy(cls, name: str) -> None:
+        """Hot-swap the active cache strategy at runtime — no restart required.
+        The new strategy always starts empty; entries from the old one are dropped
+        (matches what a restart would have done under STATS_CACHE_STRATEGY anyway)."""
+        global _PRECOMPUTED_CACHE
+        strategy_cls = _CACHE_STRATEGIES.get(name)
+        if strategy_cls is None:
+            raise ValueError(f"Unknown cache strategy {name!r}. Choose from {sorted(_CACHE_STRATEGIES)}.")
+        _PRECOMPUTED_CACHE = strategy_cls()
+
+    @classmethod
+    def get_cache_strategy_name(cls) -> str:
+        """Name of the currently active cache strategy ('persistent', 'per_job', ...)."""
+        for name, strategy_cls in _CACHE_STRATEGIES.items():
+            if isinstance(_PRECOMPUTED_CACHE, strategy_cls):
+                return name
+        return 'unknown'
+
+    @classmethod
+    def available_cache_strategies(cls) -> list:
+        return sorted(_CACHE_STRATEGIES)
 
     @classmethod
     def warm_all_caches(cls) -> None:

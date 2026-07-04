@@ -16,8 +16,9 @@ class MatchSimRequest(BaseModel):
     simulation_type: Literal["match"]
     match_format: str = "T20"
     venue: Optional[str] = None
-    bowling_strategy: str = "historical"
-    ball_outcome_strategy: str = "enhanced"
+    # None means "use the current admin-configured default" — see simulator.admin_settings
+    bowling_strategy: Optional[str] = None
+    ball_outcome_strategy: Optional[str] = None
     era_normalize_contexts: Optional[List[str]] = None
     team_a: TeamConfig
     team_b: TeamConfig
@@ -64,8 +65,9 @@ class TournamentSimRequest(BaseModel):
     format: str = "T20"
     gender: str = "male"
     season: str = "2025"
-    outcome_strategy: str = "enhanced"
-    bowling_strategy: str = "historical"
+    # None means "use the current admin-configured default" — see simulator.admin_settings
+    outcome_strategy: Optional[str] = None
+    bowling_strategy: Optional[str] = None
     era_normalize_contexts: Optional[List[str]] = None
     venues: List[TournamentVenueConfig] = Field(default_factory=list)
     teams: List[TournamentTeamConfig]

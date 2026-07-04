@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, TrendingDown, Search } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
+import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import { SquadEditor } from '@/components/SquadEditor'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistoryTeamBest } from '@/types'
@@ -205,7 +206,7 @@ export function ChallengeModePage() {
         })),
         batting_order: battingOrder.length > 0 ? battingOrder : undefined,
       })
-      navigate(`/results/${sim_id}`, {
+      navigate(`/simulating/${sim_id}`, {
         state: {
           origin: 'challenge',
           tournamentId: selectedEntry!.tournament_id,
@@ -252,10 +253,15 @@ export function ChallengeModePage() {
     return count <= overseas_limit
   }, [selectedTeam, swaps, allTeams, selectedTournament])
 
-  // Step-based help
+  // Step-based help: show the relevant slide the first time each step is reached
   useEffect(() => {
     const slide = CHALLENGE_STEP_SLIDE[step]
-    if (slide !== undefined) openHelp(slide, true)
+    if (slide === undefined) return
+    const key = `/challenge#${step}`
+    if (!hasSeenHelp(key)) {
+      markHelpSeen(key)
+      openHelp(slide, true)
+    }
   }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const stepIndex = STEP_ORDER.indexOf(step)

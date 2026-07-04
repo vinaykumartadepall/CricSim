@@ -3,17 +3,18 @@ import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useHelp } from '@/contexts/HelpContext'
-import { findHelpContent } from '@/config/helpContent'
+import { findMatchedHelp, hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 
 // Pages that manage their own step-based help triggers — skip pathname auto-open for these
 const STEP_BASED_PATHS = ['/fun', '/challenge', '/custom']
 
 export function HelpModal() {
-  const { helpOpen, closeHelp, openHelp, helpInitialSlide, helpSingleSlide, helpBlocked } = useHelp()
+  const { helpOpen, closeHelp, openHelp, helpInitialSlide, helpSingleSlide } = useHelp()
   const { pathname } = useLocation()
   const [index, setIndex] = useState(0)
 
-  const content = findHelpContent(pathname)
+  const matched = findMatchedHelp(pathname)
+  const content = matched?.content ?? null
 
   const isStepBased = STEP_BASED_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
 
@@ -26,16 +27,19 @@ export function HelpModal() {
   useEffect(() => { setIndex(0) }, [pathname])
 
   // Auto-open on page arrival, first visit only (non-stepped pages only).
-  // Deferred while the page signals helpBlocked (e.g. a simulation is still running).
+  // Keyed by the resolved content key (e.g. '/results'), NOT the raw pathname —
+  // dynamic routes like /results/:simId have a different pathname every time,
+  // which would defeat "first visit only" entirely if used directly.
+  // The "simulation still running" state lives on its own route (SimulatingPage)
+  // that has no registered help content, so there's no risk of popping up mid-run.
   useEffect(() => {
-    if (!content || isStepBased || helpBlocked) return
-    const key = `cricsim_help_seen_${pathname}`
-    if (!localStorage.getItem(key)) {
-      localStorage.setItem(key, '1')
+    if (!matched || isStepBased) return
+    if (!hasSeenHelp(matched.key)) {
+      markHelpSeen(matched.key)
       openHelp(0, false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, helpBlocked])
+  }, [pathname])
 
   if (!helpOpen || !content) return null
 

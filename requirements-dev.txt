@@ -2,6 +2,7 @@
 -r requirements.txt
 
 pytest            # Test runner
+httpx             # Required by fastapi.testclient.TestClient
 
 # Optional: developer analysis tools (tools/plot_*.py, tools/optimize_params.py)
 numpy

@@ -16,6 +16,7 @@ from typing import Any, Dict
 
 from db.simulation_repository import SimulationRepository
 from db.stats_repository import StatsRepository
+from simulator.admin_settings import get_admin_settings
 from simulator.logger import log_context
 from simulator.match_runner import MatchRunner
 from simulator.strategies.factory import resolve_venue
@@ -76,6 +77,7 @@ def run_match_job(sim_id: str, config: dict) -> None:
             repo.commit()
         finally:
             repo.close()
+            StatsRepository.on_job_end()
 
 
 def run_tournament_job(
@@ -155,6 +157,7 @@ def run_tournament_job(
             repo.commit()
         finally:
             repo.close()
+            StatsRepository.on_job_end()
 
 
 def _build_tournament_config(raw: dict) -> TournamentConfig:
@@ -208,8 +211,8 @@ def _build_tournament_config(raw: dict) -> TournamentConfig:
         teams=teams,
         schedule=schedule,
         playoffs=playoffs,
-        outcome_strategy=raw.get('outcome_strategy', 'enhanced'),
-        bowling_strategy=raw.get('bowling_strategy', 'historical'),
+        outcome_strategy=raw.get('outcome_strategy') or get_admin_settings().default_outcome_strategy,
+        bowling_strategy=raw.get('bowling_strategy') or get_admin_settings().default_bowling_strategy,
         era_normalize_contexts=list(ERA_NORMALIZE_ALL) if raw.get('era_normalize_contexts') is None else raw['era_normalize_contexts'],
     )
 

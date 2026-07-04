@@ -83,6 +83,11 @@ app.add_middleware(
 )
 
 app.include_router(admin_router)
+# Also mount under /cricsimapi — every other route the frontend calls goes through
+# this prefix (nginx proxies it in production), whereas bare /admin/* is only used
+# for direct ops access (curl/SSH). Registering both keeps the new Admin page
+# reachable from the browser without touching how /admin/* has always been used.
+app.include_router(admin_router, prefix="/cricsimapi")
 app.include_router(admin_squads_router)
 app.include_router(auth_router)
 app.include_router(lov_router)

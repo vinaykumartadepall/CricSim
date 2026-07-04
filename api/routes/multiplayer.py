@@ -454,8 +454,9 @@ def _run_simulation(room: RoomState) -> tuple:
                 "venues": venues,
                 "schedule": {"type": "double_round_robin", "matches_per_pair": 2},
                 "playoffs": {"format": playoffs_fmt, "top_n": 4},
-                "outcome_strategy": "enhanced",
-                "bowling_strategy": "historical",
+                # outcome_strategy/bowling_strategy intentionally omitted — worker.py's
+                # _build_tournament_config falls back to the current admin-configured
+                # default (simulator.admin_settings) when these are absent.
             }
             sim_id = repo.create_simulation("tournament", config, client_id=None, mode="multiplayer",
                                             participant_ids=participant_ids)

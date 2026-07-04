@@ -309,3 +309,25 @@ export interface RoomResponse extends RoomState {
   room_id: string
   tournament_name: string
 }
+
+export interface AdminSettings {
+  log_level: string
+  cache_strategy: string
+  available_cache_strategies: string[]
+  outcome_strategy: string
+  bowling_strategy: string
+  available_outcome_strategies: string[]
+  available_bowling_strategies: string[]
+}
+
+export interface AdminCacheStrategyResponse {
+  strategy: string
+  available: string[]
+}
+
+export interface AdminSimulationDefaultsResponse {
+  outcome_strategy: string
+  bowling_strategy: string
+  available_outcome_strategies: string[]
+  available_bowling_strategies: string[]
+}

@@ -321,14 +321,49 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
 // Path matching helper — exported for use in HelpModal
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function findHelpContent(pathname: string): HelpContent | null {
-  if (/\/results\/[^/]+\/matches\//.test(pathname)) return HELP_CONTENT['/results/matches'] ?? null
-  if (/\/multiplayer\/draft\//.test(pathname))       return HELP_CONTENT['/multiplayer/draft'] ?? null
-  if (/\/results\//.test(pathname))                  return HELP_CONTENT['/results'] ?? null
+export interface MatchedHelp {
+  key: string
+  content: HelpContent
+}
+
+// Returns both the resolved content AND the canonical key it matched under
+// (e.g. '/results', not the raw '/results/<simId>') — callers that track
+// "has this been seen before" (HelpModal) must key off this canonical form,
+// since the raw pathname is different for every simulation/match id and would
+// never repeat, defeating the "first visit only" check entirely.
+export function findMatchedHelp(pathname: string): MatchedHelp | null {
+  if (/\/results\/[^/]+\/matches\//.test(pathname)) {
+    const content = HELP_CONTENT['/results/matches']
+    return content ? { key: '/results/matches', content } : null
+  }
+  if (/\/multiplayer\/draft\//.test(pathname)) {
+    const content = HELP_CONTENT['/multiplayer/draft']
+    return content ? { key: '/multiplayer/draft', content } : null
+  }
+  if (/\/results\//.test(pathname)) {
+    const content = HELP_CONTENT['/results']
+    return content ? { key: '/results', content } : null
+  }
 
   const keys = Object.keys(HELP_CONTENT).sort((a, b) => b.length - a.length)
   for (const key of keys) {
-    if (pathname === key || pathname.startsWith(key + '/')) return HELP_CONTENT[key]
+    if (pathname === key || pathname.startsWith(key + '/')) return { key, content: HELP_CONTENT[key] }
   }
   return null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// "Seen" tracking — shared by HelpModal's generic auto-open AND the step-based
+// pages (Fun/Challenge/Custom mode) that call openHelp() directly per step.
+// Always key off a stable identifier (canonical content key, or `${path}#${step}`
+// for step-based pages) — never the raw pathname when it can contain a dynamic
+// id, or "first time only" silently turns into "every time".
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function hasSeenHelp(key: string): boolean {
+  return !!localStorage.getItem(`cricsim_help_seen_${key}`)
+}
+
+export function markHelpSeen(key: string): void {
+  localStorage.setItem(`cricsim_help_seen_${key}`, '1')
 }

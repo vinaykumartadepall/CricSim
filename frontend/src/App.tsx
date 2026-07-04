@@ -13,11 +13,13 @@ import { FunModePage } from '@/pages/FunModePage'
 import { ChallengeModePage } from '@/pages/ChallengeModePage'
 import { CustomModePage } from '@/pages/CustomModePage'
 import { ResultsPage } from '@/pages/ResultsPage'
+import { SimulatingPage } from '@/pages/SimulatingPage'
 import { MatchDetailPage } from '@/pages/MatchDetailPage'
 import { SimulationsPage } from '@/pages/SimulationsPage'
 import { StatsPage } from '@/pages/StatsPage'
 import { TitlesPage } from '@/pages/TitlesPage'
 import { ProfilePage } from '@/pages/ProfilePage'
+import { AdminPage } from '@/pages/AdminPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { MultiplayerLobbyPage } from '@/pages/MultiplayerLobbyPage'
 import { DraftPage } from '@/pages/DraftPage'
@@ -59,12 +61,14 @@ function AppShell() {
           <Route path="/fun"                                 element={<FunModePage />} />
           <Route path="/challenge"                           element={<ChallengeModePage />} />
           <Route path="/custom"                              element={<CustomModePage />} />
+          <Route path="/simulating/:simId"                   element={<SimulatingPage />} />
           <Route path="/results/:simId"                      element={<ResultsPage />} />
           <Route path="/results/:simId/matches/:matchId"     element={<MatchDetailPage />} />
           <Route path="/simulations"                         element={<SimulationsPage />} />
           <Route path="/stats"                               element={<StatsPage />} />
           <Route path="/stats/titles"                        element={<TitlesPage />} />
           <Route path="/profile"                             element={<ProfilePage />} />
+          <Route path="/admin"                                element={<AdminPage />} />
           <Route path="/multiplayer"                         element={<MultiplayerLobbyPage />} />
           <Route path="/multiplayer/draft/:roomId"           element={<DraftPage />} />
           <Route path="/join/:roomId"                        element={<MultiplayerLobbyPage />} />

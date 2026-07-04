@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { Trophy, TrendingUp, Swords, Star, RotateCcw, ChevronRight, X, Search } from 'lucide-react'
@@ -6,7 +6,6 @@ import { Spinner } from '@/components/ui/Spinner'
 import { PlayoffBracket } from '@/components/PlayoffBracket'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
-import { useHelp } from '@/contexts/HelpContext'
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
 import type {
   TournamentResult, LeaderboardsDashboard,
@@ -14,8 +13,6 @@ import type {
 } from '@/types'
 
 type Tab = 'standings' | 'leaderboards' | 'matches'
-
-const POLL_MS = 2500
 
 // ── Leaderboard modal ─────────────────────────────────────────────────────────
 
@@ -542,13 +539,15 @@ export function ResultsPage() {
   const scrollToMatchId = useRef<number | undefined>((locState.scrollTo as number) || undefined)
   const hasScrolled = useRef(false)
 
-  const { setHelpBlocked } = useHelp()
-  const [status, setStatus] = useState<'pending' | 'running' | 'completed' | 'failed'>('pending')
-  const [errorMsg, setErrorMsg] = useState('')
+  // Simulation lifecycle (pending/running/failed) is owned by SimulatingPage —
+  // by the time ResultsPage mounts normally, the sim is already completed.
+  // This local status only guards against direct navigation/bookmarks/refresh
+  // hitting /results/:simId before it's actually done, in which case we just
+  // redirect back to the dedicated loading page instead of rendering it here.
+  const [status, setStatus] = useState<'loading' | 'completed'>('loading')
   const [result, setResult] = useState<TournamentResult | null>(null)
   const [leaderboards, setLeaderboards] = useState<LeaderboardsDashboard | null>(null)
   const [matches, setMatches] = useState<MatchItem[]>([])
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const [tab, setTab] = useState<Tab>((locState.tab as Tab) ?? 'standings')
   const [activeLb, setActiveLb] = useState<string | null>(null)
@@ -569,46 +568,36 @@ export function ResultsPage() {
 
   useEffect(() => {
     if (!simId) return
-    async function fetchStatus() {
+    let cancelled = false
+    async function checkAndLoad() {
       try {
         const s = await api.getSimStatus(simId!)
-        if (s.status === 'completed') {
-          clearInterval(pollRef.current!)
-          setStatus('completed')
-          const clientId = getClientId()
-          const [r, lb, m] = await Promise.all([
-            api.getSimResult(simId!, clientId),
-            api.getLeaderboards(simId!),
-            api.getMatches(simId!),
-          ])
-          setResult(r)
-          setLeaderboards(lb)
-          setMatches(m)
-          // Pre-fetch lineups for team preview on points-table click
-          api.getLineups(simId!).then(l => setLineupTeams(l.teams)).catch(() => {/* non-critical */})
-        } else if (s.status === 'failed') {
-          clearInterval(pollRef.current!)
-          setStatus('failed')
-          setErrorMsg(s.error || 'Simulation failed')
-        } else {
-          setStatus(s.status as 'pending' | 'running')
+        if (cancelled) return
+        if (s.status !== 'completed') {
+          // Not actually done (direct nav/bookmark/refresh hit this too early,
+          // or the job failed) — SimulatingPage owns that UI, hand off to it.
+          navigate(`/simulating/${simId}`, { replace: true, state: location.state })
+          return
         }
-      } catch { /* keep polling */ }
+        setStatus('completed')
+        const clientId = getClientId()
+        const [r, lb, m] = await Promise.all([
+          api.getSimResult(simId!, clientId),
+          api.getLeaderboards(simId!),
+          api.getMatches(simId!),
+        ])
+        if (cancelled) return
+        setResult(r)
+        setLeaderboards(lb)
+        setMatches(m)
+        // Pre-fetch lineups for team preview on points-table click
+        api.getLineups(simId!).then(l => { if (!cancelled) setLineupTeams(l.teams) }).catch(() => {/* non-critical */})
+      } catch { /* transient error — user can refresh */ }
     }
-    fetchStatus()
-    pollRef.current = setInterval(fetchStatus, POLL_MS)
-    return () => clearInterval(pollRef.current!)
+    checkAndLoad()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [simId])
-
-  // Don't let the auto-help popup appear while the simulation is still running.
-  // useLayoutEffect (not useEffect) is required here: it runs synchronously for the
-  // whole tree before any passive effect fires, so HelpModal's own (passive) auto-open
-  // effect is guaranteed to see the up-to-date helpBlocked value on the very first
-  // render after navigating here, instead of racing it and opening before this can block it.
-  useLayoutEffect(() => {
-    setHelpBlocked(status === 'pending' || status === 'running')
-    return () => setHelpBlocked(false)
-  }, [status, setHelpBlocked])
 
   useEffect(() => {
     if (tab === 'matches' && scrollToMatchId.current && !hasScrolled.current && matches.length > 0) {
@@ -632,26 +621,10 @@ export function ResultsPage() {
     if (!qualified) setStandingsSubTab('table')
   }, [result, matches])
 
-  if (status === 'pending' || status === 'running') {
+  if (status === 'loading') {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] gap-4">
-        <div className="pulse-accent w-16 h-16 rounded-full flex items-center justify-center"
-          style={{ border: '2px solid var(--accent)' }}>
-          <Spinner size={28} />
-        </div>
-        <div className="text-base font-medium" style={{ color: 'var(--text)' }}>Simulating tournament…</div>
-        <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Running ball-by-ball. Takes 10–30 seconds.</div>
-      </div>
-    )
-  }
-
-  if (status === 'failed') {
-    return (
-      <div className="max-w-md mx-auto px-4 py-16 text-center">
-        <div className="text-4xl mb-4">⚠</div>
-        <div className="text-base font-medium mb-2" style={{ color: 'var(--text)' }}>Simulation failed</div>
-        <div className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>{errorMsg}</div>
-        <button className="btn-outline" onClick={() => navigate('/')}>Back to home</button>
+        <Spinner size={28} />
       </div>
     )
   }

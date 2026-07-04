@@ -15,6 +15,7 @@ import logging
 from typing import Optional
 
 from db.stats_repository import StatsRepository
+from simulator.admin_settings import get_admin_settings
 from simulator.engines.engine_factory import EngineFactory
 from simulator.entities.match import SimulationMatch
 from simulator.entities.rules import MatchRules
@@ -51,11 +52,12 @@ class MatchRunner:
             raise ValueError(f"Unknown format '{fmt}'. Must be one of: {list(FORMAT_SETTINGS)}")
         self._fmt = fmt
 
+        admin = get_admin_settings()
         self._outcome_strat = OutcomeStrategyFactory.for_name(
-            config.get("ball_outcome_strategy", "historical"), fmt
+            config.get("ball_outcome_strategy") or admin.default_outcome_strategy, fmt
         )
         self._bowling_strat = BowlingStrategyFactory.for_name(
-            config.get("bowling_strategy", "historical"), fmt
+            config.get("bowling_strategy") or admin.default_bowling_strategy, fmt
         )
 
     @classmethod

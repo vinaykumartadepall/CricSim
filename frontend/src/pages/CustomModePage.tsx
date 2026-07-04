@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Search, ArrowUp, ArrowDown, X } from 'lucide
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
+import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import type { Tournament, Team, Player, MultiplayerPlayer } from '@/types'
 
@@ -367,11 +368,17 @@ export function CustomModePage() {
     return map
   }, [allTeams, selectedTeam])
 
-  // Step-based help (draft step auto-shows slide 1; other steps show slide 0)
+  // Step-based help (draft step auto-shows slide 1; other steps show slide 0),
+  // shown the first time each step is reached
   useEffect(() => {
     const slideMap: Partial<Record<Step, number>> = { tournament: 0, draft: 1 }
     const slide = slideMap[step]
-    if (slide !== undefined) openHelp(slide, true)
+    if (slide === undefined) return
+    const key = `/custom#${step}`
+    if (!hasSeenHelp(key)) {
+      markHelpSeen(key)
+      openHelp(slide, true)
+    }
   }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -453,7 +460,7 @@ export function CustomModePage() {
         swaps: [],
         batting_order: battingOrder,
       })
-      navigate(`/results/${sim_id}`, {
+      navigate(`/simulating/${sim_id}`, {
         state: {
           origin: 'custom',
           tournamentId: selectedSeason.tournament_id,

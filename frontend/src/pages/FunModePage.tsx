@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
+import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import { SquadEditor } from '@/components/SquadEditor'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest } from '@/types'
@@ -184,7 +185,7 @@ export function FunModePage() {
         })),
         batting_order: battingOrder.length > 0 ? battingOrder : undefined,
       })
-      navigate(`/results/${sim_id}`, {
+      navigate(`/simulating/${sim_id}`, {
         state: {
           origin: 'fun',
           tournamentId: selectedSeason!.tournament_id,
@@ -200,10 +201,15 @@ export function FunModePage() {
     }
   }
 
-  // Step-based help: show the relevant slide when navigating to each step
+  // Step-based help: show the relevant slide the first time each step is reached
   useEffect(() => {
     const slide = FUN_STEP_SLIDE[step]
-    if (slide !== undefined) openHelp(slide, true)
+    if (slide === undefined) return
+    const key = `/fun#${step}`
+    if (!hasSeenHelp(key)) {
+      markHelpSeen(key)
+      openHelp(slide, true)
+    }
   }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasKeeper = useMemo(() => {

@@ -96,6 +96,10 @@ class OutcomeStrategyFactory(ABC):
     def register(cls, name: str, factory_cls: type[OutcomeStrategyFactory]) -> None:
         cls._registry[name] = factory_cls
 
+    @classmethod
+    def available_names(cls) -> list[str]:
+        return sorted(cls._registry)
+
 
 class HistoricalOutcomeFactory(OutcomeStrategyFactory):
     """Historical RMS ball-outcome model."""
@@ -145,6 +149,10 @@ class BowlingStrategyFactory(ABC):
     @classmethod
     def register(cls, name: str, factory_cls: type[BowlingStrategyFactory]) -> None:
         cls._registry[name] = factory_cls
+
+    @classmethod
+    def available_names(cls) -> list[str]:
+        return sorted(cls._registry)
 
 
 class HistoricalBowlingFactory(BowlingStrategyFactory):
