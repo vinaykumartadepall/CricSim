@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -311,8 +311,21 @@ async def _start_simulation(room: RoomState):
         return
     room.status = "simulating"
     await draft_manager.broadcast(room, {"type": "sim_started", "data": {}})
+
+    loop = asyncio.get_event_loop()
+
+    def on_sim_created(sim_id: str) -> None:
+        # _run_simulation runs in a worker thread — hop back onto the event
+        # loop to broadcast, so clients can hand off to the shared
+        # "simulating" page immediately instead of waiting the full 10-30s
+        # for the simulation itself to finish.
+        asyncio.run_coroutine_threadsafe(
+            draft_manager.broadcast(room, {"type": "sim_created", "data": {"sim_id": sim_id}}),
+            loop,
+        )
+
     try:
-        sim_id, match_id = await asyncio.get_event_loop().run_in_executor(None, _run_simulation, room)
+        sim_id, match_id = await loop.run_in_executor(None, _run_simulation, room, on_sim_created)
         room.sim_id = sim_id
         room.status = "completed"
         await draft_manager.broadcast(room, {
@@ -394,7 +407,7 @@ def _venues_for_format(fmt: str) -> list[dict]:
     return [{"name": n} for n in names]
 
 
-def _run_simulation(room: RoomState) -> tuple:
+def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> tuple:
     """Build a tournament/match config and kick off the simulation synchronously."""
     from api.worker import run_tournament_job, run_match_job
     from db.simulation_repository import SimulationRepository
@@ -432,6 +445,7 @@ def _run_simulation(room: RoomState) -> tuple:
             sim_id = repo.create_simulation("match", config, client_id=None, mode="multiplayer",
                                             participant_ids=participant_ids)
             repo.commit()
+            on_sim_created(sim_id)
             run_match_job(sim_id, config)
 
             # Create one game_session per participant now that simulation.teams rows exist
@@ -463,6 +477,7 @@ def _run_simulation(room: RoomState) -> tuple:
             sim_id = repo.create_simulation("tournament", config, client_id=None, mode="multiplayer",
                                             participant_ids=participant_ids)
             repo.commit()
+            on_sim_created(sim_id)
             run_tournament_job(sim_id, config, user_team_name=None)
 
             # Create one game_session per participant now that simulation.teams rows exist

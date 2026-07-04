@@ -85,6 +85,7 @@ export const api = {
   getSimStatus: (simId: string) =>
     get<{
       sim_id: string; status: string; error?: string
+      simulation_type?: string; match_id?: number
       matches_completed?: number; matches_total?: number
       teams?: number; total_deliveries?: number
       results?: { label: string; text: string; home: string; away: string }[]

@@ -218,10 +218,21 @@ def get_status(sim_id: str):
         sim = repo.get_simulation(sim_id)
         if not sim:
             raise HTTPException(status_code=404, detail="Simulation not found")
+
+        result = {
+            "sim_id": sim_id, "status": sim["status"], "error": sim.get("error_message"),
+            "simulation_type": sim.get("simulation_type"),
+        }
+        # Only a completed match sim has a match_id — used by callers (e.g. the
+        # multiplayer 1v1 flow) to know to route to the match detail page
+        # instead of the tournament results page once the sim finishes.
+        if sim["status"] == "completed" and sim.get("simulation_type") == "match":
+            matches = repo.get_matches_for_sim(sim_id)
+            if matches:
+                result["match_id"] = matches[0]["match_id"]
     finally:
         repo.close()
 
-    result = {"sim_id": sim_id, "status": sim["status"], "error": sim.get("error_message")}
     progress = get_tournament_progress(sim_id)
     if progress is not None:
         result["matches_completed"] = progress["completed"]

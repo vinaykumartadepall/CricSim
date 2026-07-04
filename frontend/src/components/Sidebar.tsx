@@ -1,12 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { X, Home, BarChart2, Clock, Check, UserCircle, Palette, ChevronRight } from 'lucide-react'
+import { X, Home, BarChart2, Clock, UserCircle } from 'lucide-react'
 import { useSidebar } from '@/contexts/SidebarContext'
-import { useTheme } from '@/hooks/useTheme'
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
-import { useAuth } from '@/contexts/AuthContext'
 import logoUrl from '@/assets/logo.png'
-import type { Theme } from '@/types'
 
 const SERIF = "'DM Serif Display', Georgia, 'Times New Roman', serif"
 const SANS  = "'DM Sans', system-ui, sans-serif"
@@ -18,29 +15,10 @@ const NAV_ITEMS = [
   { path: '/profile',     icon: UserCircle,  label: 'Profile'        },
 ]
 
-const THEMES: { key: Theme; label: string; dot: string }[] = [
-  { key: 'ember-amber',   label: 'Amber',   dot: '#FFB700' },
-  { key: 'ember-emerald', label: 'Emerald', dot: '#0ECB81' },
-  { key: 'ember-crimson', label: 'Crimson', dot: '#E8364F' },
-  { key: 'ember-ice',     label: 'Ice',     dot: '#4FACFF' },
-]
-
-function initials(name: string): string {
-  return name
-    .split(/[\s_]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(w => w[0].toUpperCase())
-    .join('')
-}
-
 export function Sidebar() {
   const { open, closeSidebar } = useSidebar()
-  const { theme, setTheme }    = useTheme()
-  const { displayName }        = useAuth()
   const navigate  = useNavigate()
   const location  = useLocation()
-  const [themeOpen, setThemeOpen] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -51,13 +29,7 @@ export function Sidebar() {
 
   useBodyScrollLock(open)
 
-  // Close theme panel when sidebar closes
-  useEffect(() => { if (!open) setThemeOpen(false) }, [open])
-
   if (!open) return null
-
-  const abbr = initials(displayName)
-  const currentTheme = THEMES.find(t => t.key === theme)
 
   const navItemStyle = (active: boolean) => ({
     display: 'flex', alignItems: 'center', gap: 10,
@@ -131,86 +103,11 @@ export function Sidebar() {
               </button>
             )
           })}
-
-          {/* Theme — expandable nav item */}
-          <button
-            onClick={() => setThemeOpen(o => !o)}
-            style={navItemStyle(false)}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'none'}
-          >
-            <Palette size={16} />
-            <span style={{ flex: 1 }}>Theme</span>
-            {currentTheme && !themeOpen && (
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: currentTheme.dot, flexShrink: 0 }} />
-            )}
-            <ChevronRight
-              size={13}
-              style={{
-                color: 'var(--text-dim)', flexShrink: 0,
-                transform: themeOpen ? 'rotate(90deg)' : 'none',
-                transition: 'transform 0.18s',
-              }}
-            />
-          </button>
-
-          {/* Theme options — inline expansion */}
-          {themeOpen && (
-            <div style={{ paddingLeft: 10, paddingBottom: 4, display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {THEMES.map(t => (
-                <button
-                  key={t.key}
-                  onClick={() => setTheme(t.key)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '9px 12px', borderRadius: 7,
-                    background: t.key === theme ? 'var(--surface-2)' : 'none',
-                    border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left',
-                    color: t.key === theme ? 'var(--text)' : 'var(--text-muted)',
-                    fontSize: 13, transition: 'background 0.12s',
-                  }}
-                  onMouseEnter={e => { if (t.key !== theme) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)' }}
-                  onMouseLeave={e => { if (t.key !== theme) (e.currentTarget as HTMLElement).style.background = 'none' }}
-                >
-                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: t.dot, flexShrink: 0 }} />
-                  <span style={{ flex: 1 }}>{t.label}</span>
-                  {t.key === theme && <Check size={12} style={{ color: 'var(--accent)', flexShrink: 0 }} />}
-                </button>
-              ))}
-            </div>
-          )}
         </nav>
-
-        {/* User profile */}
-        <div style={{
-          marginTop: 'auto',
-          borderTop: '1px solid var(--border)',
-          padding: '16px 16px',
-          flexShrink: 0,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              width: 40, height: 40, borderRadius: '50%',
-              background: 'var(--accent)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 14, fontWeight: 700, color: 'var(--bg)',
-              flexShrink: 0,
-            }}>
-              {abbr}
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{
-                fontSize: 14, fontWeight: 600, color: 'var(--text)',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {displayName}
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* Attribution footer */}
         <div style={{
+          marginTop: 'auto',
           borderTop: '1px solid var(--border)',
           padding: '10px 16px',
           fontSize: 10, color: 'var(--text-dim)',

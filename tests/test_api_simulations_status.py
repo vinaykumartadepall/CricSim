@@ -14,11 +14,15 @@ from api.main import app
 
 
 class _FakeSimulationRepository:
-    def __init__(self, sim_row):
+    def __init__(self, sim_row, matches=None):
         self._sim_row = sim_row
+        self._matches = matches or []
 
     def get_simulation(self, sim_id: str):
         return self._sim_row
+
+    def get_matches_for_sim(self, sim_id: str):
+        return self._matches
 
     def close(self):
         pass
@@ -75,3 +79,52 @@ class TestStatusRoute:
         resp = client.get("/cricsimapi/simulations/does-not-exist/status")
 
         assert resp.status_code == 404
+
+    def test_includes_match_id_for_completed_match_sim(self, client, monkeypatch):
+        monkeypatch.setattr(
+            sim_routes, "SimulationRepository",
+            lambda: _FakeSimulationRepository(
+                {"status": "completed", "error_message": None, "simulation_type": "match"},
+                matches=[{"match_id": 42}],
+            ),
+        )
+        monkeypatch.setattr(sim_routes, "get_tournament_progress", lambda sim_id: None)
+
+        resp = client.get("/cricsimapi/simulations/some-sim/status")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["simulation_type"] == "match"
+        assert body["match_id"] == 42
+
+    def test_omits_match_id_while_match_sim_still_running(self, client, monkeypatch):
+        monkeypatch.setattr(
+            sim_routes, "SimulationRepository",
+            lambda: _FakeSimulationRepository(
+                {"status": "running", "error_message": None, "simulation_type": "match"},
+                matches=[{"match_id": 42}],
+            ),
+        )
+        monkeypatch.setattr(sim_routes, "get_tournament_progress", lambda sim_id: None)
+
+        resp = client.get("/cricsimapi/simulations/some-sim/status")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "match_id" not in body
+
+    def test_omits_match_id_for_completed_tournament_sim(self, client, monkeypatch):
+        monkeypatch.setattr(
+            sim_routes, "SimulationRepository",
+            lambda: _FakeSimulationRepository(
+                {"status": "completed", "error_message": None, "simulation_type": "tournament"},
+            ),
+        )
+        monkeypatch.setattr(sim_routes, "get_tournament_progress", lambda sim_id: None)
+
+        resp = client.get("/cricsimapi/simulations/some-sim/status")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["simulation_type"] == "tournament"
+        assert "match_id" not in body

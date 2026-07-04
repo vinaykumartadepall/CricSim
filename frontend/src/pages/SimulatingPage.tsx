@@ -157,7 +157,11 @@ export function SimulatingPage() {
         const s = await api.getSimStatus(simId!)
         if (s.status === 'completed') {
           clearInterval(pollRef.current!)
-          navigate(`/results/${simId}`, { replace: true, state: location.state })
+          if (s.simulation_type === 'match' && s.match_id) {
+            navigate(`/results/${simId}/matches/${s.match_id}`, { replace: true, state: location.state })
+          } else {
+            navigate(`/results/${simId}`, { replace: true, state: location.state })
+          }
         } else if (s.status === 'failed') {
           clearInterval(pollRef.current!)
           setStatus('failed')

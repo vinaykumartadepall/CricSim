@@ -150,8 +150,8 @@ function TournamentStatsPanel({ sims, showByMode, hideSeasons, navigate }: {
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 14 }}>Placement Breakdown</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <PlacementBar label="🏆 Winner"     count={s.titles}   total={s.withPlacement} color="var(--score)" />
-          <PlacementBar label="🥈 Runner-up"  count={s.runnerUp} total={s.withPlacement} color="var(--accent)" />
-          <PlacementBar label="🏅 Playoffs"   count={s.playoffs} total={s.withPlacement} color="var(--win)" />
+          <PlacementBar label="🥈 Runner-up"  count={s.runnerUp} total={s.withPlacement} color="#C0C0C0" />
+          <PlacementBar label="🏅 Playoffs"   count={s.playoffs} total={s.withPlacement} color="#CD7F32" />
           <PlacementBar label="   Group exit" count={s.group}    total={s.withPlacement} color="var(--border)" />
         </div>
       </div>

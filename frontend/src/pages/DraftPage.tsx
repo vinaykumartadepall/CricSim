@@ -627,7 +627,7 @@ function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady,
 export function DraftPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate   = useNavigate()
-  const { clientId } = useAuth()
+  const { clientId, displayName } = useAuth()
   const { openHelp } = useHelp()
 
   // WebSocket refs
@@ -646,8 +646,6 @@ export function DraftPage() {
 
   // Sim result
   const [simId, setSimId]       = useState<string | null>(null)
-  const [matchId, setMatchId]   = useState<number | null>(null)
-  const [simMode, setSimMode]   = useState<string | null>(null)
 
   // Connection status
   const [connStatus, setConnStatus] = useState<'connecting' | 'connected' | 'reconnecting' | 'dead'>('connecting')
@@ -780,12 +778,16 @@ export function DraftPage() {
         setRoom(prev => prev ? { ...prev, status: 'simulating' } : prev)
         break
       }
-      case 'sim_result': {
-        const { sim_id, mode, match_id } = msg.data as { sim_id: string; mode: string; match_id: number | null }
+      case 'sim_created': {
+        // Hand off to the shared SimulatingPage as soon as the sim_id exists —
+        // don't wait for the whole simulation (which can take 10-30s) to finish
+        // just to show a bare spinner here in the meantime.
+        const { sim_id } = msg.data as { sim_id: string }
         setSimId(sim_id)
-        setMatchId(match_id)
-        setSimMode(mode)
-        setRoom(prev => prev ? { ...prev, status: 'completed' } : prev)
+        // teamName is read by SimulatingPage; userTeam/backPath are read by
+        // MatchDetailPage once SimulatingPage hands off to it on completion
+        // (only relevant for 1v1 — tournament results ignore these).
+        navigate(`/simulating/${sim_id}`, { state: { teamName: displayName, userTeam: displayName, backPath: '/' } })
         break
       }
       case 'error': {
@@ -795,7 +797,7 @@ export function DraftPage() {
         break
       }
     }
-  }, [clientId])
+  }, [clientId, displayName, navigate])
 
   // Auto-open pick panel when it becomes my turn
   useEffect(() => {
@@ -806,21 +808,6 @@ export function DraftPage() {
       setPickPanelOpen(true)
     }
   }, [room?.current_picker, room?.picks_made, room?.status, clientId])
-
-  // Auto-navigate when simulation completes
-  useEffect(() => {
-    if (room?.status !== 'completed' || !simId) return
-    const myMember = room.members.find(m => m.client_id === clientId)
-    const myTeamName = myMember?.display_name || null
-    const t = setTimeout(() => {
-      if (simMode === '1v1' && matchId) {
-        navigate(`/results/${simId}/matches/${matchId}`, { state: { backPath: '/', userTeam: myTeamName } })
-      } else {
-        navigate(`/results/${simId}`)
-      }
-    }, 1000)
-    return () => clearTimeout(t)
-  }, [room?.status, simId, matchId, simMode, navigate, clientId])
 
   // Show the draft help once, only while still in the waiting room — never
   // once drafting has actually started (that's the whole point of excluding
@@ -1109,21 +1096,20 @@ export function DraftPage() {
                 </span>
               </div>
             ) : null}
-            <CopyButton text={room.room_id} label={room.room_id} />
           </div>
         </div>
 
         {/* Team chips */}
         <TeamChips room={room} clientId={clientId} viewingId={viewingId} onSelect={setViewingId} />
 
-        {/* Keeper warning (my team only) */}
-        {isViewingMyTeam && !hasKeeper && mySquadOrder.length >= 8 && (
+        {/* Keeper warning (my team only) — from the 6th pick onwards, not just once overdue */}
+        {isViewingMyTeam && !hasKeeper && mySquadOrder.length >= 5 && (
           <div className="flex-shrink-0 mx-3 mt-2 px-3 py-2 rounded-lg text-xs flex items-center gap-2"
             style={{ background: 'rgba(245,158,11,0.08)', color: 'var(--score)', border: '1px solid rgba(245,158,11,0.2)' }}>
             <AlertTriangle size={12} />
             {11 - mySquadOrder.length === 1 && isMyTurn
               ? 'Last pick — must choose a keeper!'
-              : `${11 - mySquadOrder.length} picks left — don't forget a keeper`}
+              : "No keeper yet — don't forget one"}
           </div>
         )}
 
