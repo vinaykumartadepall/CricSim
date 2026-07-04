@@ -434,7 +434,7 @@ class StatsRepository:
 
         c_list = countries if countries else [country]
 
-        cached = self._load_player_country_stats_cache(match_format)
+        cached = self._ensure_in_country_stats_cache(player_ids, match_format)
         if not cached:
             return {}
 
@@ -703,67 +703,84 @@ class StatsRepository:
             for r in rows
         }
 
-    def _load_roles_cache(self) -> Dict[int, dict]:
-        """Load player roles (is_keeper, is_spinner) from player_scalar_stats; process-level cache."""
-        cache_key = ('roles',)
-        if cache_key in _PRECOMPUTED_CACHE:
-            return _PRECOMPUTED_CACHE[cache_key]
-        if not self.conn:
-            _PRECOMPUTED_CACHE[cache_key] = {}
-            return {}
+    def _ensure_in_roles_cache(self, player_ids: List[int]) -> Dict[int, dict]:
+        """Lazy-load player roles (is_keeper, is_spinner) for specific players only. Merges into existing cache."""
+        full_key = ('roles',)
+        loaded_key = ('roles_loaded_pids',)
+        if not player_ids or not self.conn:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
+        loaded_pids: set = _PRECOMPUTED_CACHE.get(loaded_key, set())
+        missing = [pid for pid in player_ids if pid not in loaded_pids]
+        if not missing:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
         rows = self._run_query(
             "SELECT player_id, data FROM history.player_scalar_stats "
-            "WHERE stat_type = 'roles' AND match_format = 'any'",
-            (),
+            "WHERE stat_type = 'roles' AND match_format = 'any' AND player_id = ANY(%s)",
+            (missing,),
         )
-        result: Dict[int, dict] = {int(pid): data for pid, data in rows if data}
-        _PRECOMPUTED_CACHE[cache_key] = result
-        return result
+        dest = _PRECOMPUTED_CACHE.setdefault(full_key, {})
+        for pid, data in rows:
+            if data:
+                dest[int(pid)] = data
+        loaded_pids.update(missing)
+        _PRECOMPUTED_CACHE[loaded_key] = loaded_pids
+        return dest
 
     # ── Bowling-strategy precomputed read methods ──────────────────────────────
 
-    def _load_workload_cache(self, match_format: str) -> Dict[int, dict]:
-        """All workload scalars for this format; process-level cache."""
-        cache_key = ('workload_pc', match_format)
-        if cache_key in _PRECOMPUTED_CACHE:
-            return _PRECOMPUTED_CACHE[cache_key]
-        if not self.conn:
-            _PRECOMPUTED_CACHE[cache_key] = {}
-            return {}
+    def _ensure_in_workload_cache(self, player_ids: List[int], match_format: str) -> Dict[int, dict]:
+        """Lazy-load workload scalars for specific players only. Merges into existing cache."""
+        full_key = ('workload_pc', match_format)
+        loaded_key = ('workload_pc_loaded_pids', match_format)
+        if not player_ids or not self.conn:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
+        loaded_pids: set = _PRECOMPUTED_CACHE.get(loaded_key, set())
+        missing = [pid for pid in player_ids if pid not in loaded_pids]
+        if not missing:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
         rows = self._run_query(
             "SELECT player_id, data FROM history.player_scalar_stats "
-            "WHERE match_format = %s AND stat_type = 'workload'",
-            (match_format,),
+            "WHERE match_format = %s AND stat_type = 'workload' AND player_id = ANY(%s)",
+            (match_format, missing),
         )
-        result: Dict[int, dict] = {int(pid): data for pid, data in rows if data}
-        _PRECOMPUTED_CACHE[cache_key] = result
-        return result
+        dest = _PRECOMPUTED_CACHE.setdefault(full_key, {})
+        for pid, data in rows:
+            if data:
+                dest[int(pid)] = data
+        loaded_pids.update(missing)
+        _PRECOMPUTED_CACHE[loaded_key] = loaded_pids
+        return dest
 
-    def _load_bowler_order_cache(self, match_format: str, dist_type: str) -> Dict[Tuple, Dict[int, dict]]:
+    def _ensure_in_bowler_order_cache(
+        self, player_ids: List[int], match_format: str, dist_type: str
+    ) -> Dict[Tuple, Dict[int, dict]]:
         """
-        Loads all non-venue/non-country rows from bowler_order_stats for this
-        (format, dist_type) and returns {(match_type, inning_number): {pid: probs_dict}}.
-        Process-level cache.
+        Lazy-load non-venue/non-country rows from bowler_order_stats for specific
+        players only, for this (format, dist_type). Merges into existing cache.
+        Returns {(match_type, inning_number): {pid: probs_dict}}.
         """
-        cache_key = ('bowler_order_pc', match_format, dist_type)
-        if cache_key in _PRECOMPUTED_CACHE:
-            return _PRECOMPUTED_CACHE[cache_key]
-        if not self.conn:
-            _PRECOMPUTED_CACHE[cache_key] = {}
-            return {}
+        full_key = ('bowler_order_pc', match_format, dist_type)
+        loaded_key = ('bowler_order_pc_loaded_pids', match_format, dist_type)
+        if not player_ids or not self.conn:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
+        loaded_pids: set = _PRECOMPUTED_CACHE.get(loaded_key, set())
+        missing = [pid for pid in player_ids if pid not in loaded_pids]
+        if not missing:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
         rows = self._run_query(
             "SELECT player_id, match_type, inning_number, probs "
             "FROM history.bowler_order_stats "
             "WHERE match_format = %s AND dist_type = %s "
-            "AND venue_id IS NULL AND country IS NULL",
-            (match_format, dist_type),
+            "AND venue_id IS NULL AND country IS NULL AND player_id = ANY(%s)",
+            (match_format, dist_type, missing),
         )
-        result: Dict[Tuple, Dict[int, dict]] = {}
+        dest = _PRECOMPUTED_CACHE.setdefault(full_key, {})
         for pid, mt, inn, probs in rows:
             if probs:
-                result.setdefault((mt, int(inn)), {})[int(pid)] = probs
-        _PRECOMPUTED_CACHE[cache_key] = result
-        return result
+                dest.setdefault((mt, int(inn)), {})[int(pid)] = probs
+        loaded_pids.update(missing)
+        _PRECOMPUTED_CACHE[loaded_key] = loaded_pids
+        return dest
 
     @staticmethod
     def _matchup_scalars(probs_raw: dict, ball_count: int) -> dict:
@@ -832,7 +849,7 @@ class StatsRepository:
         self, player_ids: List[int], match_format: str
     ) -> Dict[int, dict]:
         """Precomputed workload stats filtered to player_ids. Never queries deliveries."""
-        full = self._load_workload_cache(match_format)
+        full = self._ensure_in_workload_cache(player_ids, match_format)
         pid_set = set(player_ids)
         return {pid: data for pid, data in full.items() if pid in pid_set}
 
@@ -841,7 +858,7 @@ class StatsRepository:
         match_type: str = 'all', inning_number: int = 0,
     ) -> Dict[int, Dict[int, float]]:
         """Precomputed over-frequency for T20/ODI. Returns {pid: {over_key: frac}}."""
-        full = self._load_bowler_order_cache(match_format, 'over_freq')
+        full = self._ensure_in_bowler_order_cache(player_ids, match_format, 'over_freq')
         pid_set = set(player_ids)
         slot = full.get((match_type, inning_number), {})
         return {pid: {int(k): float(v) for k, v in data.items()}
@@ -852,42 +869,46 @@ class StatsRepository:
         match_type: str = 'all', inning_number: int = 0,
     ) -> Dict[int, Dict[str, float]]:
         """Precomputed phase-overs distribution for T20/ODI. Returns {pid: {pp/mid/death: avg}}."""
-        full = self._load_bowler_order_cache(match_format, 'phase_dist')
+        full = self._ensure_in_bowler_order_cache(player_ids, match_format, 'phase_dist')
         pid_set = set(player_ids)
         slot = full.get((match_type, inning_number), {})
         return {pid: {str(k): float(v) for k, v in data.items()}
                 for pid, data in slot.items() if pid in pid_set}
 
-    def _load_test_phase_freq_cache(self) -> Dict[int, Dict]:
+    def _ensure_in_test_phase_freq_cache(self, player_ids: List[int]) -> Dict[int, Dict]:
         """
-        Loads Test bowler phase-frequency from bowler_order_stats (dist_type='test_phase_freq').
+        Lazy-load Test bowler phase-frequency for specific players only, from
+        bowler_order_stats (dist_type='test_phase_freq'). Merges into existing cache.
         Returns {player_id: {'n': int, 'buckets': {innings_bucket: {phase_idx: float}}}}.
-        Process-level cache; never queries history.deliveries.
+        Never queries history.deliveries.
         """
-        cache_key = ('test_phase_freq_pc',)
-        if cache_key in _PRECOMPUTED_CACHE:
-            return _PRECOMPUTED_CACHE[cache_key]
-        if not self.conn:
-            _PRECOMPUTED_CACHE[cache_key] = {}
-            return {}
+        full_key = ('test_phase_freq_pc',)
+        loaded_key = ('test_phase_freq_pc_loaded_pids',)
+        if not player_ids or not self.conn:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
+        loaded_pids: set = _PRECOMPUTED_CACHE.get(loaded_key, set())
+        missing = [pid for pid in player_ids if pid not in loaded_pids]
+        if not missing:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
         rows = self._run_query(
             "SELECT player_id, probs "
             "FROM history.bowler_order_stats "
             "WHERE match_format = 'Test' AND dist_type = 'test_phase_freq' "
             "AND match_type = 'all' AND inning_number = 0 "
-            "AND venue_id IS NULL AND country IS NULL",
-            (),
+            "AND venue_id IS NULL AND country IS NULL AND player_id = ANY(%s)",
+            (missing,),
         )
-        result: Dict[int, Dict] = {}
+        dest = _PRECOMPUTED_CACHE.setdefault(full_key, {})
         for pid, probs in rows:
             if probs:
                 # Convert string keys back to ints for buckets and phases
                 buckets = {}
                 for ib_str, phases in probs.get('buckets', {}).items():
                     buckets[int(ib_str)] = {int(ph): float(frac) for ph, frac in phases.items()}
-                result[int(pid)] = {'n': int(probs.get('n', 0)), 'buckets': buckets}
-        _PRECOMPUTED_CACHE[cache_key] = result
-        return result
+                dest[int(pid)] = {'n': int(probs.get('n', 0)), 'buckets': buckets}
+        loaded_pids.update(missing)
+        _PRECOMPUTED_CACHE[loaded_key] = loaded_pids
+        return dest
 
     def get_bowler_test_phase_frequency_precomputed(
         self, player_ids: List[int],
@@ -897,7 +918,7 @@ class StatsRepository:
         Returns {pid: {'n': int, 'buckets': {innings_bucket: {phase_idx: float}}}}.
         Never queries history.deliveries.
         """
-        full = self._load_test_phase_freq_cache()
+        full = self._ensure_in_test_phase_freq_cache(player_ids)
         pid_set = set(player_ids)
         return {pid: data for pid, data in full.items() if pid in pid_set}
 
@@ -956,6 +977,14 @@ class StatsRepository:
         Pre-populate _PRECOMPUTED_CACHE for all formats and genders at server startup.
         After this runs, every init_model call in EnhancedStrategy and the bowling
         model returns from dict — no DB round-trip on any subsequent request.
+
+        NOT called anywhere in production (deliberately lazy — see project memory);
+        kept for local benchmarking only. Only warms the caches that still have a
+        genuine full-table variant (player_outcome_stats, matchup aggregates) —
+        roles/workload/bowler_order/test_phase_freq were converted to
+        per-player-scoped lazy caches (_ensure_in_*) to fix a real production RAM
+        issue and no longer support a "load everything" mode; they warm themselves
+        naturally as real player_ids are requested during simulations.
         """
         import time
         repo = cls()
@@ -972,12 +1001,7 @@ class StatsRepository:
                            + _PHASE_STAT_TYPES.get(fmt, [])
                            + _MILESTONE_STAT_TYPES):
                     repo._load_player_stat_cache(fmt, st)
-            repo._load_workload_cache(fmt)
             repo._load_matchup_aggregate_cache(fmt)
-        for fmt in ('T20', 'ODI'):
-            for dist_type in ('over_freq', 'phase_dist'):
-                repo._load_bowler_order_cache(fmt, dist_type)
-        repo._load_test_phase_freq_cache()
         from simulator.logger import get_logger
         get_logger().warning("[StartupWarm] All caches loaded in %.2fs", time.perf_counter() - t0)
 
@@ -985,7 +1009,7 @@ class StatsRepository:
         """Returns player_ids who are wicket-keepers, using precomputed roles."""
         if not player_ids or not self.conn:
             return set()
-        roles = self._load_roles_cache()
+        roles = self._ensure_in_roles_cache(player_ids)
         if roles:
             return {pid for pid in player_ids if roles.get(pid, {}).get('is_keeper', False)}
         query = """
@@ -1007,7 +1031,7 @@ class StatsRepository:
         """Returns spinners from precomputed roles, falling back to delivery stumping counts."""
         if not bowler_ids or not self.conn:
             return set()
-        roles = self._load_roles_cache()
+        roles = self._ensure_in_roles_cache(bowler_ids)
         if roles:
             return {pid for pid in bowler_ids if roles.get(pid, {}).get('is_spinner', False)}
         format_filter = ""
@@ -1037,15 +1061,30 @@ class StatsRepository:
         """
         Returns {player_id: {'death_sr': float, 'boundary_rate': float, 'balls': int}}.
         Derived from precomputed player_outcome_stats death phases — zero deliveries access.
-        Bulk-loaded once per process per (format, gender) and cached.
+        Lazily computed per requested player, merged into a process-level cache.
+
+        Used to bulk-load phase_death1/phase_death2 for every player who's ever
+        played this format via the unscoped _load_player_stat_cache, then filter
+        to batter_ids only at the end — the filtering happened too late to avoid
+        the cost. Now sources from _ensure_in_stat_cache (already correctly
+        player-scoped) and only derives death_sr/boundary_rate for players not
+        already merged.
         """
-        cache_key = ('batter_death_stats', match_format, gender)
-        if cache_key not in _PRECOMPUTED_CACHE:
+        full_key = ('batter_death_stats', match_format, gender)
+        loaded_key = ('batter_death_stats_loaded_pids', match_format, gender)
+        full: Dict[int, Dict[str, float]] = _PRECOMPUTED_CACHE.setdefault(full_key, {})
+        loaded_pids: set = _PRECOMPUTED_CACHE.get(loaded_key, set())
+        missing = [pid for pid in batter_ids if pid not in loaded_pids]
+        if missing:
             death_phases = [t for t in ('phase_death1', 'phase_death2')
                             if t in _PHASE_STAT_TYPES.get(match_format, [])]
-            merged: Dict[int, Dict[str, float]] = {}
             for st in death_phases:
-                for pid, (probs, _, balls) in self._load_player_stat_cache(match_format, st).items():
+                stat_cache = self._ensure_in_stat_cache(missing, match_format, st)
+                for pid in missing:
+                    entry = stat_cache.get(pid)
+                    if not entry:
+                        continue
+                    probs, _, balls = entry
                     if balls < 6 or not probs:
                         continue
                     non_extra_prob = sum(p for (rb, re, ot, _), p in probs.items() if ot != 'Extras')
@@ -1054,11 +1093,11 @@ class StatsRepository:
                     exp_rb = sum(rb * p for (rb, re, ot, _), p in probs.items())
                     death_sr = (exp_rb / non_extra_prob) * 100.0
                     boundary_rate = sum(p for (rb, re, ot, _), p in probs.items() if rb >= 4)
-                    existing = merged.get(pid)
+                    existing = full.get(pid)
                     if existing is None or balls > existing['balls']:
-                        merged[pid] = {'death_sr': death_sr, 'boundary_rate': boundary_rate, 'balls': balls}
-            _PRECOMPUTED_CACHE[cache_key] = merged
-        full = _PRECOMPUTED_CACHE[cache_key]
+                        full[pid] = {'death_sr': death_sr, 'boundary_rate': boundary_rate, 'balls': balls}
+            loaded_pids.update(missing)
+            _PRECOMPUTED_CACHE[loaded_key] = loaded_pids
         return {pid: full[pid] for pid in batter_ids if pid in full}
 
     def get_bowler_career_stats(
@@ -1100,30 +1139,45 @@ class StatsRepository:
         Returns {player_id: {phase: {'economy': float, 'wicket_rate': float, 'balls': int}}}.
         Phases: 'powerplay', 'middle', 'death'.
         Derived from precomputed player_outcome_stats bowling-role phases — zero deliveries access.
-        Bulk-loaded once per process per (format, gender) and cached.
+        Lazily computed per requested player, merged into a process-level cache.
+
+        Used to bulk-load every phase stat_type for every player who's ever
+        bowled in this format via the unscoped _load_player_stat_cache — measured
+        at 1.24GB for T20 alone (43,431 rows across all players), the single
+        largest contributor found to the production swap-thrashing issue. Now
+        sources from _ensure_in_stat_cache (already correctly player-scoped) and
+        only derives economy/wicket_rate for players not already merged.
         """
-        cache_key = ('bowler_phase_stats', match_format, gender)
-        if cache_key not in _PRECOMPUTED_CACHE:
+        full_key = ('bowler_phase_stats', match_format, gender)
+        loaded_key = ('bowler_phase_stats_loaded_pids', match_format, gender)
+        full: Dict[int, Dict[str, Dict[str, float]]] = _PRECOMPUTED_CACHE.setdefault(full_key, {})
+        loaded_pids: set = _PRECOMPUTED_CACHE.get(loaded_key, set())
+        missing = [pid for pid in bowler_ids if pid not in loaded_pids]
+        if missing:
             # Use the bowling stat type from player_outcome_stats to derive per-phase aggregates.
             # Economy = E[runs_batter + runs_extras] * 6; wicket_rate = P(Wicket).
             stat_types = _PHASE_STAT_TYPES.get(match_format, [])
-            merged: Dict[int, Dict[str, Dict[str, float]]] = {}
             for st in stat_types:
                 broad_phase = self._SUPER_OVER_PHASE_MAP.get(st)
                 if not broad_phase:
                     continue
-                for pid, (probs, _, balls) in self._load_player_stat_cache(match_format, st).items():
+                stat_cache = self._ensure_in_stat_cache(missing, match_format, st)
+                for pid in missing:
+                    entry = stat_cache.get(pid)
+                    if not entry:
+                        continue
+                    probs, _, balls = entry
                     if balls < 6 or not probs:
                         continue
                     economy = sum((rb + re) * p for (rb, re, ot, _), p in probs.items()) * 6.0
                     wicket_rate = sum(p for (rb, re, ot, _), p in probs.items() if ot == 'Wicket')
-                    existing = merged.setdefault(pid, {}).get(broad_phase)
+                    existing = full.setdefault(pid, {}).get(broad_phase)
                     if existing is None or balls > existing['balls']:
-                        merged[pid][broad_phase] = {
+                        full[pid][broad_phase] = {
                             'economy': economy, 'wicket_rate': wicket_rate, 'balls': balls,
                         }
-            _PRECOMPUTED_CACHE[cache_key] = merged
-        full = _PRECOMPUTED_CACHE[cache_key]
+            loaded_pids.update(missing)
+            _PRECOMPUTED_CACHE[loaded_key] = loaded_pids
         return {pid: full[pid] for pid in bowler_ids if pid in full}
 
     def get_batter_bowler_matchups(
@@ -2187,27 +2241,38 @@ class StatsRepository:
         """, (player_ids, raw_fmts, gender))
         return {pid: int(cnt) for pid, cnt in rows}
 
-    def _load_player_country_stats_cache(self, match_format: str) -> Dict[Tuple, Tuple]:
-        """Bulk-load player_context_stats for country context; keyed by (player_id, country)."""
-        cache_key = ('pcs_country', match_format)
-        if cache_key in _PRECOMPUTED_CACHE:
-            return _PRECOMPUTED_CACHE[cache_key]
-        if not self.conn:
-            _PRECOMPUTED_CACHE[cache_key] = {}
-            return {}
+    def _ensure_in_country_stats_cache(self, player_ids: List[int], match_format: str) -> Dict[Tuple, Tuple]:
+        """
+        Lazy-load player_context_stats (country context) for specific players only.
+        Merges into existing cache; keyed by (player_id, country).
+
+        This used to be an unscoped bulk load of the whole table (854MB / 8,592
+        players for T20 alone, confirmed by measurement, when a typical tournament
+        only needs ~200) — converted to the same per-player lazy pattern already
+        used correctly by _ensure_in_stat_cache / _ensure_in_matchup_agg_cache.
+        """
+        full_key = ('pcs_country', match_format)
+        loaded_key = ('pcs_country_loaded_pids', match_format)
+        if not player_ids or not self.conn:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
+        loaded_pids: set = _PRECOMPUTED_CACHE.get(loaded_key, set())
+        missing = [pid for pid in player_ids if pid not in loaded_pids]
+        if not missing:
+            return _PRECOMPUTED_CACHE.get(full_key, {})
         rows = self._run_query(
             "SELECT player_id, country, probs_raw, probs_era, ball_count "
             "FROM history.player_context_stats "
-            "WHERE match_format = %s AND context_type = 'country'",
-            (match_format,),
+            "WHERE match_format = %s AND context_type = 'country' AND player_id = ANY(%s)",
+            (match_format, missing),
         )
-        result: Dict[Tuple, tuple] = {}
+        dest = _PRECOMPUTED_CACHE.setdefault(full_key, {})
         for pid, country, raw_j, era_j, count in rows:
             raw = _json_to_prob_dict(raw_j)
             if raw:
-                result[(int(pid), country)] = (raw, _json_to_prob_dict(era_j), int(count))
-        _PRECOMPUTED_CACHE[cache_key] = result
-        return result
+                dest[(int(pid), country)] = (raw, _json_to_prob_dict(era_j), int(count))
+        loaded_pids.update(missing)
+        _PRECOMPUTED_CACHE[loaded_key] = loaded_pids
+        return dest
 
     def _load_aggregate_cache(self, match_format: str, gender: str) -> Dict[str, Any]:
         """Bulk-load history.aggregate_stats for a format/gender; cached at process level.
