@@ -20,7 +20,6 @@ Scoring is decomposed into four explicit factors, applied by each subclass:
 Format-specific weights live entirely in each subclass's _score_and_breakdown() method.
 """
 
-import logging
 import math
 import time
 from abc import abstractmethod
@@ -31,7 +30,7 @@ from simulator.entities.inning_player import InningPlayer
 from simulator.entities.match import SimulationMatch
 from simulator.entities.rules import MatchRules
 from simulator.strategies.bowling.strategy_interface import BowlingStrategy
-from simulator.logger import get_logger
+from simulator.logger import TRACE, get_logger, is_level_active
 
 log = get_logger()
 
@@ -284,19 +283,19 @@ class HistoricalBowlingBase(BowlingStrategy):
         if not eligible:
             return match.current_bowler
 
-        debug = log.isEnabledFor(logging.DEBUG)
+        trace_on = is_level_active(TRACE)
         scored    = []
         breakdown = {}
 
         for ip in eligible:
             total, factors = self._score_and_breakdown(ip, match)
             scored.append((ip, total))
-            if debug:
+            if trace_on:
                 breakdown[ip.id] = factors
 
         scored.sort(key=lambda x: x[1], reverse=True)
 
-        if debug:
+        if trace_on:
             self._log_selection(match, scored, breakdown)
 
         return scored[0][0]
@@ -319,7 +318,7 @@ class HistoricalBowlingBase(BowlingStrategy):
             )
 
         team_name = getattr(match.current_bowling_team, 'name', '?')
-        log.debug(
+        log.trace(
             "[BowlingSelection] Inn%d Ov%d — %s:\n%s\n    → %s",
             len(match.innings), match.current_over + 1,
             team_name, "\n".join(lines), scored[0][0].name,

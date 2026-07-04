@@ -33,7 +33,7 @@ from simulator.strategies.ball_outcome_prediction.common.utils import (
     load_venue_distribution,
     load_tournament_distribution,
 )
-from simulator.logger import get_logger
+from simulator.logger import TRACE, get_logger, is_level_active
 
 log = get_logger()
 
@@ -200,15 +200,21 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         innings_outcome_probs = self.innings_cache.get(current_inning, self.baseline_outcome_probs)
         over_outcome_probs    = self.overs_cache.get(current_over, self.baseline_outcome_probs)
 
-        log.debug(
-            f"{'─'*70}\n"
-            f"  BALL  {ball_label}  |  Batter: {batter_name}  vs  Bowler: {bowler_name}\n"
-            f"{'─'*70}"
-        )
-        log.debug(f"  [Batter cache hit?  {'YES' if batter and batter.id in self.batter_cache else 'NO — using baseline'}]")
-        log.debug(f"  [Bowler cache hit?  {'YES' if bowler and bowler.id in self.bowler_cache else 'NO — using baseline'}]")
-        log.debug(f"  [Venue cache hit?   {'YES' if self.venue_cache else 'NO — using baseline'}]")
-        log.debug(f"  [Over  cache hit?   {'YES' if current_over in self.overs_cache else 'NO — using baseline'}]")
+        # TRACE only — these were previously plain f-strings passed to log.debug(),
+        # which (unlike %s-style lazy formatting) get fully evaluated regardless of
+        # whether the level is enabled. Gating explicitly avoids that cost on every
+        # single delivery when trace-level detail isn't being requested.
+        trace_on = is_level_active(TRACE)
+        if trace_on:
+            log.trace(
+                f"{'─'*70}\n"
+                f"  BALL  {ball_label}  |  Batter: {batter_name}  vs  Bowler: {bowler_name}\n"
+                f"{'─'*70}"
+            )
+            log.trace(f"  [Batter cache hit?  {'YES' if batter and batter.id in self.batter_cache else 'NO — using baseline'}]")
+            log.trace(f"  [Bowler cache hit?  {'YES' if bowler and bowler.id in self.bowler_cache else 'NO — using baseline'}]")
+            log.trace(f"  [Venue cache hit?   {'YES' if self.venue_cache else 'NO — using baseline'}]")
+            log.trace(f"  [Over  cache hit?   {'YES' if current_over in self.overs_cache else 'NO — using baseline'}]")
 
         all_outcome_keys = set(self.baseline_outcome_probs.keys())
         all_outcome_keys.update(
@@ -223,12 +229,13 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         ordered_keys     = list(all_outcome_keys)
         combined_weights = []
 
-        log.debug(
-            f"\n  {'OUTCOME KEY':<45} {'BASE':>7} {'BAT':>7} {'BOWL':>7} "
-            f"{'VEN':>7} {'OVR':>7} {'INN':>7} {'TRN':>7}  "
-            f"{'mBAT':>6} {'mBOL':>6} {'mOVR':>6}   {'FINAL':>8}"
-        )
-        log.debug(f"  {'-'*140}")
+        if trace_on:
+            log.trace(
+                f"\n  {'OUTCOME KEY':<45} {'BASE':>7} {'BAT':>7} {'BOWL':>7} "
+                f"{'VEN':>7} {'OVR':>7} {'INN':>7} {'TRN':>7}  "
+                f"{'mBAT':>6} {'mBOL':>6} {'mOVR':>6}   {'FINAL':>8}"
+            )
+            log.trace(f"  {'-'*140}")
 
         for outcome_key in ordered_keys:
             baseline_prob = self.baseline_outcome_probs.get(outcome_key, 0.0001)
@@ -258,11 +265,12 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
             )
             combined_weights.append(final_weight)
 
-            log.debug(
-                f"  {str(outcome_key):<45} {baseline_prob:>7.4f} {batter_prob:>7.4f} {bowler_prob:>7.4f} "
-                f"{venue_prob:>7.4f} {over_prob:>7.4f} {innings_prob:>7.4f} {tournament_prob:>7.4f}  "
-                f"{multiplier_batter:>6.3f} {multiplier_bowler:>6.3f} {multiplier_over:>6.3f}   {final_weight:>8.5f}"
-            )
+            if trace_on:
+                log.trace(
+                    f"  {str(outcome_key):<45} {baseline_prob:>7.4f} {batter_prob:>7.4f} {bowler_prob:>7.4f} "
+                    f"{venue_prob:>7.4f} {over_prob:>7.4f} {innings_prob:>7.4f} {tournament_prob:>7.4f}  "
+                    f"{multiplier_batter:>6.3f} {multiplier_bowler:>6.3f} {multiplier_over:>6.3f}   {final_weight:>8.5f}"
+                )
 
         if getattr(match, 'is_free_hit', False):
             combined_weights = apply_free_hit_modifier(combined_weights, ordered_keys)
@@ -278,10 +286,11 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
 
         runs_batter, runs_extras, outcome_type, outcome_kind = selected_key
 
-        log.debug(
-            f"\n  ▶ SELECTED: {str(selected_key):<45}  "
-            f"norm_prob = {selected_prob:.5f}  ({selected_prob*100:.2f}%)"
-        )
+        if trace_on:
+            log.trace(
+                f"\n  ▶ SELECTED: {str(selected_key):<45}  "
+                f"norm_prob = {selected_prob:.5f}  ({selected_prob*100:.2f}%)"
+            )
 
         outcome_player = self._assign_fielder(outcome_type, outcome_kind, bowler, bowler_name, match)
 

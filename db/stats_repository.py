@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
@@ -176,7 +177,7 @@ except ImportError:
 
 import threading
 
-from simulator.logger import get_logger
+from simulator.logger import get_logger, is_level_active
 
 _repo_log = get_logger()
 
@@ -267,6 +268,15 @@ class StatsRepository:
         with StatsRepository._query_lock:
             try:
                 cur = self.conn.cursor()
+                # INFO, not DEBUG/TRACE — those levels are dominated by extremely
+                # high-volume per-ball/per-over strategy dumps elsewhere in the
+                # codebase; INFO keeps query visibility usable without that noise.
+                if is_level_active(logging.INFO):
+                    try:
+                        rendered = cur.mogrify(query, params).decode('utf-8', 'replace')
+                    except Exception:
+                        rendered = query
+                    get_logger().info("SQL: %s", rendered)
                 cur.execute(query, params)
                 res = cur.fetchall()
                 cur.close()

@@ -154,11 +154,11 @@ export function AdminPage() {
           <>
             <Section
               title="Log level"
-              description="Minimum level written to simulation.log. errors.log always stays at WARNING regardless of this setting."
+              description="Minimum level written to simulation.log. errors.log always stays at WARNING regardless of this setting. TRACE enables extremely high-volume per-ball/per-over strategy dumps — use only for a short, targeted window, not an extended test."
               error={errors.log_level}
             >
               <OptionRow
-                options={['DEBUG', 'INFO', 'WARNING', 'ERROR']}
+                options={['TRACE', 'DEBUG', 'INFO', 'WARNING', 'ERROR']}
                 active={settings.log_level}
                 disabled={saving === 'log_level'}
                 onSelect={updateLogLevel}

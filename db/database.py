@@ -1,6 +1,37 @@
+import logging
 import os
 import psycopg2
 from psycopg2 import sql
+
+from simulator.logger import get_logger, is_level_active
+
+
+def make_query_logging_cursor(base_cursor_cls):
+    """
+    Wrap a psycopg2 cursor class so every .execute() call logs the fully
+    rendered SQL (query text with parameters substituted in) at INFO level.
+
+    Deliberately INFO, not DEBUG/TRACE — this codebase's DEBUG/TRACE levels
+    are dominated by extremely high-volume per-ball/per-over strategy dumps
+    (see simulator/logger.py's level table), which would drown out query
+    visibility entirely if SQL logging shared that level. INFO is enabled by
+    default, so query visibility doesn't require opting into that noise.
+
+    The active sim_id/match_id (set via simulator.logger.log_context, e.g. in
+    api/worker.py's run_match_job/run_tournament_job) is injected into the log
+    line automatically by the existing ContextFilter — callers never need to
+    pass it explicitly.
+    """
+    class _QueryLoggingCursor(base_cursor_cls):
+        def execute(self, query, vars=None):
+            if is_level_active(logging.INFO):
+                try:
+                    rendered = self.mogrify(query, vars).decode('utf-8', 'replace')
+                except Exception:
+                    rendered = query
+                get_logger().info("SQL: %s", rendered)
+            return super().execute(query, vars)
+    return _QueryLoggingCursor
 
 # DATABASE_URL takes precedence (standard format used by all hosting platforms).
 # Falls back to individual DB_* vars for local dev without a URL.

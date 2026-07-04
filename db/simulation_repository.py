@@ -28,9 +28,10 @@ from __future__ import annotations
 import json
 from typing import Dict, List, Optional
 
+import psycopg2.extensions
 import psycopg2.extras
 
-from db.database import get_db_connection
+from db.database import get_db_connection, make_query_logging_cursor
 from simulator.entities.match import SimulationMatch
 from simulator.entities.team import MatchTeam
 from simulator.entities.inning import Inning
@@ -114,11 +115,15 @@ _PLACEMENT_RANK = """
 """
 
 
+_LoggingCursor     = make_query_logging_cursor(psycopg2.extensions.cursor)
+_LoggingDictCursor = make_query_logging_cursor(psycopg2.extras.RealDictCursor)
+
+
 class SimulationRepository:
     def __init__(self):
         self.conn = get_db_connection(autocommit=False)
-        self.cur  = self.conn.cursor()
-        self._dict_cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        self.cur  = self.conn.cursor(cursor_factory=_LoggingCursor)
+        self._dict_cur = self.conn.cursor(cursor_factory=_LoggingDictCursor)
 
     @property
     def dict_cursor(self):

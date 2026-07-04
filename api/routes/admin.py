@@ -16,7 +16,7 @@ from simulator.strategies.factory import BowlingStrategyFactory, OutcomeStrategy
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-_VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
+_VALID_LEVELS = {"TRACE", "DEBUG", "INFO", "WARNING", "ERROR"}
 
 
 class LogLevelRequest(BaseModel):
@@ -39,7 +39,9 @@ def put_log_level(body: LogLevelRequest):
     Change the minimum level written to simulation.log at runtime.
     errors.log is always fixed at WARNING and is unaffected.
 
-    Valid levels: DEBUG | INFO | WARNING | ERROR
+    Valid levels: TRACE | DEBUG | INFO | WARNING | ERROR
+    TRACE enables extremely high-volume per-ball/per-over strategy dumps —
+    only use it for a short, targeted debugging window, not a load test.
     """
     level = body.level.upper()
     if level not in _VALID_LEVELS:

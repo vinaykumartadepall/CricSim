@@ -44,7 +44,6 @@ Additional improvements:
   full SimulationMatch object.
 """
 
-import logging
 import math
 import random
 from abc import abstractmethod
@@ -65,7 +64,7 @@ from simulator.strategies.ball_outcome_prediction.common.utils import (
     load_venue_distribution,
     load_tournament_distribution,
 )
-from simulator.logger import get_logger
+from simulator.logger import TRACE, get_logger, is_level_active
 from simulator.strategies.bowling.historical.base import _region_countries
 
 log = get_logger()
@@ -1117,9 +1116,8 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         selected_key: tuple,
         pressure: PressureContext,
     ) -> None:
-        # Logger is always at DEBUG level to not block handlers; check handler levels directly.
-        if not any(h.level <= logging.DEBUG for h in log.handlers):
-            return
+        # No handler-level check needed here — the only caller (predict_next_ball)
+        # already gates on is_level_active(TRACE) before invoking this at all.
         thresholds  = _RELIABILITY_THRESHOLDS.get(self._match_format, _RELIABILITY_THRESHOLDS['T20'])
         base_w      = self.WEIGHTS
 
@@ -1230,7 +1228,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         )
         lines.append(SEP)
 
-        log.debug("\n".join(lines))
+        log.trace("\n".join(lines))
 
     # ── Prediction ─────────────────────────────────────────────────────────────
 
@@ -1324,7 +1322,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         phase       = MatchRules.get_fine_grained_phase(over, self._match_format)
         milestone   = _get_milestone(batter_runs)
 
-        if log.isEnabledFor(logging.DEBUG):
+        if is_level_active(TRACE):
             self._log_prediction_detail(
                 ball_label   = ball_label,
                 batter_name  = batter_name,

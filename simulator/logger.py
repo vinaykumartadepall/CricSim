@@ -2,8 +2,15 @@
 Application-level logger for the cricket simulator.
 
 Log levels:
-  DEBUG   10  per-ball commentary, over summaries, probability tables, cache timing
-  INFO    20  match headlines, scorecard summaries, lifecycle events
+  TRACE    5  per-ball/per-over probability tables (outcome distribution dumps,
+              bowling-selection scoring breakdowns) — extremely high volume,
+              meant for a developer debugging one match closely, not for
+              leaving on during a multi-simulation run or load test
+  DEBUG   10  moderate per-ball detail, cache timing
+  INFO    20  match headlines, scorecard summaries, lifecycle events, SQL
+              queries (see db/database.py's make_debug_logging_cursor and
+              db/stats_repository.py's _run_query) — kept out of DEBUG/TRACE
+              so query visibility doesn't require wading through the above
   WARNING 30  data issues: player not in cache, venue not found, fallback activated
   ERROR   40  unexpected failures that may affect simulation correctness
 
@@ -18,7 +25,7 @@ Usage:
 
 Runtime level switching (API):
   from simulator.logger import set_log_level
-  set_log_level("DEBUG")   # accepts DEBUG / INFO / WARNING / ERROR
+  set_log_level("DEBUG")   # accepts TRACE / DEBUG / INFO / WARNING / ERROR
 
 Log files (server mode, set up by configure_logger()):
   logs/simulation.log   configurable level (default INFO), 20MB × 10 = 200MB max
@@ -32,6 +39,18 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from logging.handlers import RotatingFileHandler
 from typing import Generator, Optional
+
+TRACE = 5
+logging.addLevelName(TRACE, "TRACE")
+logging.TRACE = TRACE  # so getattr(logging, "TRACE") resolves like the built-in levels
+
+
+def _trace(self: logging.Logger, message, *args, **kwargs):
+    if self.isEnabledFor(TRACE):
+        self._log(TRACE, message, args, **kwargs)
+
+
+logging.Logger.trace = _trace  # type: ignore[attr-defined]
 
 CONSOLE = 25
 logging.addLevelName(CONSOLE, "CONSOLE")
@@ -110,6 +129,21 @@ def get_current_log_level() -> str:
     return "INFO"
 
 
+def is_level_active(level: int) -> bool:
+    """
+    Whether ANY attached handler would actually persist a record at this level.
+
+    Use this — not logger.isEnabledFor() — to guard expensive log-line construction
+    (e.g. building a per-ball probability table before calling log.trace(...)).
+    isEnabledFor() only reflects the logger's own floor, which is deliberately kept
+    at the lowest possible level (TRACE) so each handler can be switched
+    independently at runtime; it would report "enabled" even when every handler's
+    actual level is well above what you're checking for.
+    """
+    logger = get_logger()
+    return any(h.level <= level for h in logger.handlers)
+
+
 def get_logger() -> logging.Logger:
     """Returns the singleton application logger, creating it on first call."""
     global _logger
@@ -117,7 +151,12 @@ def get_logger() -> logging.Logger:
         return _logger
 
     _logger = logging.getLogger("cricket_sim")
-    _logger.setLevel(logging.DEBUG)
+    # Floor is kept at the lowest level (TRACE) deliberately — every handler
+    # (console, simulation.log, errors.log) sets its OWN level independently
+    # and switches at runtime via set_log_level(); if the logger itself were
+    # capped at DEBUG, TRACE-level records would never even reach a handler
+    # to be filtered, regardless of that handler's configured level.
+    _logger.setLevel(TRACE)
 
     if _logger.hasHandlers():
         return _logger
