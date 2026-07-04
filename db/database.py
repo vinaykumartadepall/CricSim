@@ -6,6 +6,10 @@ from psycopg2 import sql
 from simulator.logger import get_logger, is_level_active
 
 
+def _is_insert_query(query) -> bool:
+    return str(query).lstrip().upper().startswith("INSERT")
+
+
 def make_query_logging_cursor(base_cursor_cls):
     """
     Wrap a psycopg2 cursor class so every .execute() call logs the fully
@@ -17,6 +21,13 @@ def make_query_logging_cursor(base_cursor_cls):
     visibility entirely if SQL logging shared that level. INFO is enabled by
     default, so query visibility doesn't require opting into that noise.
 
+    INSERTs are skipped entirely — bulk inserts (e.g. save_deliveries, writing
+    every ball of a match in one statement) render via mogrify() with every
+    row's literal values embedded, producing a single log line thousands of
+    lines long. Confirmed in practice: one such INSERT consumed most of a
+    12MB capture and only explained 549 of its ~258k lines. Everything else
+    (SELECT, UPDATE, ...) still logs normally.
+
     The active sim_id/match_id (set via simulator.logger.log_context, e.g. in
     api/worker.py's run_match_job/run_tournament_job) is injected into the log
     line automatically by the existing ContextFilter — callers never need to
@@ -24,7 +35,7 @@ def make_query_logging_cursor(base_cursor_cls):
     """
     class _QueryLoggingCursor(base_cursor_cls):
         def execute(self, query, vars=None):
-            if is_level_active(logging.INFO):
+            if is_level_active(logging.INFO) and not _is_insert_query(query):
                 try:
                     rendered = self.mogrify(query, vars).decode('utf-8', 'replace')
                 except Exception:
