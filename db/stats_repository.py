@@ -268,15 +268,16 @@ class StatsRepository:
         with StatsRepository._query_lock:
             try:
                 cur = self.conn.cursor()
-                # INFO, not DEBUG/TRACE — those levels are dominated by extremely
-                # high-volume per-ball/per-over strategy dumps elsewhere in the
-                # codebase; INFO keeps query visibility usable without that noise.
-                if is_level_active(logging.INFO):
+                # DEBUG, not TRACE — TRACE is dominated by extremely high-volume
+                # per-ball/per-over strategy dumps elsewhere in the codebase;
+                # DEBUG keeps query visibility usable without that noise, opt-in
+                # rather than cluttering the default (INFO) log output.
+                if is_level_active(logging.DEBUG):
                     try:
                         rendered = cur.mogrify(query, params).decode('utf-8', 'replace')
                     except Exception:
                         rendered = query
-                    get_logger().info("SQL: %s", rendered)
+                    get_logger().debug("SQL: %s", rendered)
                 cur.execute(query, params)
                 res = cur.fetchall()
                 cur.close()

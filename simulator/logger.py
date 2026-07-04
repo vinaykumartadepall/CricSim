@@ -6,11 +6,11 @@ Log levels:
               bowling-selection scoring breakdowns) — extremely high volume,
               meant for a developer debugging one match closely, not for
               leaving on during a multi-simulation run or load test
-  DEBUG   10  moderate per-ball detail, cache timing
-  INFO    20  match headlines, scorecard summaries, lifecycle events, SQL
-              queries (see db/database.py's make_debug_logging_cursor and
-              db/stats_repository.py's _run_query) — kept out of DEBUG/TRACE
-              so query visibility doesn't require wading through the above
+  DEBUG   10  moderate per-ball detail, cache timing, SQL queries (see
+              db/database.py's make_query_logging_cursor and
+              db/stats_repository.py's _run_query) — kept out of TRACE so
+              query visibility doesn't require wading through its noise
+  INFO    20  match headlines, scorecard summaries, lifecycle events
   WARNING 30  data issues: player not in cache, venue not found, fallback activated
   ERROR   40  unexpected failures that may affect simulation correctness
 

@@ -22,13 +22,14 @@ def _is_insert_query(query) -> bool:
 def make_query_logging_cursor(base_cursor_cls):
     """
     Wrap a psycopg2 cursor class so every .execute() call logs the fully
-    rendered SQL (query text with parameters substituted in) at INFO level.
+    rendered SQL (query text with parameters substituted in) at DEBUG level.
 
-    Deliberately INFO, not DEBUG/TRACE — this codebase's DEBUG/TRACE levels
-    are dominated by extremely high-volume per-ball/per-over strategy dumps
-    (see simulator/logger.py's level table), which would drown out query
-    visibility entirely if SQL logging shared that level. INFO is enabled by
-    default, so query visibility doesn't require opting into that noise.
+    DEBUG, not TRACE — TRACE is dominated by extremely high-volume per-ball/
+    per-over strategy dumps (see simulator/logger.py's level table), which
+    would drown out query visibility entirely if SQL logging shared that
+    level. DEBUG is opt-in (not enabled by default like INFO) but doesn't
+    carry that TRACE-level noise, so flipping to DEBUG gives clean query
+    visibility on demand without it cluttering the default log output.
 
     INSERTs are skipped entirely — bulk inserts (e.g. save_deliveries, writing
     every ball of a match in one statement) render via mogrify() with every
@@ -44,12 +45,12 @@ def make_query_logging_cursor(base_cursor_cls):
     """
     class _QueryLoggingCursor(base_cursor_cls):
         def execute(self, query, vars=None):
-            if is_level_active(logging.INFO) and not _is_insert_query(query):
+            if is_level_active(logging.DEBUG) and not _is_insert_query(query):
                 try:
                     rendered = self.mogrify(query, vars).decode('utf-8', 'replace')
                 except Exception:
                     rendered = query
-                get_logger().info("SQL: %s", rendered)
+                get_logger().debug("SQL: %s", rendered)
             return super().execute(query, vars)
     return _QueryLoggingCursor
 

@@ -1,6 +1,6 @@
 """
-Tests for SQL query logging (INFO level — see db/database.py's
-make_query_logging_cursor docstring for why not DEBUG/TRACE):
+Tests for SQL query logging (DEBUG level — see db/database.py's
+make_query_logging_cursor docstring for why not INFO/TRACE):
   - db.database.make_query_logging_cursor — the reusable cursor-wrapping factory
   - StatsRepository._run_query logs the rendered SQL before executing
   - SimulationRepository wires both its cursors through the logging factory
@@ -36,7 +36,7 @@ class _FakeBaseCursor:
 
 class TestMakeQueryLoggingCursor:
 
-    def test_execute_logs_rendered_sql_at_info_level(self):
+    def test_execute_logs_rendered_sql_at_debug_level(self):
         LoggingCursor = make_query_logging_cursor(_FakeBaseCursor)
         cur = LoggingCursor()
         with patch.object(db_mod, 'get_logger') as mock_get_logger, \
@@ -44,8 +44,8 @@ class TestMakeQueryLoggingCursor:
             mock_logger = MagicMock()
             mock_get_logger.return_value = mock_logger
             cur.execute("SELECT 1 WHERE id = %s", (42,))
-            mock_logger.info.assert_called_once()
-            fmt, rendered = mock_logger.info.call_args[0]
+            mock_logger.debug.assert_called_once()
+            fmt, rendered = mock_logger.debug.call_args[0]
             assert fmt == "SQL: %s"
             assert "42" in rendered
 
@@ -70,7 +70,7 @@ class TestMakeQueryLoggingCursor:
             mock_logger = MagicMock()
             mock_get_logger.return_value = mock_logger
             cur.execute("SELECT 1", None)
-            mock_logger.info.assert_called_once_with("SQL: %s", "SELECT 1")
+            mock_logger.debug.assert_called_once_with("SQL: %s", "SELECT 1")
 
     def test_no_log_call_when_no_handler_would_show_it(self):
         LoggingCursor = make_query_logging_cursor(_FakeBaseCursor)
@@ -80,7 +80,7 @@ class TestMakeQueryLoggingCursor:
             mock_logger = MagicMock()
             mock_get_logger.return_value = mock_logger
             result = cur.execute("SELECT 1", None)
-        mock_logger.info.assert_not_called()
+        mock_logger.debug.assert_not_called()
         assert result == "executed"
 
     def test_insert_statements_are_never_logged(self):
@@ -96,7 +96,7 @@ class TestMakeQueryLoggingCursor:
             result = cur.execute(
                 "INSERT INTO simulation.deliveries (a, b) VALUES (%s, %s)", (1, 2)
             )
-        mock_logger.info.assert_not_called()
+        mock_logger.debug.assert_not_called()
         assert result == "executed"
         assert cur.executed == [("INSERT INTO simulation.deliveries (a, b) VALUES (%s, %s)", (1, 2))]
 
@@ -108,7 +108,7 @@ class TestMakeQueryLoggingCursor:
             mock_logger = MagicMock()
             mock_get_logger.return_value = mock_logger
             cur.execute("  \n  insert into x values (%s)", (1,))
-        mock_logger.info.assert_not_called()
+        mock_logger.debug.assert_not_called()
 
     def test_insert_statements_as_bytes_are_never_logged(self):
         """Regression guard: psycopg2.extras.execute_batch (used by
@@ -123,7 +123,7 @@ class TestMakeQueryLoggingCursor:
             mock_logger = MagicMock()
             mock_get_logger.return_value = mock_logger
             cur.execute(b"INSERT INTO simulation.deliveries (a) VALUES (1);INSERT INTO simulation.deliveries (a) VALUES (2)")
-        mock_logger.info.assert_not_called()
+        mock_logger.debug.assert_not_called()
 
     def test_select_and_update_still_logged(self):
         LoggingCursor = make_query_logging_cursor(_FakeBaseCursor)
@@ -133,10 +133,10 @@ class TestMakeQueryLoggingCursor:
             mock_logger = MagicMock()
             mock_get_logger.return_value = mock_logger
             cur.execute("UPDATE simulation.simulations SET status = %s", ('completed',))
-        mock_logger.info.assert_called_once()
+        mock_logger.debug.assert_called_once()
 
 
-class TestStatsRepositoryRunQueryLogsInfo:
+class TestStatsRepositoryRunQueryLogsDebug:
 
     def test_logs_rendered_sql_before_executing(self):
         mock_cursor = MagicMock()
@@ -154,7 +154,7 @@ class TestStatsRepositoryRunQueryLogsInfo:
             mock_get_logger.return_value = mock_logger
             result = repo._run_query("SELECT * FROM x WHERE id = %s", (42,))
 
-        mock_logger.info.assert_called_once_with("SQL: %s", "SELECT * FROM x WHERE id = 42")
+        mock_logger.debug.assert_called_once_with("SQL: %s", "SELECT * FROM x WHERE id = 42")
         assert result == [(1,)]
 
     def test_no_query_logged_when_no_connection(self):
@@ -164,10 +164,10 @@ class TestStatsRepositoryRunQueryLogsInfo:
             mock_logger = MagicMock()
             mock_get_logger.return_value = mock_logger
             result = repo._run_query("SELECT 1")
-        mock_logger.info.assert_not_called()
+        mock_logger.debug.assert_not_called()
         assert result == []
 
-    def test_no_log_call_when_info_not_active(self):
+    def test_no_log_call_when_debug_not_active(self):
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [(1,)]
         mock_conn = MagicMock()
@@ -182,7 +182,7 @@ class TestStatsRepositoryRunQueryLogsInfo:
             mock_get_logger.return_value = mock_logger
             result = repo._run_query("SELECT 1")
 
-        mock_logger.info.assert_not_called()
+        mock_logger.debug.assert_not_called()
         mock_cursor.mogrify.assert_not_called()
         assert result == [(1,)]
 
