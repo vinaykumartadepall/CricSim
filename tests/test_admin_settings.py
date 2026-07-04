@@ -10,6 +10,7 @@ No live DB connection required anywhere in this file.
 import pytest
 
 from simulator.admin_settings import (
+    AdminSettings,
     get_admin_settings,
     set_default_bowling_strategy,
     set_default_outcome_strategy,
@@ -61,6 +62,35 @@ class TestAdminSettings:
 
     def test_get_admin_settings_returns_same_singleton(self):
         assert get_admin_settings() is get_admin_settings()
+
+
+class TestAdminSettingsEnvDefaults:
+    """AdminSettings() reads DEFAULT_OUTCOME_STRATEGY / DEFAULT_BOWLING_STRATEGY
+    at construction time — this is only the *startup* default (the module-level
+    singleton is built once at import), not a live runtime read. Constructing a
+    fresh instance here is how we test the field(default_factory=...) behavior
+    in isolation from the process-wide singleton."""
+
+    def test_uses_env_var_when_valid(self, monkeypatch):
+        monkeypatch.setenv('DEFAULT_OUTCOME_STRATEGY', 'historical')
+        monkeypatch.setenv('DEFAULT_BOWLING_STRATEGY', 'smart')
+        s = AdminSettings()
+        assert s.default_outcome_strategy == 'historical'
+        assert s.default_bowling_strategy == 'smart'
+
+    def test_falls_back_when_env_var_unset(self, monkeypatch):
+        monkeypatch.delenv('DEFAULT_OUTCOME_STRATEGY', raising=False)
+        monkeypatch.delenv('DEFAULT_BOWLING_STRATEGY', raising=False)
+        s = AdminSettings()
+        assert s.default_outcome_strategy == 'enhanced'
+        assert s.default_bowling_strategy == 'historical'
+
+    def test_falls_back_when_env_var_invalid(self, monkeypatch):
+        monkeypatch.setenv('DEFAULT_OUTCOME_STRATEGY', 'not-a-real-strategy')
+        monkeypatch.setenv('DEFAULT_BOWLING_STRATEGY', 'also-not-real')
+        s = AdminSettings()
+        assert s.default_outcome_strategy == 'enhanced'
+        assert s.default_bowling_strategy == 'historical'
 
 
 class TestMatchRunnerUsesAdminDefault:

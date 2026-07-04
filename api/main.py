@@ -12,6 +12,7 @@ from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()  # loads .env from project root before anything else reads os.getenv()
 
+import logging
 import os
 import threading
 import time
@@ -37,6 +38,11 @@ from simulator.logger import configure_logger, get_logger
 _LOW_RAM_THRESHOLD_MB = int(os.getenv("LOW_RAM_THRESHOLD_MB", "250"))
 _RAM_CHECK_INTERVAL_S = 30
 
+# Startup default for simulation.log's level — same knob as PUT /admin/log-level,
+# just what it starts at before anyone changes it at runtime. Distinct from the
+# pre-existing LOG_LEVEL env var, which controls the console handler only.
+_SIM_LOG_LEVEL = getattr(logging, os.getenv("SIM_LOG_LEVEL", "INFO").upper(), logging.INFO)
+
 
 def _memory_monitor() -> None:
     """Daemon thread: evicts the stats cache under memory pressure."""
@@ -54,7 +60,7 @@ def _memory_monitor() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    configure_logger(log_dir="logs")
+    configure_logger(log_dir="logs", sim_log_level=_SIM_LOG_LEVEL)
     threading.Thread(target=_memory_monitor, daemon=True, name="mem-monitor").start()
     yield
 
