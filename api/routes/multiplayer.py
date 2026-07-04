@@ -319,10 +319,18 @@ async def _start_simulation(room: RoomState):
         # loop to broadcast, so clients can hand off to the shared
         # "simulating" page immediately instead of waiting the full 10-30s
         # for the simulation itself to finish.
-        asyncio.run_coroutine_threadsafe(
+        future = asyncio.run_coroutine_threadsafe(
             draft_manager.broadcast(room, {"type": "sim_created", "data": {"sim_id": sim_id}}),
             loop,
         )
+        # run_coroutine_threadsafe's Future silently drops exceptions unless
+        # something retrieves them — log any broadcast failure instead of
+        # losing it, consistent with every other except-block in this file.
+        def _log_if_failed(f) -> None:
+            exc = f.exception()
+            if exc:
+                get_logger().error("sim_created broadcast failed for room %s: %s", room.room_id, exc)
+        future.add_done_callback(_log_if_failed)
 
     try:
         sim_id, match_id = await loop.run_in_executor(None, _run_simulation, room, on_sim_created)
