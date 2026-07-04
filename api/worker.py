@@ -326,6 +326,8 @@ class _PersistingTournamentEngine(TournamentEngine):
                 progress["results"].append({
                     "label": match_label,
                     "text": f"{home_name} vs {away_name} — {match.result.description}",
+                    "home": home_name,
+                    "away": away_name,
                 })
 
         home_sim_id = self._team_id_map.get(home_name)

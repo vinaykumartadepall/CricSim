@@ -144,23 +144,6 @@ async def room_ws(ws: WebSocket, room_id: str, client_id: str = Query(...)):
     if room.status == "waiting":
         await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
 
-    # Auto-start when all members are connected and room is at capacity
-    if (room.status == 'waiting'
-            and len(room.members) == room.player_count
-            and all(m.ws is not None for m in room.members.values())):
-        try:
-            keeper_ids = _load_keeper_ids()
-            draft_manager.start_draft(room, keeper_ids)
-            _persist_draft_start(room)
-            all_pids = _load_all_player_ids()
-            await draft_manager.broadcast(room, {"type": "draft_started", "data": room.to_dict()})
-            _start_pick_timer(room, all_pids)
-        except ValueError:
-            pass  # already started by another connection racing here
-        except Exception as exc:
-            get_logger().exception("Auto-start draft failed for room %s", room.room_id)
-            await draft_manager.send(ws, {"type": "error", "data": {"message": f"Auto-start failed: {exc}"}})
-
     try:
         async for raw in ws.iter_text():
             try:
@@ -242,16 +225,35 @@ async def _handle_message(room: RoomState, client_id: str, ws: WebSocket, msg: d
         })
 
     elif t == "player_ready":
-        if room.status != "reordering":
+        if room.status not in ("reordering", "waiting"):
             return
         room.ready_members.add(client_id)
         await draft_manager.broadcast(room, {
             "type": "ready_update",
             "data": {"ready_members": list(room.ready_members), "total": len(room.members)},
         })
-        if len(room.ready_members) >= len(room.members):
+        # Waiting-room ready is informational only — lets players signal they've
+        # read the rules, but the host always has to click Start Draft manually,
+        # even once everyone's ready. Only the post-draft reorder phase auto-proceeds.
+        if room.status == "reordering" and len(room.ready_members) >= len(room.members):
             draft_manager.cancel_reorder_timer(room)
             await _start_simulation(room)
+
+    elif t == "kick_player":
+        target_id = msg.get("client_id")
+        if not isinstance(target_id, str):
+            return
+        try:
+            kicked = draft_manager.kick_member(room, client_id, target_id)
+        except ValueError as e:
+            await draft_manager.send(ws, {"type": "error", "data": {"message": str(e)}})
+            return
+        if kicked.ws is not None:
+            try:
+                await kicked.ws.close(code=4001, reason="Removed from room by host")
+            except Exception:
+                pass
+        await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
 
     elif t == "ping":
         await draft_manager.send(ws, {"type": "pong"})

@@ -18,6 +18,41 @@ function simTitle(sim: SimSummary): string {
   return sim.season ? `${sim.tournament_name} ${sim.season}` : sim.tournament_name
 }
 
+// ── Color tokens ──────────────────────────────────────────────────────────────
+// Single source of truth for every badge/chip color in this file — no more raw
+// hex/rgba scattered through each component. Backgrounds are derived from the
+// same value via tint() (CSS color-mix) rather than a separately hand-picked
+// rgba, so a badge's background always matches its text color exactly —
+// including staying correct across all 4 themes for CSS-variable colors like
+// --accent, instead of a fixed rgba tint that never actually changed with theme.
+
+const COLOR = {
+  gold:   'var(--score)',
+  accent: 'var(--accent)',
+  win:    'var(--win)',
+  loss:   'var(--loss)',
+  dim:    'var(--text-dim)',
+  silver: '#C0C0C0',
+  bronze: '#CD7F32',
+  purple: '#a855f7',
+  violet: '#8B5CF6',
+} as const
+
+const NEUTRAL_BG = 'rgba(255,255,255,0.06)'
+
+function tint(color: string, percent: number): string {
+  return `color-mix(in srgb, ${color} ${percent}%, transparent)`
+}
+
+// Mixes toward the app's own dark surface color instead of transparent —
+// gives the deep, near-opaque pill look (dark amber/navy/plum, not a light
+// wash) used for the status chips specifically, per the provided reference
+// mockups. Kept separate from tint() so FormatBadge/ModeBadge (not covered by
+// those mockups) are untouched.
+function darkTint(color: string, percent: number): string {
+  return `color-mix(in srgb, ${color} ${percent}%, var(--surface-2))`
+}
+
 // ── Shared primitives ─────────────────────────────────────────────────────────
 
 function Badge({ bg, color, children }: { bg: string; color: string; children: React.ReactNode }) {
@@ -43,11 +78,11 @@ function Chip({ bg, color, children }: { bg: string; color: string; children: Re
 function FormatBadge({ format }: { format: string | null | undefined }) {
   if (!format) return null
   const styles: Record<string, { bg: string; color: string }> = {
-    Test: { bg: 'rgba(168,85,247,0.12)', color: '#a855f7' },
-    ODI:  { bg: 'rgba(34,197,94,0.10)',  color: 'var(--win)' },
-    T20:  { bg: 'rgba(59,130,246,0.10)', color: 'var(--accent)' },
+    Test: { bg: tint(COLOR.purple, 12), color: COLOR.purple },
+    ODI:  { bg: tint(COLOR.win, 10),    color: COLOR.win },
+    T20:  { bg: tint(COLOR.accent, 10), color: COLOR.accent },
   }
-  const s = styles[format] ?? { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }
+  const s = styles[format] ?? { bg: NEUTRAL_BG, color: COLOR.dim }
   return <Badge bg={s.bg} color={s.color}>{format}</Badge>
 }
 
@@ -60,33 +95,39 @@ function ModeBadge({ mode, simulationType }: {
   if (!mode) return null
   if (mode === 'multiplayer') {
     const label = simulationType === 'match' ? '1v1' : 'Multiplayer'
-    return <Badge bg="rgba(168,85,247,0.12)" color="#a855f7">{label}</Badge>
+    return <Badge bg={tint(COLOR.purple, 12)} color={COLOR.purple}>{label}</Badge>
   }
-  if (mode === 'challenge') return <Badge bg="rgba(245,158,11,0.12)" color="var(--score)">Challenge</Badge>
-  if (mode === 'custom')    return <Badge bg="rgba(139,92,246,0.12)" color="#8B5CF6">Custom</Badge>
-  return <Badge bg="rgba(59,130,246,0.1)" color="var(--accent)">Fun</Badge>
+  if (mode === 'challenge') return <Badge bg={tint(COLOR.gold, 12)} color={COLOR.gold}>Challenge</Badge>
+  if (mode === 'custom')    return <Badge bg={tint(COLOR.violet, 12)} color={COLOR.violet}>Custom</Badge>
+  return <Badge bg={tint(COLOR.accent, 10)} color={COLOR.accent}>Fun</Badge>
 }
 
 // ── Right-side chip: result OR spectator OR status ────────────────────────────
 
+// Full medal ladder: gold (winner) > silver (runner-up) > bronze (playoffs)
+// > muted gray (no notable result) — a warm-toned podium metaphor that fits
+// the app's own dark warm surfaces, rather than an unrelated purple that
+// doesn't tie into any theme color. All three medal tiers use the same dark,
+// near-opaque background treatment (color mixed into the app's own surface
+// tone) rather than a light wash, per the provided reference mockups.
 const PLACEMENT: Record<string, { bg: string; color: string; prefix?: string }> = {
-  'Winner':      { bg: 'rgba(245,158,11,0.18)', color: 'var(--score)',    prefix: '🏆 ' },
-  'Runner-up':   { bg: 'rgba(59,130,246,0.13)', color: 'var(--accent)'                  },
-  'Loser':       { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)'                },
-  'Playoffs':    { bg: 'rgba(34,197,94,0.1)',    color: 'var(--win)'                     },
-  'Group stage': { bg: 'rgba(255,255,255,0.05)', color: 'var(--text-dim)'                },
+  'Winner':      { bg: darkTint(COLOR.gold, 30),   color: COLOR.gold,   prefix: '🏆 ' },
+  'Runner-up':   { bg: darkTint(COLOR.silver, 20), color: COLOR.silver, prefix: '🥈 ' },
+  'Playoffs':    { bg: darkTint(COLOR.bronze, 22), color: COLOR.bronze                },
+  'Loser':       { bg: NEUTRAL_BG,                 color: COLOR.dim                   },
+  'Group stage': { bg: NEUTRAL_BG,                 color: COLOR.dim                   },
 }
 
 function RightChip({ sim }: { sim: SimSummary }) {
-  // Non-completed states
+  // Non-completed states.
   if (sim.status === 'failed') {
-    return <Chip bg="rgba(239,68,68,0.12)" color="var(--loss)">Failed</Chip>
+    return <Chip bg={tint(COLOR.loss, 12)} color={COLOR.loss}>Failed</Chip>
   }
   if (sim.status === 'running') {
-    return <Chip bg="rgba(245,158,11,0.12)" color="var(--score)">⏳ In progress</Chip>
+    return <Chip bg={darkTint(COLOR.gold, 16)} color={COLOR.gold}>⏳ In progress</Chip>
   }
   if (sim.status !== 'completed') {
-    return <Chip bg="rgba(245,158,11,0.12)" color="var(--score)">Pending</Chip>
+    return <Chip bg={NEUTRAL_BG} color={COLOR.dim}>🕐 Pending</Chip>
   }
 
   // Completed + placement
@@ -97,7 +138,7 @@ function RightChip({ sim }: { sim: SimSummary }) {
 
   // Completed + no user team = spectator
   if (sim.mode && !sim.user_team_name) {
-    return <Chip bg="rgba(255,255,255,0.05)" color="var(--text-dim)">Spectator</Chip>
+    return <Chip bg={NEUTRAL_BG} color={COLOR.dim}>Spectator</Chip>
   }
 
   return null

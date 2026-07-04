@@ -3,11 +3,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Copy, Check, ArrowUp, ArrowDown, Search, Shield, Zap, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useHelp } from '@/contexts/HelpContext'
+import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import type { MultiplayerPlayer, RoomState } from '@/types'
+
+const DRAFT_HELP_KEY = '/multiplayer/draft'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const WS_BASE        = 'ws://localhost:8000/cricsimapi/multiplayer/ws'
+// Derived from the current origin, same as api/client.ts's relative '/cricsimapi' —
+// a hardcoded 'ws://localhost:8000' here meant every production browser tried to
+// open a websocket to its OWN localhost:8000 instead of the real server.
+const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+const WS_BASE = `${WS_PROTOCOL}//${window.location.host}/cricsimapi/multiplayer/ws`
 const SEARCH_DEBOUNCE_MS = 300
 const PICK_TIMER_TOTAL   = 60
 const PING_INTERVAL_MS   = 30_000
@@ -472,14 +480,17 @@ function PickPanel({
 
 // ── Waiting room ──────────────────────────────────────────────────────────────
 
-function WaitingRoom({ room, clientId, onStart, starting }: {
+function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady, onReady, onKick }: {
   room: FullRoomState; clientId: string; onStart: () => void; starting: boolean
+  readyMembers: string[]; myReady: boolean; onReady: () => void; onKick: (targetId: string) => void
 }) {
   const shareUrl    = `${window.location.origin}/join/${room.room_id}`
   const isHost      = clientId === room.host_id
   const isTournament = room.mode === 'tournament'
   const minToStart  = isTournament ? 4 : 2
-  const canStart    = room.members.length >= minToStart
+  const hasMinPlayers = room.members.length >= minToStart
+  const allReady    = readyMembers.length >= room.members.length
+  const canStart    = hasMinPlayers && allReady
   const allJoined   = room.members.length >= room.player_count
   const needed      = minToStart - room.members.length
 
@@ -517,18 +528,33 @@ function WaitingRoom({ room, clientId, onStart, starting }: {
             Players · {room.members.length}/{room.player_count}
           </div>
           <div className="flex flex-col gap-2">
-            {room.members.map(m => (
-              <div key={m.client_id} className="flex items-center gap-2.5">
-                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: m.connected ? 'var(--win)' : 'var(--text-dim)' }} />
-                <span className="text-sm flex-1" style={{ color: m.connected ? 'var(--text)' : 'var(--text-muted)' }}>
-                  {m.display_name}
-                  {m.client_id === clientId && <span className="ml-1 text-xs" style={{ color: 'var(--text-dim)' }}>(you)</span>}
-                </span>
-                {m.client_id === room.host_id && (
-                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--accent-tint)', color: 'var(--accent)' }}>Host</span>
-                )}
-              </div>
-            ))}
+            {room.members.map(m => {
+              const isReady = readyMembers.includes(m.client_id)
+              return (
+                <div key={m.client_id} className="flex items-center gap-2.5">
+                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: m.connected ? 'var(--win)' : 'var(--text-dim)' }} />
+                  <span className="text-sm flex-1" style={{ color: m.connected ? 'var(--text)' : 'var(--text-muted)' }}>
+                    {m.display_name}
+                    {m.client_id === clientId && <span className="ml-1 text-xs" style={{ color: 'var(--text-dim)' }}>(you)</span>}
+                  </span>
+                  {isReady && <CheckCircle2 size={13} style={{ color: 'var(--win)' }} />}
+                  {m.client_id === room.host_id && (
+                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--accent-tint)', color: 'var(--accent)' }}>Host</span>
+                  )}
+                  {isHost && m.client_id !== clientId && (
+                    <button
+                      onClick={() => onKick(m.client_id)}
+                      className="text-xs px-1.5 py-0.5 rounded transition-colors"
+                      style={{ background: 'transparent', color: 'var(--text-dim)', border: '1px solid var(--border)' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--loss)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--loss)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-dim)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
+                    >
+                      Kick
+                    </button>
+                  )}
+                </div>
+              )
+            })}
             {Array.from({ length: Math.max(0, room.player_count - room.members.length) }).map((_, i) => (
               <div key={`empty-${i}`} className="flex items-center gap-2.5">
                 <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: 'var(--border)' }} />
@@ -537,6 +563,23 @@ function WaitingRoom({ room, clientId, onStart, starting }: {
             ))}
           </div>
         </div>
+
+        <button
+          onClick={onReady}
+          disabled={myReady}
+          className="w-full py-2.5 rounded-xl font-medium text-sm mb-2 flex items-center justify-center gap-2 transition-all"
+          style={{
+            background: myReady ? 'var(--accent-tint)' : 'var(--surface-2)',
+            color: myReady ? 'var(--win)' : 'var(--text)',
+            border: `1px solid ${myReady ? 'var(--win)' : 'var(--border)'}`,
+            cursor: myReady ? 'default' : 'pointer',
+          }}
+        >
+          {myReady ? <><CheckCircle2 size={15} /> You're ready</> : "I'm ready"}
+        </button>
+        <p className="text-xs text-center mb-4" style={{ color: 'var(--text-dim)' }}>
+          {readyMembers.length}/{room.members.length} players ready
+        </p>
 
         {isHost ? (
           <>
@@ -551,9 +594,14 @@ function WaitingRoom({ room, clientId, onStart, starting }: {
               onMouseLeave={e => canStart && !starting && ((e.currentTarget as HTMLElement).style.background = 'var(--accent)')}>
               {starting ? 'Starting…' : 'Start Draft'}
             </button>
-            {isTournament && !canStart && (
+            {isTournament && !hasMinPlayers && (
               <p className="text-xs text-center mt-2" style={{ color: 'var(--text-dim)' }}>
                 Need {needed} more player{needed > 1 ? 's' : ''} to start ({minToStart} minimum)
+              </p>
+            )}
+            {hasMinPlayers && !allReady && (
+              <p className="text-xs text-center mt-2" style={{ color: 'var(--text-dim)' }}>
+                Waiting for all players to be ready ({readyMembers.length}/{room.members.length})
               </p>
             )}
             {isTournament && canStart && !allJoined && (
@@ -580,6 +628,7 @@ export function DraftPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate   = useNavigate()
   const { clientId } = useAuth()
+  const { openHelp } = useHelp()
 
   // WebSocket refs
   const wsRef             = useRef<WebSocket | null>(null)
@@ -602,7 +651,7 @@ export function DraftPage() {
 
   // Connection status
   const [connStatus, setConnStatus] = useState<'connecting' | 'connected' | 'reconnecting' | 'dead'>('connecting')
-  const [deadReason, setDeadReason] = useState<'not_found' | 'lost' | null>(null)
+  const [deadReason, setDeadReason] = useState<'not_found' | 'lost' | 'kicked' | null>(null)
   const [retryKey, setRetryKey]     = useState(0)
 
   // Draft state
@@ -668,6 +717,8 @@ export function DraftPage() {
       case 'draft_started': {
         const data = msg.data as FullRoomState
         setRoom(data)
+        setReadyMembers(data.ready_members ?? [])
+        setMyReady(false)
         const me = data.members.find(m => m.client_id === clientId)
         if (me) setMySquadOrder(me.squad)
         break
@@ -771,6 +822,19 @@ export function DraftPage() {
     return () => clearTimeout(t)
   }, [room?.status, simId, matchId, simMode, navigate, clientId])
 
+  // Show the draft help once, only while still in the waiting room — never
+  // once drafting has actually started (that's the whole point of excluding
+  // this path from HelpModal's generic pathname-based auto-open: a browser's
+  // first-ever visit here could otherwise land mid-draft, e.g. joining via a
+  // link slightly after the host already clicked Start, popping the modal up
+  // while that player's own pick timer is already running).
+  useEffect(() => {
+    if (room?.status !== 'waiting') return
+    if (hasSeenHelp(DRAFT_HELP_KEY)) return
+    markHelpSeen(DRAFT_HELP_KEY)
+    openHelp(0, false)
+  }, [room?.status, openHelp])
+
   // Default viewing to my team when first connected
   useEffect(() => {
     if (room && viewingId === clientId) return
@@ -810,6 +874,7 @@ export function DraftPage() {
         if (!mountedRef.current) return
         clearPing()
         if (e.code === 4004) { setConnStatus('dead'); setDeadReason('not_found'); return }
+        if (e.code === 4001) { setConnStatus('dead'); setDeadReason('kicked'); return }
         if (e.code === 4003) { navigate(`/join/${roomId}`); return }
         if (e.code === 1000) return
         if (reconnectCountRef.current >= MAX_RECONNECTS) { setConnStatus('dead'); setDeadReason('lost'); return }
@@ -841,6 +906,7 @@ export function DraftPage() {
   function moveUp(idx: number) { if (idx === 0) return; const n = [...mySquadOrder]; [n[idx-1],n[idx]]=[n[idx],n[idx-1]]; handleReorder(n) }
   function moveDown(idx: number) { if (idx >= mySquadOrder.length-1) return; const n = [...mySquadOrder]; [n[idx],n[idx+1]]=[n[idx+1],n[idx]]; handleReorder(n) }
   function handleReady() { setMyReady(true); sendWs({ type: 'player_ready' }) }
+  function handleKick(targetId: string) { sendWs({ type: 'kick_player', client_id: targetId }) }
 
   // Derived
   const isMyTurn   = !!room && room.current_picker === clientId && room.status === 'drafting'
@@ -865,21 +931,25 @@ export function DraftPage() {
   const isViewingMyTeam = viewingId === clientId
 
   // ── Dead state ────────────────────────────────────────────────────────────────
-  if (connStatus === 'dead' && !room) {
+  // 'kicked' shows this screen even with a (now stale) room already loaded —
+  // every other dead reason means the client never had a room to show.
+  if (connStatus === 'dead' && (!room || deadReason === 'kicked')) {
     const isNotFound = deadReason === 'not_found'
+    const isKicked   = deadReason === 'kicked'
+    const icon    = isNotFound ? '🚪' : isKicked ? '👋' : '⚠️'
+    const heading = isNotFound ? 'Room not found' : isKicked ? 'Removed from room' : 'Connection failed'
+    const detail  = isNotFound ? 'This room no longer exists or the server was restarted.'
+                  : isKicked   ? 'The host removed you from this room.'
+                  : 'Unable to connect after several attempts.'
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-4 text-center px-6 max-w-xs">
-          <div className="text-3xl">{isNotFound ? '🚪' : '⚠️'}</div>
-          <div className="text-base font-semibold" style={{ color: 'var(--text)' }}>
-            {isNotFound ? 'Room not found' : 'Connection failed'}
-          </div>
-          <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-            {isNotFound ? 'This room no longer exists or the server was restarted.' : 'Unable to connect after several attempts.'}
-          </div>
+          <div className="text-3xl">{icon}</div>
+          <div className="text-base font-semibold" style={{ color: 'var(--text)' }}>{heading}</div>
+          <div className="text-sm" style={{ color: 'var(--text-muted)' }}>{detail}</div>
           <div className="flex gap-3">
             <button onClick={() => navigate('/multiplayer')} className="btn-accent text-sm px-5 py-2 rounded-lg">Back to Lobby</button>
-            {!isNotFound && (
+            {!isNotFound && !isKicked && (
               <button onClick={() => setRetryKey(k => k + 1)} className="btn-outline text-sm px-5 py-2 rounded-lg">Retry</button>
             )}
           </div>
@@ -907,7 +977,10 @@ export function DraftPage() {
     return (
       <>
         {toast && <Toast message={toast} onDone={() => setToast(null)} />}
-        <WaitingRoom room={room} clientId={clientId} onStart={handleStartDraft} starting={starting} />
+        <WaitingRoom
+          room={room} clientId={clientId} onStart={handleStartDraft} starting={starting}
+          readyMembers={readyMembers} myReady={myReady} onReady={handleReady} onKick={handleKick}
+        />
       </>
     )
   }

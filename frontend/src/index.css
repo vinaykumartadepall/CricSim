@@ -193,6 +193,13 @@ body {
 }
 .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
 
+.icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; padding: 4px; line-height: 0;
+  color: var(--text-dim); cursor: pointer;
+}
+.icon-btn:disabled { cursor: default; }
+
 .input {
   background: var(--surface-2);
   border: 1px solid var(--border);

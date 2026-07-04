@@ -145,12 +145,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const updateDisplayName = async (name: string) => {
-    const { api } = await import('@/api/client')
-    await api.upsertAuthProfile(name)
-    setDisplayName(name)
-    if (!user) {
+    if (user) {
+      // Logged in — persisted server-side, keyed by the Supabase user id.
+      const { api } = await import('@/api/client')
+      await api.upsertAuthProfile(name)
+    } else {
+      // Guest — no auth session to attach, so /auth/profile would 401.
+      // Persisted the same way the anon UUID is: localStorage only.
       localStorage.setItem(ANON_NAME_KEY, name)
     }
+    setDisplayName(name)
   }
 
   return (

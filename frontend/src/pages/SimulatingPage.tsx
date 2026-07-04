@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { Spinner } from '@/components/ui/Spinner'
 import { api } from '@/api/client'
 
 const POLL_MS = 2500
 
+type ResultEntry = { label: string; text: string; home: string; away: string }
+
 type Progress = {
   completed: number
   total: number
   teams: number
   totalDeliveries: number
-  results: { label: string; text: string }[]
+  results: ResultEntry[]
 }
 
 // Ring doubles as the page's loading indicator and its progress readout —
@@ -65,28 +67,70 @@ function StatCard({ label, value }: { label: string; value: string }) {
   )
 }
 
-function LiveUpdates({ results }: { results: { label: string; text: string }[] }) {
+const LIVE_UPDATES_MIN_HEIGHT = 60
+const LIVE_UPDATES_MAX_HEIGHT = 320
+
+function LiveUpdates({ results, userTeam }: { results: ResultEntry[]; userTeam?: string | null }) {
   const listRef = useRef<HTMLDivElement>(null)
+  const [height, setHeight] = useState(88)
+  const dragRef = useRef<{ startY: number; startHeight: number } | null>(null)
 
   useEffect(() => {
     const el = listRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [results.length])
 
+  // Bottom-left drag handle, vertical resize only — width stays fixed at
+  // max-w-xs regardless, this only ever adjusts the scrollable list's height.
+  function onResizeStart(e: ReactPointerEvent<HTMLDivElement>) {
+    e.preventDefault()
+    dragRef.current = { startY: e.clientY, startHeight: height }
+    function onMove(ev: PointerEvent) {
+      if (!dragRef.current) return
+      const delta = ev.clientY - dragRef.current.startY
+      setHeight(Math.min(LIVE_UPDATES_MAX_HEIGHT, Math.max(LIVE_UPDATES_MIN_HEIGHT, dragRef.current.startHeight + delta)))
+    }
+    function onUp() {
+      dragRef.current = null
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   if (results.length === 0) return null
 
   return (
-    <div className="w-full max-w-xs rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+    <div className="relative w-full max-w-xs rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
       <div className="px-3 pt-2.5 pb-1.5 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-dim)' }}>
         Live updates
       </div>
-      <div ref={listRef} className="flex flex-col gap-1 px-3 pb-2.5 overflow-y-auto" style={{ maxHeight: 88 }}>
-        {results.map((r, i) => (
-          <div key={i} className="text-xs leading-snug">
-            <span className="font-medium" style={{ color: 'var(--accent)' }}>{r.label}: </span>
-            <span style={{ color: 'var(--text-muted)' }}>{r.text}</span>
-          </div>
-        ))}
+      <div ref={listRef} className="flex flex-col gap-1 px-3 pb-2.5 overflow-y-auto" style={{ maxHeight: height }}>
+        {results.map((r, i) => {
+          const isMine = !!userTeam && (r.home === userTeam || r.away === userTeam)
+          return (
+            <div
+              key={i}
+              className="text-xs leading-snug pl-2 -ml-2 rounded"
+              style={{
+                borderLeft: `2px solid ${isMine ? 'var(--accent)' : 'transparent'}`,
+                background: isMine ? 'var(--accent-tint)' : 'transparent',
+              }}
+            >
+              <span className="font-medium" style={{ color: 'var(--accent)' }}>{r.label}: </span>
+              <span style={{ color: 'var(--text-muted)' }}>{r.text}</span>
+            </div>
+          )
+        })}
+      </div>
+      <div
+        onPointerDown={onResizeStart}
+        title="Drag to resize"
+        className="absolute left-0 bottom-0 flex items-end justify-start"
+        style={{ width: 16, height: 16, cursor: 'ns-resize' }}
+      >
+        <div className="mb-1 ml-1" style={{ width: 10, height: 3, borderRadius: 2, background: 'var(--text-dim)' }} />
       </div>
     </div>
   )
@@ -100,6 +144,7 @@ export function SimulatingPage() {
   const { simId } = useParams<{ simId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const userTeam = (location.state as { teamName?: string | null } | null)?.teamName ?? null
   const [status, setStatus] = useState<'pending' | 'running' | 'failed'>('pending')
   const [errorMsg, setErrorMsg] = useState('')
   const [progress, setProgress] = useState<Progress | null>(null)
@@ -172,7 +217,7 @@ export function SimulatingPage() {
             <StatCard label="Deliveries" value={formatCount(progress.totalDeliveries)} />
           </div>
 
-          <LiveUpdates results={progress.results} />
+          <LiveUpdates results={progress.results} userTeam={userTeam} />
         </>
       ) : (
         <>

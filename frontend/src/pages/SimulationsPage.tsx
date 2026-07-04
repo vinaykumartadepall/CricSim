@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, RotateCw } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { Spinner } from '@/components/ui/Spinner'
@@ -14,22 +14,38 @@ export function SimulationsPage() {
   const { clientId } = useAuth()
   const [sims, setSims]         = useState<SimSummary[]>([])
   const [loading, setLoading]   = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore]   = useState(true)
   const offsetRef               = useRef(0)
 
-  useEffect(() => {
+  const fetchFirstPage = useCallback(async () => {
     offsetRef.current = 0
-    setLoading(true)
-    api.listSimulations(clientId, PAGE_SIZE, 0)
-      .then(data => {
-        setSims(data)
-        offsetRef.current = data.length
-        setHasMore(data.length === PAGE_SIZE)
-      })
-      .catch(() => setSims([]))
-      .finally(() => setLoading(false))
+    try {
+      const data = await api.listSimulations(clientId, PAGE_SIZE, 0)
+      setSims(data)
+      offsetRef.current = data.length
+      setHasMore(data.length === PAGE_SIZE)
+    } catch {
+      setSims([])
+    }
   }, [clientId])
+
+  useEffect(() => {
+    setLoading(true)
+    fetchFirstPage().finally(() => setLoading(false))
+  }, [fetchFirstPage])
+
+  async function handleRefresh() {
+    setRefreshing(true)
+    try {
+      // Force a minimum visible duration — the fetch usually resolves fast
+      // enough that the spin/color change never actually gets a chance to paint.
+      await Promise.all([fetchFirstPage(), new Promise(r => setTimeout(r, 400))])
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   async function loadMore() {
     setLoadingMore(true)
@@ -46,7 +62,7 @@ export function SimulationsPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
+    <div className="max-w-2xl mx-auto px-6 py-8">
       <button
         className="flex items-center gap-1 text-sm mb-6"
         style={{ color: 'var(--text-muted)' }}
@@ -55,7 +71,17 @@ export function SimulationsPage() {
         <ChevronLeft size={14} /> Home
       </button>
 
-      <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>All simulations</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>All simulations</div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing || loading}
+          title="Refresh"
+          className="icon-btn"
+        >
+          <RotateCw size={14} className={refreshing ? 'spin' : ''} />
+        </button>
+      </div>
       <div className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>Your full simulation history</div>
 
       {loading ? (

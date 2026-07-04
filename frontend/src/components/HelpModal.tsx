@@ -5,8 +5,11 @@ import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useHelp } from '@/contexts/HelpContext'
 import { findMatchedHelp, hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 
-// Pages that manage their own step-based help triggers — skip pathname auto-open for these
-const STEP_BASED_PATHS = ['/fun', '/challenge', '/custom']
+// Pages that manage their own step-based help triggers — skip pathname auto-open for these.
+// /multiplayer/draft is here because auto-opening on pathname alone could pop the modal
+// up mid-draft (e.g. a browser's first-ever visit landing after the host already started)
+// — DraftPage triggers it itself, only while the room is still in the waiting phase.
+const STEP_BASED_PATHS = ['/fun', '/challenge', '/custom', '/multiplayer/draft']
 
 export function HelpModal() {
   const { helpOpen, closeHelp, openHelp, helpInitialSlide, helpSingleSlide } = useHelp()

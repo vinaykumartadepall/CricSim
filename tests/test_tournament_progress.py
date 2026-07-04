@@ -165,9 +165,9 @@ class TestOnFixtureCompleteIncrementsProgress:
         """The mockup names both sides ('IND beat AUS by 5 wkts.') but
         match.result.description only names the winner — so the text must be
         built from fixture.home/away plus the description, not the
-        description alone. Structured {label, text} rather than one
-        pre-formatted string so the frontend can style the label without
-        parsing it back out."""
+        description alone. Structured {label, text, home, away} rather than
+        one pre-formatted string so the frontend can style the label (and
+        highlight the user's own matches) without parsing it back out."""
         _TOURNAMENT_PROGRESS["sim-1"] = {"completed": 0, "total": 5, "teams": 4, "total_deliveries": 1000, "results": []}
         engine = self._make_engine("sim-1", team_id_map={})
         fixture = SimpleNamespace(home="Mumbai Indians", away="Chennai Super Kings", match_label="Match 1")
@@ -179,6 +179,8 @@ class TestOnFixtureCompleteIncrementsProgress:
         [entry] = _TOURNAMENT_PROGRESS["sim-1"]["results"]
         assert entry["label"] == "Match 1"
         assert entry["text"] == "Mumbai Indians vs Chennai Super Kings — Mumbai Indians won by 2 wickets"
+        assert entry["home"] == "Mumbai Indians"
+        assert entry["away"] == "Chennai Super Kings"
 
     def test_no_result_line_when_match_result_missing(self):
         _TOURNAMENT_PROGRESS["sim-1"] = {"completed": 0, "total": 5, "teams": 4, "total_deliveries": 1000, "results": []}

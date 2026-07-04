@@ -1,6 +1,6 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useCallback, useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { User, Users } from 'lucide-react'
+import { User, Users, RotateCw } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { SimCard } from '@/components/SimCard'
@@ -46,10 +46,26 @@ export function HomePage() {
   const { clientId } = useAuth()
   const [sims, setSims]   = useState<SimSummary[]>([])
   const [total, setTotal] = useState<number | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => {
-    api.listSimulations(clientId, 50).then(setSims).catch(() => setSims([]))
+  const fetchSims = useCallback(() => {
+    return api.listSimulations(clientId, 50).then(setSims).catch(() => setSims([]))
   }, [clientId])
+
+  useEffect(() => { fetchSims() }, [fetchSims])
+
+  async function handleRefresh() {
+    setRefreshing(true)
+    try {
+      // listSimulations usually resolves fast enough that React batches the
+      // true/false state changes together and the spin never actually paints —
+      // force a minimum visible duration so the "it's reloading" feedback
+      // reliably shows up regardless of how quick the fetch is.
+      await Promise.all([fetchSims(), new Promise(r => setTimeout(r, 400))])
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   useEffect(() => {
     api.getTotalSimulations().then(d => setTotal(d.total)).catch(() => {})
@@ -234,12 +250,22 @@ export function HomePage() {
             <SectionHeader
               label={hasInProgress ? 'Continue Playing' : 'Your Recent Simulations'}
               right={
-                <button
-                  onClick={() => navigate('/simulations')}
-                  style={{ fontFamily: SANS, fontSize: 12, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                >
-                  View all →
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    title="Refresh"
+                    className="icon-btn"
+                  >
+                    <RotateCw size={13} className={refreshing ? 'spin' : ''} />
+                  </button>
+                  <button
+                    onClick={() => navigate('/simulations')}
+                    style={{ fontFamily: SANS, fontSize: 12, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    View all →
+                  </button>
+                </div>
               }
             />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

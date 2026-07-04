@@ -139,6 +139,22 @@ class DraftManager:
     def remove_room(self, room_id: str) -> None:
         self._rooms.pop(room_id, None)
 
+    def kick_member(self, room: RoomState, host_id: str, target_id: str) -> Member:
+        """Remove a player from the waiting room. Host-only, pre-draft only —
+        once picks are underway a member's squad/pick order is already woven
+        into room state, so removal isn't well-defined there."""
+        if host_id != room.host_id:
+            raise ValueError("Only the host can kick players")
+        if room.status != 'waiting':
+            raise ValueError("Can only kick players before the draft starts")
+        if target_id == room.host_id:
+            raise ValueError("Host cannot kick themselves")
+        member = room.members.pop(target_id, None)
+        if member is None:
+            raise ValueError("Player not in this room")
+        room.ready_members.discard(target_id)
+        return member
+
     # ── WebSocket connect/disconnect ───────────────────────────────────────────
 
     def connect(self, room: RoomState, client_id: str, ws: WebSocket) -> None:
@@ -168,6 +184,8 @@ class DraftManager:
             raise ValueError("Need at least 2 players to start")
         if room.mode == 'tournament' and len(room.members) < 4:
             raise ValueError("Tournament mode requires at least 4 players")
+        if len(room.ready_members) < len(room.members):
+            raise ValueError("All players must be ready before the draft can start")
 
         room.keeper_ids = keeper_ids
         order = list(room.members.keys())
@@ -180,6 +198,7 @@ class DraftManager:
 
         room.status = 'drafting'
         room.current_pick_idx = 0
+        room.ready_members = set()  # waiting-room ready state no longer means anything once drafting starts
 
     # ── picking ────────────────────────────────────────────────────────────────
 

@@ -238,36 +238,27 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
     title: 'Your Results',
     slides: [
       {
-        header: 'Standings',
+        header: 'Overview',
         instructions: [
-          'Full points table for all teams in the tournament',
-          ''
+          "View the full points table of the tournament simulation",
+          "View playoffs bracket in a separate tab",
+          "Player of the tournament is displayed at the top of the overview tab",
         ],
-        tip: 'The winner row shows a trophy icon after playoffs complete',
       },
       {
         header: 'Leaderboards',
         instructions: [
-          'Four sub-tabs: Most Runs, Most Wickets, Best Economy, and MVP',
-          'MVP uses a fantasy points formula covering runs, wickets, boundaries, and economy',
+          'Multiple leaderboards are available for each tournament',
+          'Click on any leaderboard to view the full list of players and the detailed stats or search by player name',
         ],
       },
       {
         header: 'Matches',
         instructions: [
-          'Every match is grouped by stage: Group Stage then Playoffs',
-          'Click any match row to expand its full scorecard',
-        ],
-        tip: 'Scorecards show full batting and bowling figures for both innings',
-      },
-      {
-        header: 'Awards',
-        instructions: [
-          'Player of the Tournament is highlighted at the top',
-          'Full breakdown of batting, bowling, and fielding points for every player',
-        ],
-        tip: 'Fielding points come from catches, run-outs, and stumpings',
-      },
+          'View all matches in the tournament, filter only your team\'s matches with the \'My Matches\' toggle',
+          'Click any match to view complete match details like scorecard and ball by ball commentary',
+        ]
+      }
     ],
   },
 
@@ -277,18 +268,13 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
       {
         header: 'Result Tab',
         instructions: [
-          'Shows the winner banner with winning margin',
-          'Both teams\' scores are displayed side by side',
-          'Man of the Match is shown with actual batting and bowling figures',
+          'Summary of the match result, including player of the match and innings progression graph',
         ],
-        tip: 'Super Over results are indicated separately if the match was tied',
       },
       {
         header: 'Scorecard',
         instructions: [
-          'Full batting card: runs, balls, fours, sixes, strike rate, and dismissal',
-          'Full bowling card: overs, runs, wickets, and economy',
-          'Both innings are shown for each team',
+          'Full detailed scorecard of the match, including batting and bowling stats for both teams',
         ],
       },
       {
