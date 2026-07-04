@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { X, Home, BarChart2, Clock, Check, UserCircle, Palette, ChevronRight } from 'lucide-react'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { useTheme } from '@/hooks/useTheme'
+import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
 import { useAuth } from '@/contexts/AuthContext'
 import logoUrl from '@/assets/logo.png'
 import type { Theme } from '@/types'
@@ -48,10 +49,7 @@ export function Sidebar() {
     return () => document.removeEventListener('keydown', handler)
   }, [open, closeSidebar])
 
-  useEffect(() => {
-    document.body.style.overflow = open ? 'hidden' : ''
-    return () => { document.body.style.overflow = '' }
-  }, [open])
+  useBodyScrollLock(open)
 
   // Close theme panel when sidebar closes
   useEffect(() => { if (!open) setThemeOpen(false) }, [open])

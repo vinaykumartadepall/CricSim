@@ -27,7 +27,14 @@ const HEADER_H = 60
 
 function ScrollToTop() {
   const { pathname } = useLocation()
-  useEffect(() => { window.scrollTo(0, 0) }, [pathname])
+  useEffect(() => {
+    window.scrollTo(0, 0)
+    // Safety net: several components (Sidebar, modals) independently lock/restore
+    // document.body.style.overflow with no coordination between them, so a stale
+    // capture-restore can leave scrolling stuck disabled on an unrelated later page.
+    // A fresh navigation should always be scrollable regardless of what leaked before.
+    document.body.style.overflow = ''
+  }, [pathname])
   return null
 }
 

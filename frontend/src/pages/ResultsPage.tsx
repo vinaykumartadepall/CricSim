@@ -7,6 +7,7 @@ import { PlayoffBracket } from '@/components/PlayoffBracket'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
 import { useHelp } from '@/contexts/HelpContext'
+import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
 import type {
   TournamentResult, LeaderboardsDashboard,
   MatchItem,
@@ -208,11 +209,7 @@ function TeamPreviewPanel({
   players: LineupPlayer[]
   onClose: () => void
 }) {
-  useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
-  }, [])
+  useBodyScrollLock(true)
 
   return createPortal(
     <>
@@ -296,11 +293,7 @@ function LeaderboardModal({
   const offsetRef = useRef(0)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
-  }, [])
+  useBodyScrollLock(true)
 
   const apiType = LB_KEY_TO_API[lbKey]
 
