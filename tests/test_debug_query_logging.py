@@ -110,6 +110,21 @@ class TestMakeQueryLoggingCursor:
             cur.execute("  \n  insert into x values (%s)", (1,))
         mock_logger.info.assert_not_called()
 
+    def test_insert_statements_as_bytes_are_never_logged(self):
+        """Regression guard: psycopg2.extras.execute_batch (used by
+        save_deliveries) mogrifies rows itself and calls execute() with the
+        already-rendered batch as BYTES, not str, with vars=None. This is the
+        actual path that leaked a 2000+ line log entry into production —
+        str(some_bytes) gives "b'...'" and silently never matched "INSERT"."""
+        LoggingCursor = make_query_logging_cursor(_FakeBaseCursor)
+        cur = LoggingCursor()
+        with patch.object(db_mod, 'get_logger') as mock_get_logger, \
+             patch.object(db_mod, 'is_level_active', return_value=True):
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
+            cur.execute(b"INSERT INTO simulation.deliveries (a) VALUES (1);INSERT INTO simulation.deliveries (a) VALUES (2)")
+        mock_logger.info.assert_not_called()
+
     def test_select_and_update_still_logged(self):
         LoggingCursor = make_query_logging_cursor(_FakeBaseCursor)
         cur = LoggingCursor()

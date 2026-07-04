@@ -7,6 +7,15 @@ from simulator.logger import get_logger, is_level_active
 
 
 def _is_insert_query(query) -> bool:
+    # psycopg2.extras.execute_batch (used by save_deliveries etc.) mogrifies each
+    # row itself and passes the already-rendered, semicolon-joined batch to
+    # execute() as bytes, not str — str(some_bytes) gives "b'...'" in Python 3,
+    # which would never match "INSERT" and silently defeated this check.
+    if isinstance(query, (bytes, bytearray)):
+        try:
+            query = query.decode('utf-8', 'replace')
+        except Exception:
+            return False
     return str(query).lstrip().upper().startswith("INSERT")
 
 
