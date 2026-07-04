@@ -68,7 +68,10 @@ function AppShell() {
           <Route path="/stats"                               element={<StatsPage />} />
           <Route path="/stats/titles"                        element={<TitlesPage />} />
           <Route path="/profile"                             element={<ProfilePage />} />
-          <Route path="/admin"                                element={<AdminPage />} />
+          {/* Not /admin — nginx already proxies that prefix straight to the
+              backend's ops-only /admin/* routes, which would swallow this
+              page before the SPA fallback ever serves it. */}
+          <Route path="/site-admin"                           element={<AdminPage />} />
           <Route path="/multiplayer"                         element={<MultiplayerLobbyPage />} />
           <Route path="/multiplayer/draft/:roomId"           element={<DraftPage />} />
           <Route path="/join/:roomId"                        element={<MultiplayerLobbyPage />} />
