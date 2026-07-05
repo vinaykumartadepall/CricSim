@@ -22,27 +22,48 @@ _KEEPER_ROLE = "Keeper"
 @router.get("/players")
 def search_players(
     q: str = Query("", description="Search by name"),
-    keeper_only: bool = Query(False),
+    role: Optional[List[str]] = Query(None),
+    country_id: Optional[List[int]] = Query(None),
+    batting_style: Optional[List[str]] = Query(None),
+    bowling_style: Optional[List[str]] = Query(None),
     limit: int = Query(30, le=50),
 ):
     conn = get_db_connection(); cur = conn.cursor()
     try:
-        role_filter = "AND player_role = 'Keeper'" if keeper_only else ""
+        # Each filter is multi-select (repeated query params) — ANY(%s) against
+        # a list matches "role IN (...)" without building a dynamic IN clause.
+        filters: list[str] = []
+        params: list = []
+        if role:
+            filters.append("p.player_role = ANY(%s)")
+            params.append(role)
+        if country_id:
+            filters.append("p.country_id = ANY(%s)")
+            params.append(country_id)
+        if batting_style:
+            filters.append("p.batting_style = ANY(%s)")
+            params.append(batting_style)
+        if bowling_style:
+            filters.append("p.bowling_style = ANY(%s)")
+            params.append(bowling_style)
+        extra_filters = (" AND " + " AND ".join(filters)) if filters else ""
+
         cur.execute(
             f"""
             SELECT p.player_id, p.display_name, p.player_role, p.batting_style, p.bowling_style,
-                   p.cricinfo_id, p.player_role = 'Keeper' AS is_keeper
+                   p.cricinfo_id, p.player_role = 'Keeper' AS is_keeper, c.name AS country
             FROM history.players p
+            LEFT JOIN history.countries c ON c.country_id = p.country_id
             LEFT JOIN (
                 SELECT player_id, COUNT(*) AS matches_played
                 FROM history.match_players
                 GROUP BY player_id
             ) mp ON mp.player_id = p.player_id
-            WHERE p.gender = 'male' {role_filter}
+            WHERE p.gender = 'male' {extra_filters}
               AND (p.display_name ILIKE %s OR p.name ILIKE %s)
             ORDER BY COALESCE(mp.matches_played, 0) DESC LIMIT %s
             """,
-            (f"%{q}%", f"%{q}%", limit),
+            (*params, f"%{q}%", f"%{q}%", limit),
         )
         rows = cur.fetchall()
     finally:
@@ -57,9 +78,57 @@ def search_players(
             "bowling_style": r[4],
             "headshot_url": _headshot(r[5]),
             "is_keeper": r[6],
+            "country": r[7],
         }
         for r in rows
     ]
+
+
+# ── player search filter options ────────────────────────────────────────────────
+
+@router.get("/player-filters")
+def player_filter_options():
+    """Distinct values to populate the search filter dropdowns — kept as a
+    live query (not hardcoded) so it always matches the actual player data."""
+    conn = get_db_connection(); cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT DISTINCT player_role FROM history.players "
+            "WHERE gender = 'male' AND player_role IS NOT NULL ORDER BY 1"
+        )
+        roles = [r[0] for r in cur.fetchall()]
+
+        cur.execute(
+            """
+            SELECT DISTINCT c.country_id, c.name
+            FROM history.countries c
+            JOIN history.players p ON p.country_id = c.country_id
+            WHERE p.gender = 'male'
+            ORDER BY c.name
+            """
+        )
+        countries = [{"country_id": r[0], "name": r[1]} for r in cur.fetchall()]
+
+        cur.execute(
+            "SELECT DISTINCT batting_style FROM history.players "
+            "WHERE gender = 'male' AND batting_style IS NOT NULL ORDER BY 1"
+        )
+        batting_styles = [r[0] for r in cur.fetchall()]
+
+        cur.execute(
+            "SELECT DISTINCT bowling_style FROM history.players "
+            "WHERE gender = 'male' AND bowling_style IS NOT NULL ORDER BY 1"
+        )
+        bowling_styles = [r[0] for r in cur.fetchall()]
+    finally:
+        cur.close(); conn.close()
+
+    return {
+        "roles": roles,
+        "countries": countries,
+        "batting_styles": batting_styles,
+        "bowling_styles": bowling_styles,
+    }
 
 
 # ── room create/join ───────────────────────────────────────────────────────────

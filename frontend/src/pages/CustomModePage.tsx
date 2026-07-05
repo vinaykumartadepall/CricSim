@@ -7,7 +7,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
-import type { Tournament, Team, Player, MultiplayerPlayer } from '@/types'
+import { FilterDropdown } from '@/components/ui/FilterDropdown'
+import type { Tournament, Team, Player, MultiplayerPlayer, PlayerFilterOptions } from '@/types'
 
 type Step = 'tournament' | 'season' | 'team' | 'draft' | 'confirm'
 
@@ -154,6 +155,16 @@ function PickPanel({
   const [searching, setSearching] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const [roles, setRoles] = useState<string[]>([])
+  const [countryIds, setCountryIds] = useState<number[]>([])
+  const [battingStyles, setBattingStyles] = useState<string[]>([])
+  const [bowlingStyles, setBowlingStyles] = useState<string[]>([])
+  const [filterOptions, setFilterOptions] = useState<PlayerFilterOptions | null>(null)
+
+  useEffect(() => {
+    api.getPlayerFilters().then(setFilterOptions).catch(() => setFilterOptions(null))
+  }, [])
+
   function isOverseas(p: Player): boolean {
     return !!homeCountryName && !!p.country_name && p.country_name !== homeCountryName
   }
@@ -167,12 +178,13 @@ function PickPanel({
       bowling_style: mp.bowling_style,
       headshot_url: mp.headshot_url,
       cricinfo_id: null,
-      country_name: null,
+      country_name: mp.country,
     }
   }
 
   const trimmed = query.trim()
-  const isSearching = trimmed.length >= 2
+  const hasFilter = roles.length > 0 || countryIds.length > 0 || battingStyles.length > 0 || bowlingStyles.length > 0
+  const isSearching = trimmed.length >= 2 || hasFilter
 
   useEffect(() => {
     if (!isSearching) {
@@ -183,17 +195,20 @@ function PickPanel({
     setSearching(true)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      api.searchPlayers(trimmed)
+      api.searchPlayers(trimmed, { roles, countryIds, battingStyles, bowlingStyles })
         .then(data => setSearchResults(data.map(mpToPlayer)))
         .catch(() => setSearchResults([]))
         .finally(() => setSearching(false))
     }, 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [trimmed, isSearching])
+  }, [trimmed, isSearching, roles, countryIds, battingStyles, bowlingStyles])
 
   // Reset on close
   useEffect(() => {
-    if (!open) { setQuery(''); setSearchResults([]) }
+    if (!open) {
+      setQuery(''); setSearchResults([])
+      setRoles([]); setCountryIds([]); setBattingStyles([]); setBowlingStyles([])
+    }
   }, [open])
 
   if (!open) return null
@@ -227,6 +242,9 @@ function PickPanel({
               {p.player_name}
               {alreadyPicked && <span className="ml-1.5 text-xs" style={{ color: 'var(--text-dim)' }}>· Picked</span>}
             </span>
+            {p.country_name && (
+              <span className="text-xs font-normal flex-shrink-0" style={{ color: 'var(--text-dim)' }}>{p.country_name}</span>
+            )}
             {overseas && (
               <span className="text-[9px] px-1.5 py-px rounded font-bold flex-shrink-0"
                 style={{
@@ -268,20 +286,53 @@ function PickPanel({
           <button onClick={onClose} style={{ color: 'var(--text-muted)', fontSize: 18, lineHeight: 1 }}>✕</button>
         </div>
 
-        <div className="px-4 py-3 flex-shrink-0">
+        <div className="px-4 py-3 flex-shrink-0 flex flex-col gap-2">
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-muted)' }} />
+            {/* paddingLeft as an inline style, not the pl-9 utility class: Tailwind
+                v4's utilities live in @layer, and .input's own unlayered padding
+                shorthand in index.css always wins over any layered utility
+                regardless of source order — pl-9 was silently never applying,
+                which is why the icon sat on top of the placeholder text. */}
             <input
-              className="input w-full pl-9"
+              className="input w-full"
+              style={{ paddingLeft: 34 }}
               placeholder="Search all players…"
               value={query}
               onChange={e => setQuery(e.target.value)}
               autoFocus
             />
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <FilterDropdown
+              placeholder="All roles"
+              values={roles}
+              options={(filterOptions?.roles ?? []).map(r => ({ value: r, label: r }))}
+              onChange={setRoles}
+            />
+            <FilterDropdown
+              placeholder="All countries"
+              values={countryIds.map(String)}
+              searchable
+              options={(filterOptions?.countries ?? []).map(c => ({ value: String(c.country_id), label: c.name }))}
+              onChange={vals => setCountryIds(vals.map(Number))}
+            />
+            <FilterDropdown
+              placeholder="Any bat type"
+              values={battingStyles}
+              options={(filterOptions?.batting_styles ?? []).map(b => ({ value: b, label: b }))}
+              onChange={setBattingStyles}
+            />
+            <FilterDropdown
+              placeholder="Any bowl type"
+              values={bowlingStyles}
+              options={(filterOptions?.bowling_styles ?? []).map(b => ({ value: b, label: b }))}
+              onChange={setBowlingStyles}
+            />
+          </div>
           {!isSearching && (
-            <div className="text-xs mt-1.5 px-1" style={{ color: 'var(--text-dim)' }}>
-              Type 2+ characters to search all players
+            <div className="text-xs px-1" style={{ color: 'var(--text-dim)' }}>
+              Type 2+ characters or use a filter to search all players
             </div>
           )}
         </div>
@@ -300,7 +351,9 @@ function PickPanel({
               <div className="w-5 h-5 rounded-full border-2 border-t-transparent spin" style={{ borderColor: '#a855f7', borderTopColor: 'transparent' }} />
             </div>
           ) : searchResults.length === 0 ? (
-            <div className="text-center py-6 text-sm" style={{ color: 'var(--text-dim)' }}>No players found for "{trimmed}"</div>
+            <div className="text-center py-6 text-sm" style={{ color: 'var(--text-dim)' }}>
+              {trimmed ? `No players found for "${trimmed}"` : 'No players found'}
+            </div>
           ) : (
             <>
               <div className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-dim)' }}>

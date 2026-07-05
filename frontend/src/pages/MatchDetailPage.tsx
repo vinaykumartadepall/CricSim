@@ -699,8 +699,15 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
   const isNoResult = desc === 'No result'
   const isDrawn = desc === 'Match drawn'
 
-  const userWon  = !!userTeam && !!winner && winner.toLowerCase() === userTeam.toLowerCase()
-  const userLost = !!userTeam && !!winner && winner.toLowerCase() !== userTeam.toLowerCase()
+  // Only personalize the result if userTeam actually played in this match —
+  // otherwise a team that just isn't the winner (e.g. browsing some other
+  // fixture in the same tournament) would wrongly read as "you lost".
+  const isUserMatch = !!userTeam && (
+    userTeam.toLowerCase() === scorecard.home_team.toLowerCase() ||
+    userTeam.toLowerCase() === scorecard.away_team.toLowerCase()
+  )
+  const userWon  = isUserMatch && !!winner && winner.toLowerCase() === userTeam!.toLowerCase()
+  const userLost = isUserMatch && !!winner && winner.toLowerCase() !== userTeam!.toLowerCase()
 
   // Group innings by team (for Test: team may have 2 innings each)
   const teamOrder: string[] = []

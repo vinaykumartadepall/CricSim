@@ -244,3 +244,23 @@ body {
   50%       { box-shadow: 0 0 12px 2px var(--accent); }
 }
 .pulse-accent { animation: pulse-glow 2s ease-in-out infinite; }
+
+/* Floating dust motes (SimulatingPage stadium background) — drifts up and
+   sideways while fading in/out, driven by two custom properties set inline
+   per-particle (--dust-drift-x, --dust-peak-opacity) so one keyframe covers
+   the whole varied field. */
+@keyframes float-dust {
+  0%   { transform: translate(0, 0); opacity: 0; }
+  10%  { opacity: var(--dust-peak-opacity, 0.3); }
+  90%  { opacity: var(--dust-peak-opacity, 0.3); }
+  100% { transform: translate(var(--dust-drift-x, 12px), -110vh); opacity: 0; }
+}
+.dust-particle {
+  position: absolute;
+  bottom: -10px;
+  border-radius: 50%;
+  background: rgba(255, 200, 120, 0.6);
+  animation-name: float-dust;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}

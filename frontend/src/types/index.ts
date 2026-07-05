@@ -264,6 +264,21 @@ export interface MultiplayerPlayer {
   bowling_style: string | null
   headshot_url: string | null
   is_keeper: boolean
+  country: string | null
+}
+
+export interface PlayerSearchFilters {
+  roles?: string[]
+  countryIds?: number[]
+  battingStyles?: string[]
+  bowlingStyles?: string[]
+}
+
+export interface PlayerFilterOptions {
+  roles: string[]
+  countries: { country_id: number; name: string }[]
+  batting_styles: string[]
+  bowling_styles: string[]
 }
 
 export interface RoomMember {

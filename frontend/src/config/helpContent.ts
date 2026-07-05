@@ -24,7 +24,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
       {
         header: 'Single Player',
         instructions: [
-          'Simulate a full IPL season by yourself',
+          'Simulate a full season by yourself',
           'Choose from Fun, Challenge, or Custom mode',
           'Each mode gives you a different level of control over the team',
         ]

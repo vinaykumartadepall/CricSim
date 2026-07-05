@@ -1,4 +1,4 @@
-import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse } from '@/types'
+import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse } from '@/types'
 import { supabase } from '@/lib/supabase'
 
 const BASE = '/cricsimapi'
@@ -168,8 +168,17 @@ export const api = {
 
   // ── Multiplayer endpoints ──────────────────────────────────────────────────
 
-  searchPlayers: (q: string, keeperOnly?: boolean) =>
-    get<MultiplayerPlayer[]>(`/multiplayer/players?q=${encodeURIComponent(q)}${keeperOnly ? '&keeper_only=true' : ''}`),
+  searchPlayers: (q: string, filters: PlayerSearchFilters = {}) => {
+    const params = new URLSearchParams({ q })
+    filters.roles?.forEach(r => params.append('role', r))
+    filters.countryIds?.forEach(id => params.append('country_id', String(id)))
+    filters.battingStyles?.forEach(b => params.append('batting_style', b))
+    filters.bowlingStyles?.forEach(b => params.append('bowling_style', b))
+    return get<MultiplayerPlayer[]>(`/multiplayer/players?${params.toString()}`)
+  },
+
+  getPlayerFilters: () =>
+    get<PlayerFilterOptions>('/multiplayer/player-filters'),
 
   createRoom: (body: CreateRoomBody) =>
     post<RoomResponse>('/multiplayer/rooms', body),

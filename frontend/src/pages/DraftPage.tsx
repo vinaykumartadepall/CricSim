@@ -1,11 +1,12 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Copy, Check, ArrowUp, ArrowDown, Search, Shield, Zap, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Copy, Check, ArrowUp, ArrowDown, Search, Zap, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
-import type { MultiplayerPlayer, RoomState } from '@/types'
+import { FilterDropdown } from '@/components/ui/FilterDropdown'
+import type { MultiplayerPlayer, PlayerFilterOptions, RoomState } from '@/types'
 
 const DRAFT_HELP_KEY = '/multiplayer/draft'
 
@@ -340,37 +341,44 @@ function PickPanel({
   timer: number; draftedIds: Set<number>; pickedByName: Map<number, string>
   onPick: (id: number) => void; needsKeeper: boolean; isMyTurn: boolean
 }) {
-  const [query, setQuery]           = useState('')
-  const [keeperOnly, setKeeperOnly] = useState(false)
-  const [results, setResults]       = useState<MultiplayerPlayer[]>([])
-  const [loading, setLoading]       = useState(false)
-  const debounceRef                 = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const inputRef                    = useRef<HTMLInputElement>(null)
+  const [query, setQuery]               = useState('')
+  const [roles, setRoles]               = useState<string[]>([])
+  const [countryIds, setCountryIds]     = useState<number[]>([])
+  const [battingStyles, setBattingStyles] = useState<string[]>([])
+  const [bowlingStyles, setBowlingStyles] = useState<string[]>([])
+  const [filterOptions, setFilterOptions] = useState<PlayerFilterOptions | null>(null)
+  const [results, setResults]           = useState<MultiplayerPlayer[]>([])
+  const [loading, setLoading]           = useState(false)
+  const debounceRef                     = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputRef                        = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { if (needsKeeper && isMyTurn) setKeeperOnly(true) }, [needsKeeper, isMyTurn])
+  const hasQuery  = query.trim().length > 0
+  const hasFilter = roles.length > 0 || countryIds.length > 0 || battingStyles.length > 0 || bowlingStyles.length > 0
+
+  // Last pick with no keeper yet forces the role filter to Keeper — same
+  // enforcement as before, just expressed through the general role filter
+  // instead of a dedicated "keepers only" toggle.
+  useEffect(() => { if (needsKeeper && isMyTurn) setRoles(['Keeper']) }, [needsKeeper, isMyTurn])
   useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 100) }, [open])
 
   useEffect(() => {
+    import('@/api/client').then(({ api }) =>
+      api.getPlayerFilters().then(setFilterOptions).catch(() => setFilterOptions(null))
+    )
+  }, [])
+
+  useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!query.trim() && !keeperOnly) { setResults([]); return }
+    if (!hasQuery && !hasFilter) { setResults([]); return }
     debounceRef.current = setTimeout(async () => {
       setLoading(true)
       try {
         const { api } = await import('@/api/client')
-        setResults(await api.searchPlayers(query.trim(), keeperOnly))
+        setResults(await api.searchPlayers(query.trim(), { roles, countryIds, battingStyles, bowlingStyles }))
       } catch { setResults([]) } finally { setLoading(false) }
     }, SEARCH_DEBOUNCE_MS)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [query, keeperOnly])
-
-  useEffect(() => {
-    if (keeperOnly && !query.trim()) {
-      setLoading(true)
-      import('@/api/client').then(({ api }) =>
-        api.searchPlayers('', true).then(setResults).catch(() => setResults([])).finally(() => setLoading(false))
-      )
-    }
-  }, [keeperOnly, query])
+  }, [query, roles, countryIds, battingStyles, bowlingStyles, hasQuery, hasFilter])
 
   if (!open) return null
 
@@ -408,23 +416,38 @@ function PickPanel({
           <button onClick={onClose} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--text-muted)' }}>✕</button>
         </div>
 
-        {/* Search bar */}
+        {/* Search bar + filters */}
         <div className="px-4 py-3 flex-shrink-0 flex flex-col gap-2">
           <input ref={inputRef} className="input w-full" placeholder="Search players…"
             value={query} onChange={e => setQuery(e.target.value)} />
-          <button
-            onClick={() => !(needsKeeper && isMyTurn) && setKeeperOnly(k => !k)}
-            disabled={needsKeeper && isMyTurn}
-            className="self-start flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-all"
-            style={{
-              background: keeperOnly ? 'var(--accent-tint)' : 'var(--surface-2)',
-              color: keeperOnly ? 'var(--accent)' : 'var(--text-muted)',
-              border: `1px solid ${keeperOnly ? 'var(--accent)' : 'var(--border)'}`,
-              cursor: needsKeeper && isMyTurn ? 'not-allowed' : 'pointer',
-              opacity: needsKeeper && isMyTurn ? 0.8 : 1,
-            }}>
-            <Shield size={11} />Keepers only
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <FilterDropdown
+              placeholder="All roles"
+              values={roles}
+              disabled={needsKeeper && isMyTurn}
+              options={(filterOptions?.roles ?? []).map(r => ({ value: r, label: r }))}
+              onChange={setRoles}
+            />
+            <FilterDropdown
+              placeholder="All countries"
+              values={countryIds.map(String)}
+              searchable
+              options={(filterOptions?.countries ?? []).map(c => ({ value: String(c.country_id), label: c.name }))}
+              onChange={vals => setCountryIds(vals.map(Number))}
+            />
+            <FilterDropdown
+              placeholder="Any bat type"
+              values={battingStyles}
+              options={(filterOptions?.batting_styles ?? []).map(b => ({ value: b, label: b }))}
+              onChange={setBattingStyles}
+            />
+            <FilterDropdown
+              placeholder="Any bowl type"
+              values={bowlingStyles}
+              options={(filterOptions?.bowling_styles ?? []).map(b => ({ value: b, label: b }))}
+              onChange={setBowlingStyles}
+            />
+          </div>
         </div>
 
         {/* Results */}
@@ -434,10 +457,10 @@ function PickPanel({
               <span className="spin inline-block w-5 h-5 rounded-full border-2" style={{ borderColor: 'var(--accent-tint)', borderTopColor: 'var(--accent)' }} />
             </div>
           )}
-          {!loading && results.length === 0 && (query.trim() || keeperOnly) && (
+          {!loading && results.length === 0 && (hasQuery || hasFilter) && (
             <div className="text-center py-6 text-sm" style={{ color: 'var(--text-dim)' }}>No players found</div>
           )}
-          {!loading && results.length === 0 && !query.trim() && !keeperOnly && (
+          {!loading && results.length === 0 && !hasQuery && !hasFilter && (
             <div className="text-center py-6 text-sm" style={{ color: 'var(--text-dim)' }}>
               {isMyTurn ? 'Search for a player to draft' : 'Not your turn'}
             </div>
@@ -454,8 +477,11 @@ function PickPanel({
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
                 <Headshot url={p.headshot_url} name={p.name} size={32} />
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate" style={{ color: drafted ? 'var(--text-dim)' : 'var(--text)' }}>
-                    {p.name}
+                  <div className="text-sm font-medium truncate flex items-baseline gap-1.5" style={{ color: drafted ? 'var(--text-dim)' : 'var(--text)' }}>
+                    <span className="truncate">{p.name}</span>
+                    {p.country && (
+                      <span className="text-xs font-normal flex-shrink-0" style={{ color: 'var(--text-dim)' }}>{p.country}</span>
+                    )}
                   </div>
                   {drafted ? (
                     <div className="text-xs" style={{ color: 'var(--text-dim)' }}>

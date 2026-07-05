@@ -1,9 +1,37 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
+import { X } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
 import { api } from '@/api/client'
+import simulatingBg from '@/assets/simulating.png'
+import teamsIcon from '@/assets/icon-teams.png'
+import matchesIcon from '@/assets/icon-matches.png'
+import deliveriesIcon from '@/assets/icon-deliveries.png'
 
 const POLL_MS = 2500
+const LIVE_UPDATES_PREVIEW_COUNT = 3
+
+// Shared "glass" card treatment — translucent + backdrop-blurred rather than
+// a solid fill, so cards read as sitting *in* the (blurred) stadium scene
+// rather than pasted on top of a flat surface color.
+const GLASS: CSSProperties = {
+  background: 'rgba(20,20,20,0.82)',
+  border: '1px solid rgba(255,255,255,0.08)',
+  backdropFilter: 'blur(8px)',
+  WebkitBackdropFilter: 'blur(8px)',
+}
+
+// Deterministic pseudo-random spread (seeded by index, not Math.random())
+// so the particle field is stable across renders instead of jumping around.
+const DUST_PARTICLES = Array.from({ length: 16 }, (_, i) => ({
+  left: `${(i * 61.8) % 100}%`,
+  size: 2 + (i % 3),
+  duration: 16 + (i % 7) * 2,
+  delay: -((i * 1.7) % 20),
+  driftX: (i % 2 === 0 ? 1 : -1) * (10 + (i % 5) * 4),
+  peakOpacity: 0.15 + (i % 4) * 0.06,
+}))
 
 type ResultEntry = { label: string; text: string; home: string; away: string }
 
@@ -57,82 +85,113 @@ function formatCount(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n)
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
-    <div className="flex-1 flex flex-col items-center gap-0.5 py-3 rounded-lg"
-      style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+    <div className="flex-1 flex flex-col items-center gap-0.5 py-3 rounded-lg" style={GLASS}>
+      <img src={icon} alt="" className="w-6 h-6 mb-0.5" style={{ objectFit: 'contain' }} />
       <div className="text-[11px] uppercase tracking-wider" style={{ color: 'var(--text-dim)' }}>{label}</div>
       <div className="text-base font-semibold tabular-nums" style={{ color: 'var(--text)' }}>{value}</div>
     </div>
   )
 }
 
-const LIVE_UPDATES_MIN_HEIGHT = 60
-const LIVE_UPDATES_MAX_HEIGHT = 320
+// Result text is built as "{home} vs {away} — {description}", where a
+// decisive description reads "{winner} won by {margin}" (or, for a Super
+// Over, "Match tied · {winner} won Super Over"). Tie/no-result/draw
+// descriptions contain no "won", so this returns null for those — correctly
+// falling through to the neutral style below rather than a false win/loss.
+function parseWinner(text: string): string | null {
+  const desc = text.split(' — ')[1] ?? ''
+  const superOver = desc.match(/^Match tied · (.+) won Super Over$/)
+  if (superOver) return superOver[1].trim()
+  const decisive = desc.match(/^(.+?)\s+won\s+by\s+/)
+  return decisive ? decisive[1].trim() : null
+}
 
-function LiveUpdates({ results, userTeam }: { results: ResultEntry[]; userTeam?: string | null }) {
-  const listRef = useRef<HTMLDivElement>(null)
-  const [height, setHeight] = useState(88)
-  const dragRef = useRef<{ startY: number; startHeight: number } | null>(null)
-
-  useEffect(() => {
-    const el = listRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [results.length])
-
-  // Bottom-left drag handle, vertical resize only — width stays fixed at
-  // max-w-xs regardless, this only ever adjusts the scrollable list's height.
-  function onResizeStart(e: ReactPointerEvent<HTMLDivElement>) {
-    e.preventDefault()
-    dragRef.current = { startY: e.clientY, startHeight: height }
-    function onMove(ev: PointerEvent) {
-      if (!dragRef.current) return
-      const delta = ev.clientY - dragRef.current.startY
-      setHeight(Math.min(LIVE_UPDATES_MAX_HEIGHT, Math.max(LIVE_UPDATES_MIN_HEIGHT, dragRef.current.startHeight + delta)))
-    }
-    function onUp() {
-      dragRef.current = null
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }
-
-  if (results.length === 0) return null
+// Timeline row — a dot + connecting line down to the next entry, matching
+// the provided reference styling. Dot/label read gold by default (matching
+// the reference) and only flip to red when it's specifically a loss for the
+// viewer's own team; a plain win stays the same gold as everything else.
+function TimelineItem({ r, userTeam, isLast }: { r: ResultEntry; userTeam?: string | null; isLast: boolean }) {
+  const isMine = !!userTeam && (r.home === userTeam || r.away === userTeam)
+  const winner = isMine ? parseWinner(r.text) : null
+  const lost = isMine && !!winner && winner.toLowerCase() !== userTeam!.toLowerCase()
+  const won = isMine && !!winner && winner.toLowerCase() === userTeam!.toLowerCase()
+  const accent = lost ? 'var(--loss)' : (won ? 'var(--win)' : 'var(--score)')
 
   return (
-    <div className="relative w-full max-w-xs rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-      <div className="px-3 pt-2.5 pb-1.5 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-dim)' }}>
-        Live updates
-      </div>
-      <div ref={listRef} className="flex flex-col gap-1 px-3 pb-2.5 overflow-y-auto" style={{ maxHeight: height }}>
-        {results.map((r, i) => {
-          const isMine = !!userTeam && (r.home === userTeam || r.away === userTeam)
-          return (
-            <div
-              key={i}
-              className="text-xs leading-snug pl-2 -ml-2 rounded"
-              style={{
-                borderLeft: `2px solid ${isMine ? 'var(--accent)' : 'transparent'}`,
-                background: isMine ? 'var(--accent-tint)' : 'transparent',
-              }}
-            >
-              <span className="font-medium" style={{ color: 'var(--accent)' }}>{r.label}: </span>
-              <span style={{ color: 'var(--text-muted)' }}>{r.text}</span>
-            </div>
-          )
-        })}
-      </div>
-      <div
-        onPointerDown={onResizeStart}
-        title="Drag to resize"
-        className="absolute left-0 bottom-0 flex items-end justify-start"
-        style={{ width: 16, height: 16, cursor: 'ns-resize' }}
-      >
-        <div className="mb-1 ml-1" style={{ width: 10, height: 3, borderRadius: 2, background: 'var(--text-dim)' }} />
+    <div className="relative pl-4" style={{ paddingBottom: isLast ? 0 : 14 }}>
+      <span className="absolute rounded-full" style={{ left: 0, top: 4, width: 8, height: 8, background: accent }} />
+      {!isLast && (
+        <span className="absolute" style={{ left: 3, top: 13, bottom: -1, width: 1, background: accent, opacity: 0.35 }} />
+      )}
+      <div className="text-xs leading-snug">
+        <span className="font-semibold" style={{ color: accent }}>{r.label}: </span>
+        <span style={{ color: 'var(--text-muted)' }}>{r.text}</span>
       </div>
     </div>
+  )
+}
+
+function LiveUpdates({ results, userTeam }: { results: ResultEntry[]; userTeam?: string | null }) {
+  const [showAll, setShowAll] = useState(false)
+
+  // Latest match first.
+  const reversed = [...results].reverse()
+  const preview = reversed.slice(0, LIVE_UPDATES_PREVIEW_COUNT)
+
+  return (
+    <>
+      <div className="w-full max-w-xs rounded-lg" style={GLASS}>
+        <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
+          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--score)' }}>Live updates</span>
+          {reversed.length > LIVE_UPDATES_PREVIEW_COUNT && (
+            <button
+              onClick={() => setShowAll(true)}
+              className="text-[11px] font-medium"
+              style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+              View all
+            </button>
+          )}
+        </div>
+        <div className="px-3 pb-3">
+          {preview.length === 0 ? (
+            <div className="text-xs" style={{ color: 'var(--text-dim)' }}>No matches completed yet…</div>
+          ) : (
+            preview.map((r, i) => (
+              <TimelineItem key={i} r={r} userTeam={userTeam} isLast={i === preview.length - 1} />
+            ))
+          )}
+        </div>
+      </div>
+
+      {showAll && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowAll(false) }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl overflow-hidden fade-in flex flex-col"
+            style={{ ...GLASS, boxShadow: '0 16px 48px rgba(0,0,0,0.5)', maxHeight: '75vh' }}
+          >
+            <div className="flex-shrink-0 flex items-center justify-between px-5 pt-4 pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h2 className="text-base font-bold m-0" style={{ color: 'var(--text)' }}>Live updates</h2>
+              <button onClick={() => setShowAll(false)} style={{ color: 'var(--text-dim)', lineHeight: 0 }}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="px-5 py-4 overflow-y-auto">
+              {reversed.map((r, i) => (
+                <TimelineItem key={i} r={r} userTeam={userTeam} isLast={i === reversed.length - 1} />
+              ))}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   )
 }
 
@@ -188,59 +247,109 @@ export function SimulatingPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [simId])
 
-  if (status === 'failed') {
-    return (
-      <div className="max-w-md mx-auto px-4 py-16 text-center">
-        <div className="text-4xl mb-4">⚠</div>
-        <div className="text-base font-medium mb-2" style={{ color: 'var(--text)' }}>Simulation failed</div>
-        <div className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>{errorMsg}</div>
-        <button className="btn-outline" onClick={() => navigate('/')}>Back to home</button>
-      </div>
-    )
-  }
-
   const percent = progress ? (progress.completed / progress.total) * 100 : 0
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] gap-3 px-4">
-      <div className="text-base font-medium" style={{ color: 'var(--text)' }}>Simulating tournament…</div>
-      <div className="text-xs -mt-2" style={{ color: 'var(--text-dim)' }}>Please wait while the action unfolds</div>
+    <>
+      {/* Full-page background — fixed so it always covers the viewport
+          regardless of page scroll length. Non-negative z-index (rather than
+          -z-10) is deliberate: App.tsx wraps every route in its own opaque
+          `background: var(--bg)` div, which paints over a negative-z-index
+          descendant since that wrapper never establishes its own stacking
+          context — so a negative z-index here would render below it, not
+          just below this page's content.
+          Blurred + scaled up slightly (so the softened edges fall outside
+          the viewport) — real stadium detail competes with the cards
+          otherwise; blurred, it still reads as "a stadium" without pulling
+          focus. The gradient scrim is heavier at top/bottom (title, buttons)
+          and lighter through the middle (progress ring, stat cards), so the
+          stadium bowl behind the content is felt rather than just covered. */}
+      <div
+        className="fixed inset-0"
+        style={{
+          zIndex: 0,
+          backgroundImage: `url(${simulatingBg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          transform: 'scale(1.08)',
+        }}
+      />
+      <div
+        className="fixed inset-0"
+        style={{
+          zIndex: 0,
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 50%, rgba(0,0,0,0.85) 100%)',
+        }}
+      />
+      {/* Dust motes, faintly lit as if by the floodlights — subtle enough that
+          the screen feels alive even while progress is between polls. */}
+      <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 0, pointerEvents: 'none' }}>
+        {DUST_PARTICLES.map((p, i) => (
+          <span
+            key={i}
+            className="dust-particle"
+            style={{
+              left: p.left,
+              width: p.size,
+              height: p.size,
+              animationDuration: `${p.duration}s`,
+              animationDelay: `${p.delay}s`,
+              '--dust-drift-x': `${p.driftX}px`,
+              '--dust-peak-opacity': p.peakOpacity,
+            } as CSSProperties}
+          />
+        ))}
+      </div>
 
-      {progress ? (
-        <>
-          <ProgressRing percent={percent} />
-          <div className="text-sm font-medium" style={{ color: 'var(--accent)' }}>{statusPhrase(percent)}</div>
-          <div className="text-sm mb-1" style={{ color: 'var(--text-muted)' }}>
-            <span className="tabular-nums font-semibold" style={{ color: 'var(--text)' }}>{progress.completed}</span>
-            <span className="tabular-nums"> / {progress.total} matches simulated</span>
-          </div>
-
-          <div className="flex gap-2 w-full max-w-xs">
-            <StatCard label="Teams" value={String(progress.teams)} />
-            <StatCard label="Matches" value={String(progress.total)} />
-            <StatCard label="Deliveries" value={formatCount(progress.totalDeliveries)} />
-          </div>
-
-          <LiveUpdates results={progress.results} userTeam={userTeam} />
-        </>
+      {status === 'failed' ? (
+        <div className="relative max-w-md mx-auto px-4 py-16 text-center" style={{ zIndex: 1 }}>
+          <div className="text-4xl mb-4">⚠</div>
+          <div className="text-base font-medium mb-2" style={{ color: 'var(--text)' }}>Simulation failed</div>
+          <div className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>{errorMsg}</div>
+          <button className="btn-outline" onClick={() => navigate('/')}>Back to home</button>
+        </div>
       ) : (
-        <>
-          <div className="pulse-accent w-16 h-16 rounded-full flex items-center justify-center mt-1"
-            style={{ border: '2px solid var(--accent)' }}>
-            <Spinner size={28} />
-          </div>
-          <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Running ball-by-ball. Takes 10–30 seconds.</div>
-        </>
-      )}
+        <div className="relative flex flex-col items-center min-h-[calc(100vh-64px)] gap-3 px-4 py-10" style={{ zIndex: 1 }}>
+          <div className="text-base font-medium" style={{ color: 'var(--text)' }}>Simulating tournament…</div>
+          <div className="text-xs -mt-2" style={{ color: 'var(--text-dim)' }}>Please wait while the action unfolds</div>
 
-      <button
-        className="text-sm mt-3 px-5 py-2 rounded-lg font-medium"
-        style={{ background: 'var(--accent-tint)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
-        onClick={() => navigate('/')}
-      >
-        Back to home
-      </button>
-      <div className="text-xs" style={{ color: 'var(--text-dim)' }}>Keeps running in the background</div>
-    </div>
+          {progress ? (
+            <>
+              <ProgressRing percent={percent} />
+              <div className="text-sm font-medium" style={{ color: 'var(--accent)' }}>{statusPhrase(percent)}</div>
+              <div className="text-sm mb-1" style={{ color: 'var(--text-muted)' }}>
+                <span className="tabular-nums font-semibold" style={{ color: 'var(--text)' }}>{progress.completed}</span>
+                <span className="tabular-nums"> / {progress.total} matches simulated</span>
+              </div>
+
+              <div className="flex gap-2 w-full max-w-xs">
+                <StatCard icon={teamsIcon} label="Teams" value={String(progress.teams)} />
+                <StatCard icon={matchesIcon} label="Matches" value={String(progress.total)} />
+                <StatCard icon={deliveriesIcon} label="Deliveries" value={formatCount(progress.totalDeliveries)} />
+              </div>
+
+              <LiveUpdates results={progress.results} userTeam={userTeam} />
+            </>
+          ) : (
+            <>
+              <div className="pulse-accent w-16 h-16 rounded-full flex items-center justify-center mt-1"
+                style={{ border: '2px solid var(--accent)' }}>
+                <Spinner size={28} />
+              </div>
+              <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Running ball-by-ball. Takes 10–30 seconds.</div>
+            </>
+          )}
+
+          <button
+            className="text-sm mt-3 px-5 py-2 rounded-lg font-medium"
+            style={{ background: 'var(--accent-tint)', color: 'var(--accent)', border: '1px solid var(--accent)' }}
+            onClick={() => navigate('/')}
+          >
+            Back to home
+          </button>
+          <div className="text-xs" style={{ color: 'var(--text-dim)' }}>Keeps running in the background</div>
+        </div>
+      )}
+    </>
   )
 }
