@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Share, MessageCircle, Link as LinkIcon, Check } from 'lucide-react'
+import { Share2, MessageCircle, Link as LinkIcon, Check } from 'lucide-react'
 
 const MENU_WIDTH = 190
 
@@ -102,7 +102,7 @@ export function ShareButton({ text, url, label = 'Share' }: { text: string; url:
         className="btn-outline flex items-center gap-1.5 text-xs py-1.5 px-2.5"
         onClick={toggleOpen}
       >
-        <Share size={12} /> {label}
+        <Share2 size={12} /> {label}
       </button>
 
       {open && menuPos && createPortal(
@@ -115,7 +115,7 @@ export function ShareButton({ text, url, label = 'Share' }: { text: string; url:
             boxShadow: '0 8px 24px rgba(0,0,0,0.45)', zIndex: 100,
           }}
         >
-          {canNativeShare && <MenuItem icon={<Share size={13} />} label="Share…" onClick={shareNative} />}
+          {canNativeShare && <MenuItem icon={<Share2 size={13} />} label="Share…" onClick={shareNative} />}
           <MenuItem icon={<span style={{ fontSize: 12, fontWeight: 700 }}>𝕏</span>} label="Share to X" onClick={shareToX} />
           <MenuItem icon={<MessageCircle size={13} />} label="Share to WhatsApp" onClick={shareToWhatsapp} />
           <MenuItem

@@ -181,9 +181,12 @@ export function HomePage() {
           <button
             onClick={() => navigate('/play')}
             style={{
-              position: 'relative', overflow: 'hidden',
-              background: 'var(--bg)',
-              border: '0.1px solid var(--accent)', borderRadius: 12,
+              position: 'relative',
+              backgroundImage: `linear-gradient(180deg, rgba(8,8,8,0.95) 0%, rgba(8,8,8,0.85) 35%, rgba(8,8,8,0.4) 75%, rgba(8,8,8,0.15) 100%), url(${singlePlayerImg})`,
+              backgroundSize: 'cover, cover',
+              backgroundPosition: 'center, center',
+              backgroundRepeat: 'no-repeat, no-repeat',
+              border: '1px solid var(--accent-glow)', borderRadius: 12,
               padding: '20px 18px', cursor: 'pointer', textAlign: 'left',
               fontFamily: SANS, display: 'flex', flexDirection: 'column',
               transition: 'box-shadow 0.2s, border-color 0.2s',
@@ -191,15 +194,7 @@ export function HomePage() {
             onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = 'var(--accent-dim)'; el.style.boxShadow = '0 0 0 1px var(--accent-glow)' }}
             onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = 'var(--accent)'; el.style.boxShadow = 'none' }}
           >
-            <div style={{
-              position: 'absolute', inset: 0,
-              backgroundImage: `url(${singlePlayerImg})`, backgroundSize: 'cover', backgroundPosition: 'center',
-            }} />
-            <div style={{
-              position: 'absolute', inset: 0,
-              background: 'linear-gradient(135deg, rgba(8,8,8,0.95) 0%, rgba(8,8,8,0.85) 35%, rgba(8,8,8,0.4) 75%, rgba(8,8,8,0.15) 100%)',
-            }} />
-            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
                 <User size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
                 <span style={{ fontFamily: SERIF, fontSize: 17, fontWeight: 400, color: 'var(--accent)' }}>
@@ -227,9 +222,12 @@ export function HomePage() {
           <button
             onClick={() => navigate('/multiplayer')}
             style={{
-              position: 'relative', overflow: 'hidden',
-              background: 'var(--bg)',
-              border: '0.1px solid var(--accent)', borderRadius: 12,
+              position: 'relative',
+              backgroundImage: `linear-gradient(135deg, rgba(8,8,8,0.95) 0%, rgba(8,8,8,0.85) 35%, rgba(8,8,8,0.4) 75%, rgba(8,8,8,0.15) 100%), url(${multiplayerImg})`,
+              backgroundSize: 'cover, cover',
+              backgroundPosition: 'center, center',
+              backgroundRepeat: 'no-repeat, no-repeat',
+              border: '1px solid var(--accent-glow)', borderRadius: 12,
               padding: '20px 18px', cursor: 'pointer', textAlign: 'left',
               fontFamily: SANS, display: 'flex', flexDirection: 'column',
               transition: 'box-shadow 0.2s, border-color 0.2s',
@@ -237,15 +235,7 @@ export function HomePage() {
             onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = 'var(--accent-dim)'; el.style.boxShadow = '0 0 0 1px var(--accent-glow)' }}
             onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = 'var(--accent)'; el.style.boxShadow = 'none' }}
           >
-            <div style={{
-              position: 'absolute', inset: 0,
-              backgroundImage: `url(${multiplayerImg})`, backgroundSize: 'cover', backgroundPosition: 'center',
-            }} />
-            <div style={{
-              position: 'absolute', inset: 0,
-              background: 'linear-gradient(135deg, rgba(8,8,8,0.95) 0%, rgba(8,8,8,0.85) 35%, rgba(8,8,8,0.4) 75%, rgba(8,8,8,0.15) 100%)',
-            }} />
-            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
                 <Users size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
                 <span style={{ fontFamily: SERIF, fontSize: 17, fontWeight: 400, color: 'var(--accent)' }}>
@@ -256,7 +246,7 @@ export function HomePage() {
                 Draft with friends
               </div>
               <div style={{ height: 1, background: 'var(--border)', opacity: 0.7, marginBottom: 12 }} />
-              <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, marginBottom: 18, flex: 1 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 18, flex: 1 }}>
                 Create a room, invite your friends, and compete together.
               </div>
               <div style={{
