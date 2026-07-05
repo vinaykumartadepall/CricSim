@@ -74,15 +74,18 @@ export function Header() {
             onClick={() => setDropdownOpen(o => !o)}
             style={{
               display: 'flex', alignItems: 'center', gap: 7,
-              background: 'none', border: '1px solid var(--border)',
+              background: 'none',
               borderRadius: 20, padding: '6px 10px',
               cursor: 'pointer', color: 'var(--text)',
             }}
           >
-            <span style={{ fontSize: 13, fontWeight: 500, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{
+              fontSize: 13, fontWeight: 'bold', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              color: isLoggedIn ? 'var(--accent)' : 'var(--text)',
+            }}>
               {displayName}
             </span>
-            <ChevronDown size={12} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />
+            <ChevronDown size={12} style={{ color: isLoggedIn ? 'var(--accent)' : 'var(--text)', fontWeight: 'bold', flexShrink: 0 }} />
           </button>
 
           {dropdownOpen && (
