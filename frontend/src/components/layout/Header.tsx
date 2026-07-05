@@ -74,7 +74,7 @@ export function Header() {
             onClick={() => setDropdownOpen(o => !o)}
             style={{
               display: 'flex', alignItems: 'center', gap: 7,
-              background: 'none',
+              background: 'none', border: '1px solid var(--border)',
               borderRadius: 20, padding: '6px 10px',
               cursor: 'pointer', color: 'var(--text)',
             }}

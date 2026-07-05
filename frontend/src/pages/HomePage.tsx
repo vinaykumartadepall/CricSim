@@ -6,6 +6,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { SimCard } from '@/components/SimCard'
 import type { SimSummary } from '@/types'
 import heroImg from '@/assets/hero-landscape1.png'
+import singlePlayerImg from '@/assets/card-single-player.png'
+import multiplayerImg from '@/assets/card-multiplayer.png'
 
 const SERIF = "'DM Serif Display', Georgia, 'Times New Roman', serif"
 const SANS  = "'DM Sans', system-ui, sans-serif"
@@ -160,7 +162,7 @@ export function HomePage() {
               <div style={{
                 fontFamily: SANS, fontSize: 10, fontWeight: 700,
                 textTransform: 'uppercase', letterSpacing: '0.14em',
-                color: 'var(--text-dim)', marginBottom: 3,
+                color: 'var(--text-muted)', marginBottom: 3,
               }}>
                 Total Tournaments Simulated across all game modes
               </div>
@@ -179,33 +181,45 @@ export function HomePage() {
           <button
             onClick={() => navigate('/play')}
             style={{
-              background: 'none',
-              border: '0.5px solid var(--accent)', borderRadius: 8,
+              position: 'relative', overflow: 'hidden',
+              background: 'var(--bg)',
+              border: '1px solid var(--accent)', borderRadius: 12,
               padding: '20px 18px', cursor: 'pointer', textAlign: 'left',
               fontFamily: SANS, display: 'flex', flexDirection: 'column',
-              transition: 'background 0.2s',
+              transition: 'box-shadow 0.2s, border-color 0.2s',
             }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--accent-glow)'}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'none'}
+            onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = 'var(--accent-dim)'; el.style.boxShadow = '0 0 0 1px var(--accent-glow)' }}
+            onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = 'var(--accent)'; el.style.boxShadow = 'none' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
-              <User size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-              <span style={{ fontFamily: SERIF, fontSize: 19, fontWeight: 400, color: 'var(--accent)' }}>
-                Single Player
-              </span>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 14 }}>
-              Fun · Challenge · Custom
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 18, flex: 1 }}>
-              Build your team, make trades, and win the title.
-            </div>
             <div style={{
-              background: 'var(--accent-dim)', color: 'var(--bg)',
-              borderRadius: 4, padding: '9px 0', textAlign: 'center',
-              fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
-            }}>
-              PLAY NOW →
+              position: 'absolute', inset: 0,
+              backgroundImage: `url(${singlePlayerImg})`, backgroundSize: 'cover', backgroundPosition: 'center',
+            }} />
+            <div style={{
+              position: 'absolute', inset: 0,
+              background: 'linear-gradient(135deg, rgba(8,8,8,0.95) 0%, rgba(8,8,8,0.85) 35%, rgba(8,8,8,0.4) 75%, rgba(8,8,8,0.15) 100%)',
+            }} />
+            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
+                <User size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                <span style={{ fontFamily: SERIF, fontSize: 17, fontWeight: 400, color: 'var(--accent)' }}>
+                  Single Player
+                </span>
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 12 }}>
+                Fun · Challenge · Custom
+              </div>
+              <div style={{ height: 1, background: 'var(--border)', opacity: 0.7, marginBottom: 12 }} />
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 18, flex: 1 }}>
+                Build your team, make trades, and win the title.
+              </div>
+              <div style={{
+                background: 'var(--accent)', color: 'var(--bg)',
+                borderRadius: 6, padding: '9px 0', textAlign: 'center',
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+              }}>
+                PLAY NOW →
+              </div>
             </div>
           </button>
 
@@ -213,33 +227,45 @@ export function HomePage() {
           <button
             onClick={() => navigate('/multiplayer')}
             style={{
-              background: 'none',
-              border: '0.5px solid var(--accent)', borderRadius: 8,
+              position: 'relative', overflow: 'hidden',
+              background: 'var(--bg)',
+              border: '1px solid var(--accent)', borderRadius: 12,
               padding: '20px 18px', cursor: 'pointer', textAlign: 'left',
               fontFamily: SANS, display: 'flex', flexDirection: 'column',
-              transition: 'background 0.2s',
+              transition: 'box-shadow 0.2s, border-color 0.2s',
             }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--accent-glow)'}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'none'}
+            onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = 'var(--accent-dim)'; el.style.boxShadow = '0 0 0 1px var(--accent-glow)' }}
+            onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.borderColor = 'var(--accent)'; el.style.boxShadow = 'none' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
-              <Users size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-              <span style={{ fontFamily: SERIF, fontSize: 19, fontWeight: 400, color: 'var(--accent)' }}>
-                Multi Player
-              </span>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 14 }}>
-              Draft with friends
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 18, flex: 1 }}>
-              Create a room, invite your friends, and compete together.
-            </div>
             <div style={{
-              background: 'var(--accent-dim)', color: 'var(--bg)',
-              borderRadius: 4, padding: '9px 0', textAlign: 'center',
-              fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
-            }}>
-              PLAY TOGETHER →
+              position: 'absolute', inset: 0,
+              backgroundImage: `url(${multiplayerImg})`, backgroundSize: 'cover', backgroundPosition: 'center',
+            }} />
+            <div style={{
+              position: 'absolute', inset: 0,
+              background: 'linear-gradient(135deg, rgba(8,8,8,0.95) 0%, rgba(8,8,8,0.85) 35%, rgba(8,8,8,0.4) 75%, rgba(8,8,8,0.15) 100%)',
+            }} />
+            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
+                <Users size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                <span style={{ fontFamily: SERIF, fontSize: 17, fontWeight: 400, color: 'var(--accent)' }}>
+                  Multi Player
+                </span>
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 12 }}>
+                Draft with friends
+              </div>
+              <div style={{ height: 1, background: 'var(--border)', opacity: 0.7, marginBottom: 12 }} />
+              <div style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.55, marginBottom: 18, flex: 1 }}>
+                Create a room, invite your friends, and compete together.
+              </div>
+              <div style={{
+                background: 'var(--accent)', color: 'var(--bg)',
+                borderRadius: 6, padding: '9px 0', textAlign: 'center',
+                fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+              }}>
+                PLAY TOGETHER →
+              </div>
             </div>
           </button>
         </div>
