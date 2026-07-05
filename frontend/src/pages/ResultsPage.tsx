@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { Trophy, TrendingUp, Swords, Star, RotateCcw, ChevronRight, X, Search } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
+import { ShareButton } from '@/components/ui/ShareButton'
 import { PlayoffBracket } from '@/components/PlayoffBracket'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
@@ -13,6 +14,23 @@ import type {
 } from '@/types'
 
 type Tab = 'standings' | 'leaderboards' | 'matches'
+
+// ── Share text ────────────────────────────────────────────────────────────────
+
+function tournamentShareText(result: TournamentResult): string {
+  const suffix = result.tournament_name
+    ? `${result.tournament_name}${result.season && result.mode !== 'multiplayer' ? ` ${result.season}` : ''}`
+    : 'a tournament'
+  const team = result.user_team_name
+  if (team) {
+    const placement = result.user_team_placement
+    if (placement === 'Winner')    return `🏆 I won ${suffix} with ${team} on CricSim! Can you do better?`
+    if (placement === 'Runner-up') return `😤 So close! I finished runner-up with ${team} in ${suffix} on CricSim.`
+    if (placement === 'Playoffs')  return `✨ made the playoffs with ${team} in ${suffix} on CricSim!`
+    return `🏏 Just played ${suffix} with ${team} on CricSim!`
+  }
+  return result.winner ? `🏆 ${result.winner} won ${suffix} on CricSim!` : `🏏 Check out this ${suffix} on CricSim!`
+}
 
 // ── Leaderboard modal ─────────────────────────────────────────────────────────
 
@@ -684,13 +702,18 @@ export function ResultsPage() {
 
         type BannerTheme = { icon: string; headline: string; sub: string; border: string; bg: string; color: string }
         const theme: BannerTheme = (() => {
+          // Same medal-ladder colors as SimCard's placement badges: gold/silver/bronze,
+          // tinted at low opacity over transparent (not mixed into --surface-2 at
+          // 20-30%, which read as a muddy, low-contrast fill that swallowed the
+          // --text-dim/--text-muted sub-text) so the page's own near-black
+          // background still shows through and text stays legible.
           if (userTeam) {
-            if (placement === 'Winner')    return { icon: '🏆', headline: 'Champions!',             sub: `${userTeam} won the title`,             border: 'var(--score)', bg: 'rgba(245,158,11,0.07)', color: 'var(--score)' }
-            if (placement === 'Runner-up') return { icon: '💔', headline: 'So close…',              sub: `${userTeam} — Runner-up`,               border: 'rgba(239,68,68,0.4)', bg: 'rgba(239,68,68,0.05)', color: 'var(--loss)' }
-            if (placement === 'Playoffs')  return { icon: '✨', headline: 'You made the Playoffs!', sub: `${userTeam} reached the knockout stage`, border: 'var(--accent)', bg: 'rgba(59,130,246,0.05)', color: 'var(--accent)' }
-            return { icon: '😞', headline: 'Did not qualify', sub: `${userTeam} was eliminated in the group stage`, border: 'var(--border)', bg: 'transparent', color: 'var(--text-muted)' }
+            if (placement === 'Winner')    return { icon: '🏆', headline: 'Champions!',             sub: `${userTeam} won the title`,             border: 'var(--score)', bg: 'color-mix(in srgb, var(--score) 10%, transparent)', color: 'var(--score)' }
+            if (placement === 'Runner-up') return { icon: '💔', headline: 'So close…',              sub: `${userTeam} — Runner-up`,               border: '#C0C0C0',       bg: 'color-mix(in srgb, #C0C0C0 10%, transparent)',      color: '#C0C0C0' }
+            if (placement === 'Playoffs')  return { icon: '✨', headline: 'You made the Playoffs!', sub: `${userTeam} reached the knockout stage`, border: '#CD7F32',       bg: 'color-mix(in srgb, #CD7F32 10%, transparent)',      color: '#CD7F32' }
+            return { icon: '😞', headline: 'Did not qualify', sub: `${userTeam} was eliminated in the group stage`, border: 'var(--border)', bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }
           }
-          return { icon: '🏆', headline: result.winner ? `${result.winner} won the tournament` : 'Tournament complete', sub: '', border: 'var(--score)', bg: 'rgba(245,158,11,0.07)', color: 'var(--score)' }
+          return { icon: '🏆', headline: result.winner ? `${result.winner} won the tournament` : 'Tournament complete', sub: '', border: 'var(--score)', bg: 'color-mix(in srgb, var(--score) 10%, transparent)', color: 'var(--score)' }
         })()
 
         // Secondary info line for multiplayer (when user is a participant)
@@ -705,7 +728,7 @@ export function ResultsPage() {
 
         return (
           <div className="rounded-xl mb-5 fade-in overflow-hidden"
-            style={{ border: `1px solid ${theme.border}`, background: theme.bg }}>
+            style={{ border: `0.1px solid ${theme.border}`, background: theme.bg }}>
             <div className="flex items-center gap-3 px-4 py-3">
               <span className="text-2xl shrink-0 leading-none">{theme.icon}</span>
               <div className="flex-1 min-w-0">
@@ -723,8 +746,8 @@ export function ResultsPage() {
                 )}
               </div>
             </div>
-            {canTryAgain && (
-              <div className="px-4 pb-3">
+            <div className="px-4 pb-3 flex items-center gap-2">
+              {canTryAgain && (
                 <button
                   className="btn-outline flex items-center gap-1.5 text-xs py-1.5 px-2.5"
                   onClick={() => navigate(`/${result!.mode}`, {
@@ -740,8 +763,9 @@ export function ResultsPage() {
                 >
                   <RotateCcw size={12} /> Try again differently
                 </button>
-              </div>
-            )}
+              )}
+              <ShareButton text={tournamentShareText(result)} url={window.location.href} />
+            </div>
           </div>
         )
       })()}

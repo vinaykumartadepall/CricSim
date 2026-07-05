@@ -2,10 +2,44 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { ChevronLeft, ChevronDown, ChevronUp } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
+import { ShareButton } from '@/components/ui/ShareButton'
 import { api } from '@/api/client'
 import type { Scorecard, Innings } from '@/types'
 
 type Tab = 'result' | 'scorecard' | 'commentary'
+
+function matchShareText(params: {
+  homeTeam: string; awayTeam: string; userTeam: string | null
+  userWon: boolean; userLost: boolean; winner: string | null; margin: string | null
+  isTied: boolean; isNoResult: boolean; isDrawn: boolean
+}): string {
+  const { homeTeam, awayTeam, userTeam, userWon, userLost, winner, margin, isTied, isNoResult, isDrawn } = params
+  if (userWon) {
+    const opponent = userTeam === homeTeam ? awayTeam : homeTeam
+    return `🏆 ${userTeam} beat ${opponent} on CricSim!${margin ? ` Won by ${margin}.` : ''}`
+  }
+  if (userLost)   return `😤 Tough one — ${userTeam} lost to ${winner ?? 'the opposition'} on CricSim.`
+  if (isTied)     return `⚖️ ${homeTeam} vs ${awayTeam} ended in a tie on CricSim!`
+  if (isNoResult) return `🌧️ ${homeTeam} vs ${awayTeam} — no result on CricSim.`
+  if (isDrawn)    return `🤝 ${homeTeam} vs ${awayTeam} ended in a draw on CricSim.`
+  return winner ? `🏆 ${winner} won: ${homeTeam} vs ${awayTeam} on CricSim!` : `🏏 ${homeTeam} vs ${awayTeam} on CricSim!`
+}
+
+// Shared by ResultSummaryTab (personalized banner) and the page header
+// (share button) so both read the same result off result_description once.
+function parseMatchResult(desc: string | null) {
+  const soMatch = desc?.match(/^Match tied · (.+) won Super Over$/)
+  const soWinner = soMatch ? soMatch[1].trim() : null
+  const winnerMatch = desc?.match(/^(.+?)\s+won\s+by\s+(.+)$/)
+  const winner = soWinner ?? (winnerMatch ? winnerMatch[1].trim() : null)
+  const margin = winnerMatch ? winnerMatch[2].trim() : null
+  return {
+    soWinner, winner, margin,
+    isTied: desc === 'Match tied',
+    isNoResult: desc === 'No result',
+    isDrawn: desc === 'Match drawn',
+  }
+}
 
 interface DeliveryItem {
   inning_number: number
@@ -688,16 +722,7 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
   const fielding = computeFielding(scorecard)
   const isTest = scorecard.match_format === 'Test'
   const desc = scorecard.result_description ?? null
-
-  // Parse winner from result description
-  const soMatch = desc?.match(/^Match tied · (.+) won Super Over$/)
-  const soWinner = soMatch ? soMatch[1].trim() : null
-  const winnerMatch = desc?.match(/^(.+?)\s+won\s+by\s+(.+)$/)
-  const winner = soWinner ?? (winnerMatch ? winnerMatch[1].trim() : null)
-  const margin = winnerMatch ? winnerMatch[2].trim() : null
-  const isTied = desc === 'Match tied'
-  const isNoResult = desc === 'No result'
-  const isDrawn = desc === 'Match drawn'
+  const { soWinner, winner, margin, isTied, isNoResult, isDrawn } = parseMatchResult(desc)
 
   // Only personalize the result if userTeam actually played in this match —
   // otherwise a team that just isn't the winner (e.g. browsing some other
@@ -777,7 +802,6 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
               <span className="text-2xl leading-none">🏆</span> {bannerText(desc)}
             </div>
           )}
-
         </div>
       )}
 
@@ -911,6 +935,14 @@ export function MatchDetailPage() {
   const hasSuperOver = scorecard.innings.some(i => i.inning_number >= 3) &&
                        commentary?.match_format !== 'Test'
 
+  const { winner, margin, isTied, isNoResult, isDrawn } = parseMatchResult(scorecard.result_description ?? null)
+  const isUserMatch = !!userTeam && (
+    userTeam.toLowerCase() === scorecard.home_team.toLowerCase() ||
+    userTeam.toLowerCase() === scorecard.away_team.toLowerCase()
+  )
+  const userWon  = isUserMatch && !!winner && winner.toLowerCase() === userTeam!.toLowerCase()
+  const userLost = isUserMatch && !!winner && winner.toLowerCase() !== userTeam!.toLowerCase()
+
   const inn = (n: number) => scorecard.innings.find(i => i.inning_number === n)
 
   // Last regular innings idx for default-open panel
@@ -930,8 +962,19 @@ export function MatchDetailPage() {
       </button>
 
       <div className="mb-4">
-        <div className="text-base font-semibold" style={{ color: 'var(--text)' }}>
-          {scorecard.home_team} vs {scorecard.away_team}
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-base font-semibold" style={{ color: 'var(--text)' }}>
+            {scorecard.home_team} vs {scorecard.away_team}
+          </div>
+          {scorecard.result_description && (
+            <ShareButton
+              text={matchShareText({
+                homeTeam: scorecard.home_team, awayTeam: scorecard.away_team, userTeam,
+                userWon, userLost, winner, margin, isTied, isNoResult, isDrawn,
+              })}
+              url={window.location.href}
+            />
+          )}
         </div>
         <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
           {scorecard.match_label}
