@@ -183,7 +183,7 @@ export function HomePage() {
             style={{
               position: 'relative', overflow: 'hidden',
               background: 'var(--bg)',
-              border: '1px solid var(--accent)', borderRadius: 12,
+              border: '0.1px solid var(--accent)', borderRadius: 12,
               padding: '20px 18px', cursor: 'pointer', textAlign: 'left',
               fontFamily: SANS, display: 'flex', flexDirection: 'column',
               transition: 'box-shadow 0.2s, border-color 0.2s',
@@ -229,7 +229,7 @@ export function HomePage() {
             style={{
               position: 'relative', overflow: 'hidden',
               background: 'var(--bg)',
-              border: '1px solid var(--accent)', borderRadius: 12,
+              border: '0.1px solid var(--accent)', borderRadius: 12,
               padding: '20px 18px', cursor: 'pointer', textAlign: 'left',
               fontFamily: SANS, display: 'flex', flexDirection: 'column',
               transition: 'box-shadow 0.2s, border-color 0.2s',
