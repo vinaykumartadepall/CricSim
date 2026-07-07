@@ -45,7 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from db.stats_repository import StatsRepository
 from simulator.entities.rules import MatchRules
-from simulator.strategies.bowling.historical.replay import HistoricalBowlingOrder
+from simulator.predictors.bowling.historical.replay import HistoricalBowlingOrder
 from validation.simulation_validator import (
     ProfileStats,
     load_historical_phase_stats,
@@ -574,7 +574,7 @@ def batch_build_matches(repo, all_match_ids, match_format, _w=print):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def preload_venue_caches(repo, unique_venues, all_player_ids, fmt, gender, is_test, _w):
-    from simulator.strategies.bowling.historical.base import _region_countries
+    from simulator.predictors.bowling.historical.base import _region_countries
     cache = {}
     n = len(unique_venues)
     _w(f"  Pre-loading venue caches for {n} unique venues …")
@@ -1000,7 +1000,7 @@ def run_format(match_format, cfg, run_dir, seed, gender, hist_only=False):
     """Validate one format end-to-end. Designed to run in a subprocess."""
     from simulator.match_logger import MatchLogger
     MatchLogger.SILENT = True
-    from simulator.strategies.factory import OutcomeStrategyFactory
+    from simulator.predictors.factory import OutcomeStrategyFactory
     from simulator.engines.engine_factory import EngineFactory
     from simulator.entities.match import SimulationMatch
     from simulator.entities.team import MatchTeam

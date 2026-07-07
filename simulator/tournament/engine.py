@@ -38,7 +38,7 @@ from simulator.logger import set_console_level, get_logger, log_context
 _log = get_logger()
 from simulator.match_logger import MatchLogger
 from simulator.presentation.formatters import print_match_result, print_match_scorecard
-from simulator.strategies.factory import (
+from simulator.predictors.factory import (
     FORMAT_SETTINGS,
     OutcomeStrategyFactory,
     BowlingStrategyFactory,
@@ -46,7 +46,7 @@ from simulator.strategies.factory import (
     resolve_player_by_id,
     resolve_venue,
 )
-from simulator.tournament.awards import MatchAwards, TournamentAwards
+from simulator.awards import MatchAwards, TournamentAwards
 from simulator.tournament.config import Fixture, TournamentConfig, load_tournament_config
 from simulator.tournament.leaderboards import TournamentLeaderboards
 from simulator.tournament.points_table import PointsTable
@@ -240,17 +240,22 @@ class TournamentEngine:
                 "stage":        stage,
             })
 
-            self._on_fixture_complete(match, fixture, stage)
+            self._on_fixture_complete(match, fixture, stage, potm)
 
         return winner
 
-    def _on_fixture_complete(self, match: SimulationMatch, fixture: Fixture, stage: str) -> None:
-        """Hook called after each fixture completes. Override to add persistence or side effects."""
+    def _on_fixture_complete(self, match: SimulationMatch, fixture: Fixture, stage: str, potm=None) -> None:
+        """Hook called after each fixture completes. Override to add persistence or side effects.
+        potm: PlayerAward | None — this match's Player of the Match, already computed."""
         pass
 
     def get_mvp_leaderboard(self, top_n: int = 9999):
         """Return the full tournament MVP leaderboard after engine.run() completes."""
         return self._tourn_awards.leaderboard(top_n)
+
+    def get_final_standings(self):
+        """Group-stage standings (points, NRR) after run() completes — List[TeamRecord]."""
+        return self._points_table.standings()
 
     # ── Playoffs ──────────────────────────────────────────────────────────────
 

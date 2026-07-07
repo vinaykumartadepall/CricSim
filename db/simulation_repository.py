@@ -324,6 +324,43 @@ class SimulationRepository:
         )
         return self.cur.fetchone()[0]
 
+    def save_match_potm(self, match_id: int, potm) -> None:
+        """
+        Persist the Player of the Match for a completed match — potm is a
+        PlayerAward (simulator/awards/mvp_strategy.py), produced by whichever
+        MvpStrategy MatchAwards was constructed with. Called once per match,
+        both for standalone matches (run_match_job) and tournament matches
+        (_PersistingTournamentEngine._on_fixture_complete).
+        """
+        if potm is None:
+            return
+        self.cur.execute(
+            """
+            UPDATE simulation.matches
+            SET    player_of_match_id = %s,
+                   potm_player_name   = %s,
+                   potm_team_name     = %s,
+                   potm_points        = %s
+            WHERE  match_id = %s
+            """,
+            (potm.player_id, potm.player_name, potm.team, round(potm.total, 2), match_id),
+        )
+
+    # ── simulation.tournaments ─────────────────────────────────────────────────
+
+    def save_final_standings(self, sim_id: str, standings: list) -> None:
+        """
+        Persist the live tournament engine's final group-stage standings
+        (already NRR-all-out-rule-correct — see PointsTable.standings()) as
+        JSONB. standings: [{team, played, won, lost, tied, no_result, points, nrr}, ...].
+        Read back by simulator.serializers.match.get_tournament_result instead
+        of re-deriving standings from simulation.deliveries per request.
+        """
+        self.cur.execute(
+            "UPDATE simulation.tournaments SET final_standings = %s WHERE sim_id = %s",
+            (psycopg2.extras.Json(standings), sim_id),
+        )
+
     # ── simulation.match_players ───────────────────────────────────────────────
 
     def save_match_players(
@@ -427,10 +464,22 @@ class SimulationRepository:
     # ── simulation.player_awards ───────────────────────────────────────────────
 
     def save_player_awards(self, sim_id: str, awards: list) -> None:
-        """Persist tournament MVP point totals for every player."""
+        """
+        Persist tournament MVP point totals for every player.
+
+        awards: List[PlayerAward] (simulator/awards/mvp_strategy.py) — batting/
+        bowling/fielding are read out of .breakdown by convention (that's what
+        StatisticalAwardsStrategy, the only strategy today, reports), not a
+        required part of the PlayerAward contract. A future MvpStrategy that
+        doesn't report those specific keys will just persist zeros here until
+        this table (and the /leaderboards MVP display it feeds) gets a
+        follow-up redesign for it.
+        """
         rows = [
             (sim_id, p.player_id, p.player_name, p.team,
-             round(p.batting_pts, 2), round(p.bowling_pts, 2), round(p.fielding_pts, 2))
+             round(p.breakdown.get('batting_pts', 0.0), 2),
+             round(p.breakdown.get('bowling_pts', 0.0), 2),
+             round(p.breakdown.get('fielding_pts', 0.0), 2))
             for p in awards
         ]
         psycopg2.extras.execute_batch(

@@ -89,6 +89,7 @@ export const api = {
       matches_completed?: number; matches_total?: number
       teams?: number; total_deliveries?: number
       results?: { label: string; text: string; home: string; away: string }[]
+      queue_position?: number | null
     }>(`/simulations/${simId}/status`),
 
   getSimResult: (simId: string, clientId?: string) => {

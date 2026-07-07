@@ -22,10 +22,10 @@ from simulator.entities.team import MatchTeam
 from simulator.entities.player import Player
 from simulator.entities.rules import MatchRules
 from simulator.engines.engine_factory import EngineFactory
-from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats import (
+from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats import (
     ODIEnhancedHistoricalStatsStrategy,
 )
-from simulator.strategies.bowling.historical import create_historical_bowling_strategy
+from simulator.predictors.bowling.historical import create_historical_bowling_strategy
 from db.entities.venue import Venue
 from typing import Dict as _Dict  # avoid shadowing
 

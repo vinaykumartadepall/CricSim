@@ -1,4 +1,4 @@
-from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import (
+from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import (
     EnhancedBaseHistoricalStatsStrategy,
     T20EnhancedHistoricalStatsStrategy,
     ODIEnhancedHistoricalStatsStrategy,

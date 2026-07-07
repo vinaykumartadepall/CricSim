@@ -19,7 +19,8 @@ from db.stats_repository import StatsRepository
 from simulator.admin_settings import get_admin_settings
 from simulator.logger import log_context
 from simulator.match_runner import MatchRunner
-from simulator.strategies.factory import FORMAT_SETTINGS, resolve_venue
+from simulator.predictors.factory import FORMAT_SETTINGS, resolve_venue
+from simulator.awards import MatchAwards
 from simulator.tournament.config import TournamentConfig
 from simulator.tournament.engine import TournamentEngine
 from simulator.tournament.scheduler import generate_fixtures
@@ -104,6 +105,10 @@ def run_match_job(sim_id: str, config: dict) -> None:
                 batting_tid = team_id_map[inning.batting_team.name]
                 repo.save_match_players_from_inning(match_id, inning, batting_tid)
                 repo.save_deliveries(match_id, inning, team_id_map)
+
+            awards = MatchAwards()
+            awards.record_from_match(match)
+            repo.save_match_potm(match_id, awards.potm())
 
             repo.commit()
             repo.update_status(sim_id, 'completed')
@@ -191,6 +196,17 @@ def run_tournament_job(
             mvp_lb = engine.get_mvp_leaderboard()
             if mvp_lb:
                 repo.save_player_awards(sim_id, mvp_lb)
+
+            standings = engine.get_final_standings()
+            if standings:
+                repo.save_final_standings(sim_id, [
+                    {
+                        "team": r.name, "played": r.played, "won": r.won,
+                        "lost": r.lost, "tied": r.tied, "no_result": r.no_result,
+                        "points": r.points, "nrr": r.nrr,
+                    }
+                    for r in standings
+                ])
 
             _cache_leaderboards(repo, sim_id, tournament_id)
 
@@ -313,7 +329,7 @@ class _PersistingTournamentEngine(TournamentEngine):
         self._tournament_id   = tournament_id
         self._pending_commits = 0
 
-    def _on_fixture_complete(self, match, fixture, stage: str) -> None:
+    def _on_fixture_complete(self, match, fixture, stage: str, potm=None) -> None:
         home_name   = fixture.home
         away_name   = fixture.away
         match_label = (getattr(fixture, 'match_label', '') or
@@ -353,6 +369,8 @@ class _PersistingTournamentEngine(TournamentEngine):
                 batting_tid = team_id_map[inning.batting_team.name]
                 self._sim_repo.save_match_players_from_inning(match_id, inning, batting_tid)
                 self._sim_repo.save_deliveries(match_id, inning, team_id_map)
+
+            self._sim_repo.save_match_potm(match_id, potm)
 
             self._pending_commits += 1
             if self._pending_commits >= _DB_BATCH_SIZE:

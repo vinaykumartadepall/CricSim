@@ -2,6 +2,7 @@ from simulator.engines.base_engine import BaseEngine
 from simulator.engines.innings_simulator import InningsSimulator
 from simulator.engines.super_over_engine import SuperOverEngine
 from simulator.entities.match import MatchStatus, MatchResult
+from simulator.entities.rules import MatchRules
 from simulator.entities.team import MatchTeam
 
 
@@ -63,6 +64,17 @@ class LimitedOversEngine(BaseEngine):
         inn2 = self.match.innings[1]
         return inn1.batting_team.total_runs == inn2.batting_team.total_runs
 
+    def _nrr_summary(self) -> dict:
+        """Per-team (runs, NRR-adjusted balls) for the two main-match innings —
+        used for points-table/NRR, not the super over (which never counts toward it)."""
+        max_balls = self.match.overs_per_innings * 6 if self.match.overs_per_innings else None
+        summary = {}
+        for inn in (self.match.innings[0], self.match.innings[1]):
+            bt = inn.batting_team
+            adj_balls = MatchRules.nrr_adjusted_balls(bt.total_balls, bt.total_wickets, max_balls)
+            summary[bt.name] = (bt.total_runs, adj_balls)
+        return summary
+
     def _run_super_over(self, team1: MatchTeam, team2: MatchTeam):
         repo = getattr(self.bowling_strategy, 'repo', None)
         so_engine = SuperOverEngine(
@@ -80,12 +92,7 @@ class LimitedOversEngine(BaseEngine):
             team2_inning=self.match.innings[0],
         )
         # Propagate super-over outcome to match.result so the tournament layer can read it.
-        inn1 = self.match.innings[0]
-        inn2 = self.match.innings[1]
-        summary = {
-            inn1.batting_team.name: (inn1.batting_team.total_runs, inn1.batting_team.total_balls),
-            inn2.batting_team.name: (inn2.batting_team.total_runs, inn2.batting_team.total_balls),
-        }
+        summary = self._nrr_summary()
         if so_result.winner:
             # winner name is the team with more super-over runs
             so_winner = (so_result.batting_second_team
@@ -100,10 +107,7 @@ class LimitedOversEngine(BaseEngine):
     def _print_match_result(self):
         inn1 = self.match.innings[0]
         inn2 = self.match.innings[1]
-        summary = {
-            inn1.batting_team.name: (inn1.batting_team.total_runs, inn1.batting_team.total_balls),
-            inn2.batting_team.name: (inn2.batting_team.total_runs, inn2.batting_team.total_balls),
-        }
+        summary = self._nrr_summary()
         if inn2.batting_team.total_runs >= self.match.target_score:
             winner = inn2.batting_team.name
             wkts   = 10 - inn2.batting_team.total_wickets

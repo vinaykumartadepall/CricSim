@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from db.stats_repository import StatsRepository
 from simulator.entities.rules import MatchRules
-from simulator.strategies.ball_outcome_prediction.historical_stats.validate_simulation import (
+from simulator.predictors.ball_outcome_prediction.historical_stats.validate_simulation import (
     ProfileStats,
     load_historical_phase_stats,
 )
@@ -481,7 +481,7 @@ def preload_venue_caches(repo, unique_venues, all_player_ids, fmt, gender, is_te
     Returns dict keyed by venue_id with all cache dicts the strategies need.
     Expensive per venue but run once, not per match.
     """
-    from simulator.strategies.bowling.historical.base import _region_countries
+    from simulator.predictors.bowling.historical.base import _region_countries
 
     cache = {}
     n = len(unique_venues)
@@ -663,7 +663,7 @@ def main(seed=42, outdir='validation_results', gender='male'):
     from simulator.match_logger import MatchLogger
     MatchLogger.SILENT = True
 
-    from simulator.strategies.factory import OutcomeStrategyFactory, BowlingStrategyFactory
+    from simulator.predictors.factory import OutcomeStrategyFactory, BowlingStrategyFactory
     from simulator.engines.engine_factory import EngineFactory
     from simulator.entities.match import SimulationMatch
     from simulator.entities.team import MatchTeam

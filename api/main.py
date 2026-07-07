@@ -23,6 +23,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from api.job_queue import job_queue
 from api.routes.admin import router as admin_router
 from api.routes.admin_squads import router as admin_squads_router
 from api.routes.auth import router as auth_router
@@ -31,6 +32,8 @@ from api.routes.lov import router as lov_router
 from api.routes.multiplayer import router as multiplayer_router
 from api.routes.sim_history import router as sim_history_router
 from api.routes.simulations import router as sim_router
+from api.worker import run_match_job, run_tournament_job
+from db.database import get_db_connection
 from db.stats_repository import StatsRepository
 from simulator.logger import configure_logger, get_logger
 
@@ -77,10 +80,60 @@ def _memory_monitor() -> None:
             )
 
 
+def _resume_or_fail_interrupted_sims() -> None:
+    """On startup, sweep sims left mid-flight by a previous process lifetime
+    (crash/restart) — this deploys as a single uvicorn process with no
+    external job broker (see [[job_queue]]), so anything queued or running
+    when the process died is otherwise stuck forever with a stale status
+    the frontend would poll against indefinitely.
+
+    - status='pending' (never actually started — nothing persisted yet) is
+      safe and cheap to just re-submit to the fresh job_queue.
+    - status='running' is NOT auto-resumed: a partially-completed sim may
+      already have rows written across matches/deliveries/teams/etc (none
+      of which cascade-delete), so safely retrying would mean deleting all
+      of that first. Out of scope for now — marked failed instead, so a
+      client polling it gets a clean failure rather than hanging forever.
+    """
+    log = get_logger()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE simulation.simulations SET status = 'failed', "
+            "error_message = 'Interrupted by server restart' WHERE status = 'running'"
+        )
+        if cur.rowcount:
+            log.warning("Marked %d simulation(s) failed: interrupted by restart while running", cur.rowcount)
+
+        cur.execute(
+            "SELECT sim_id, simulation_type, config, client_id FROM simulation.simulations WHERE status = 'pending'"
+        )
+        pending = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+
+    for sim_id, sim_type, config, client_id in pending:
+        if sim_type == "match":
+            job_queue.submit(sim_id, run_match_job, sim_id, config)
+        else:
+            # user_team_name isn't persisted anywhere (it only ever existed
+            # as a local variable in the original request handler) — the
+            # resumed job still runs and completes correctly, it just can't
+            # back-fill this one session's personalized team name/placement
+            # the way a normal run does. Narrow, rare-edge-case-of-a-rare-
+            # edge-case cost, not worth a new persisted column for.
+            job_queue.submit(sim_id, run_tournament_job, sim_id, config, client_id=client_id)
+        log.info("Resumed queued simulation %s (%s) after restart", sim_id, sim_type)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logger(log_dir="logs", sim_log_level=_SIM_LOG_LEVEL)
     threading.Thread(target=_memory_monitor, daemon=True, name="mem-monitor").start()
+    job_queue.start()
+    _resume_or_fail_interrupted_sims()
     yield
 
 

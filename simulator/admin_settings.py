@@ -18,7 +18,7 @@ defaults are what every real simulation actually uses.
 import os
 from dataclasses import dataclass, field
 
-from simulator.strategies.factory import BowlingStrategyFactory, OutcomeStrategyFactory
+from simulator.predictors.factory import BowlingStrategyFactory, OutcomeStrategyFactory
 
 
 def _env_default(env_var: str, valid_names: list, fallback: str) -> str:

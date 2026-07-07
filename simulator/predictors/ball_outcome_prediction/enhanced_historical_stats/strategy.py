@@ -56,8 +56,8 @@ from enums.constants import ExtraType
 from simulator.entities.ball_outcome import BallOutcome
 from simulator.entities.match import SimulationMatch
 from simulator.entities.rules import MatchRules
-from simulator.strategies.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
-from simulator.strategies.ball_outcome_prediction.common.utils import (
+from simulator.predictors.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
+from simulator.predictors.ball_outcome_prediction.common.utils import (
     BASELINE_FALLBACK,
     apply_free_hit_modifier,
     collect_player_ids,
@@ -65,7 +65,7 @@ from simulator.strategies.ball_outcome_prediction.common.utils import (
     load_tournament_distribution,
 )
 from simulator.logger import TRACE, get_logger, is_level_active
-from simulator.strategies.bowling.historical.base import _region_countries
+from simulator.predictors.bowling.historical.base import _region_countries
 
 log = get_logger()
 

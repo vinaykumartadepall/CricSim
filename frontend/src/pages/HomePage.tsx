@@ -306,18 +306,10 @@ export function HomePage() {
           </div>
         )}
 
-        {/* ── Attribution ── */}
         <div style={{
           paddingBottom: 40, paddingTop: 20,
           borderTop: '0.5px solid var(--border)',
-          fontFamily: SANS, fontSize: 11, color: 'var(--text-dim)', textAlign: 'center',
         }}>
-          Match data from{' '}
-          <a href="https://cricsheet.org" target="_blank" rel="noopener noreferrer"
-            style={{ color: 'var(--accent)', textDecoration: 'none', opacity: 0.8 }}>
-            Cricsheet.org
-          </a>
-          , licensed under the Open Data Commons Attribution License.
         </div>
 
       </div>

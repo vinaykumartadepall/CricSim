@@ -35,7 +35,7 @@ from simulator.entities.rules import MatchRules
 from simulator.engines.innings_simulator import InningsSimulator
 from simulator.match_logger import MatchLogger
 from simulator.logger import get_logger
-from simulator.strategies.factory import FORMAT_SETTINGS, OutcomeStrategyFactory, resolve_player, resolve_venue
+from simulator.predictors.factory import FORMAT_SETTINGS, OutcomeStrategyFactory, resolve_player, resolve_venue
 from simulator.engines.base_engine import BaseEngine
 
 

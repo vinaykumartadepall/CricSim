@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from db.stats_repository import StatsRepository
 from simulator.entities.rules import MatchRules
-from simulator.strategies.bowling.historical import create_historical_bowling_strategy
+from simulator.predictors.bowling.historical import create_historical_bowling_strategy
 
 
 # ── Lightweight mock objects ──────────────────────────────────────────────────

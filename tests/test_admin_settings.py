@@ -15,7 +15,7 @@ from simulator.admin_settings import (
     set_default_bowling_strategy,
     set_default_outcome_strategy,
 )
-from simulator.strategies.factory import BowlingStrategyFactory, OutcomeStrategyFactory
+from simulator.predictors.factory import BowlingStrategyFactory, OutcomeStrategyFactory
 
 
 class TestFactoryAvailableNames:
@@ -117,7 +117,7 @@ class TestMatchRunnerUsesAdminDefault:
         # Strategy factories return concrete strategy instances — check the
         # class name matches what 'historical'/'smart' resolve to, since the
         # runner only stores the built strategy object, not the name string.
-        from simulator.strategies.factory import OutcomeStrategyFactory, BowlingStrategyFactory
+        from simulator.predictors.factory import OutcomeStrategyFactory, BowlingStrategyFactory
         expected_outcome = type(OutcomeStrategyFactory.for_name('historical', 'T20'))
         expected_bowling = type(BowlingStrategyFactory.for_name('smart', 'T20'))
         assert isinstance(runner._outcome_strat, expected_outcome)
@@ -129,6 +129,6 @@ class TestMatchRunnerUsesAdminDefault:
             "match_format": "T20",
             "ball_outcome_strategy": "enhanced",
         })
-        from simulator.strategies.factory import OutcomeStrategyFactory
+        from simulator.predictors.factory import OutcomeStrategyFactory
         expected = type(OutcomeStrategyFactory.for_name('enhanced', 'T20'))
         assert isinstance(runner._outcome_strat, expected)

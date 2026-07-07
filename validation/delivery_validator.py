@@ -73,7 +73,7 @@ from typing import Dict, List, Optional, Tuple
 
 from db.stats_repository import StatsRepository
 from simulator.entities.rules import MatchRules
-from simulator.strategies.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
+from simulator.predictors.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
 
 # ── Regression thresholds ──────────────────────────────────────────────────────
 # Thresholds are per-format because sampling noise scales with event frequency.
@@ -497,7 +497,7 @@ class _PlayerAcc:
 
 def _milestone_group(batter_score: int) -> str:
     try:
-        from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import _get_milestone
+        from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import _get_milestone
         m_val = int(_get_milestone(batter_score)[1:])
     except Exception:
         m_val = (batter_score // 10) * 10
@@ -511,7 +511,7 @@ def _milestone_group(batter_score: int) -> str:
 
 def _matchup_richness(matchup_balls: int, match_format: str) -> str:
     try:
-        from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import _RELIABILITY_THRESHOLDS
+        from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import _RELIABILITY_THRESHOLDS
         thresh = _RELIABILITY_THRESHOLDS.get(match_format, _RELIABILITY_THRESHOLDS['T20'])['matchup']
     except Exception:
         thresh = 40
@@ -522,7 +522,7 @@ def _matchup_richness(matchup_balls: int, match_format: str) -> str:
 
 def _player_richness(batter_balls: int, bowler_balls: int, match_format: str) -> str:
     try:
-        from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import _RELIABILITY_THRESHOLDS
+        from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import _RELIABILITY_THRESHOLDS
         thresh = _RELIABILITY_THRESHOLDS.get(match_format, _RELIABILITY_THRESHOLDS['T20'])
         b_rel  = min(1.0, batter_balls  / thresh['batter'])
         bw_rel = min(1.0, bowler_balls  / thresh['bowler'])
@@ -705,7 +705,7 @@ def _get_distribution(
     Enhanced strategy: calls _compute_distribution directly.
     Basic strategy:    reconstructs distribution from its simpler caches.
     """
-    from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import (
+    from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import (
         EnhancedBaseHistoricalStatsStrategy,
     )
     if isinstance(strategy, EnhancedBaseHistoricalStatsStrategy):
@@ -730,7 +730,7 @@ def _compute_basic_distribution(
     over_1idx: int,
 ) -> dict:
     """Reconstructs the distribution from the basic historical strategy's caches."""
-    from simulator.strategies.ball_outcome_prediction.historical_stats.strategy import (
+    from simulator.predictors.ball_outcome_prediction.historical_stats.strategy import (
         compute_context_multiplier,
     )
     baseline = strategy.baseline_outcome_probs
@@ -1042,7 +1042,7 @@ class ModelValidator:
         return flags
 
     def _init_strategy_caches(self, strategy, rows, match_format, gender):
-        from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import (
+        from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import (
             EnhancedBaseHistoricalStatsStrategy,
         )
         if isinstance(strategy, EnhancedBaseHistoricalStatsStrategy):
@@ -1051,7 +1051,7 @@ class ModelValidator:
             self._init_basic_caches(strategy, rows, match_format, gender)
 
     def _init_enhanced_caches(self, strategy, rows, match_format, gender):
-        from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import (
+        from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import (
             _make_parttime_probs, _compute_distinctiveness,
         )
         unified = MatchRules.get_unified_format(match_format)
@@ -1085,7 +1085,7 @@ class ModelValidator:
         strategy.baseline_outcome_probs = _t("full_aggregate",        self.repo.get_full_aggregate_distribution,    unified, gender)
 
         if not strategy.baseline_outcome_probs:
-            from simulator.strategies.ball_outcome_prediction.common.utils import BASELINE_FALLBACK
+            from simulator.predictors.ball_outcome_prediction.common.utils import BASELINE_FALLBACK
             strategy.baseline_outcome_probs = BASELINE_FALLBACK
 
         strategy.parttime_bowler_probs = _make_parttime_probs(strategy.baseline_outcome_probs, unified)
@@ -1126,7 +1126,7 @@ class ModelValidator:
 
         strategy.baseline_outcome_probs = _t("full_aggregate", self.repo.get_full_aggregate_distribution, unified, gender)
         if not strategy.baseline_outcome_probs:
-            from simulator.strategies.ball_outcome_prediction.common.utils import BASELINE_FALLBACK
+            from simulator.predictors.ball_outcome_prediction.common.utils import BASELINE_FALLBACK
             strategy.baseline_outcome_probs = BASELINE_FALLBACK
 
         # Basic strategy has no ball counts — set empty dicts for per-player richness
@@ -1161,7 +1161,7 @@ def _bowler_type(bowler_id: Optional[int], strategy: BallOutcomeStrategy) -> str
         return 'genuine'
     balls = getattr(strategy, 'bowler_ball_counts', {}).get(bowler_id, 0)
     try:
-        from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import _parttime_alpha
+        from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import _parttime_alpha
         alpha = _parttime_alpha(balls, strategy._match_format)
         return 'parttimer' if alpha >= 0.5 else 'genuine'
     except Exception:
@@ -1204,12 +1204,12 @@ def _cli():
                         help="Also run venue context comparison for this venue name")
     args = parser.parse_args()
 
-    from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats import (
+    from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats import (
         T20EnhancedHistoricalStatsStrategy,
         ODIEnhancedHistoricalStatsStrategy,
         TestEnhancedHistoricalStatsStrategy,
     )
-    from simulator.strategies.ball_outcome_prediction.historical_stats.strategy import (
+    from simulator.predictors.ball_outcome_prediction.historical_stats.strategy import (
         T20HistoricalStatsStrategy,
         ODIHistoricalStatsStrategy,
         TestHistoricalStatsStrategy,

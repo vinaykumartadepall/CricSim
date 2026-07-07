@@ -21,7 +21,7 @@ from typing import Optional
 from simulator.entities.inning_player import InningPlayer
 from simulator.entities.match import SimulationMatch
 from simulator.entities.rules import MatchRules
-from simulator.strategies.bowling.strategy_interface import BowlingStrategy
+from simulator.predictors.bowling.strategy_interface import BowlingStrategy
 
 
 # Max overs per bowler (None = no cap)

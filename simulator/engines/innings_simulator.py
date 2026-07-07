@@ -7,8 +7,8 @@ from simulator.entities.rules import MatchRules
 from simulator.events import MatchEvent, EventType
 from simulator.match_logger import MatchLogger
 from simulator.presentation.formatters import format_ball_commentary, format_over_summary
-from simulator.strategies.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
-from simulator.strategies.bowling.strategy_interface import BowlingStrategy
+from simulator.predictors.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
+from simulator.predictors.bowling.strategy_interface import BowlingStrategy
 
 
 class InningsSimulator:

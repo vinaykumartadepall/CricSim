@@ -21,7 +21,7 @@ Algorithm detail
   Typical run: ~2000 Nelder-Mead evaluations × 5000 deliveries → < 2 minutes.
 
 Usage:
-    python -m simulator.strategies.ball_outcome_prediction.historical_stats.optimize_params \\
+    python -m simulator.predictors.ball_outcome_prediction.historical_stats.optimize_params \\
         --format T20 --train-samples 8000 --valid-samples 2000
 
     # Fix sharpness/milestone k, only train weights:
@@ -41,7 +41,7 @@ import numpy as np
 
 from db.stats_repository import StatsRepository
 from simulator.entities.rules import MatchRules
-from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import (
+from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import (
     _RELIABILITY_THRESHOLDS,
     _RATIO_MIN,
     _RATIO_MAX,
@@ -114,7 +114,7 @@ class ParameterOptimizer:
     # ── Data loading ──────────────────────────────────────────────────────────
 
     def load_data(self, n_train: int = 8000, n_valid: int = 2000):
-        from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats import (
+        from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats import (
             T20EnhancedHistoricalStatsStrategy,
             ODIEnhancedHistoricalStatsStrategy,
             TestEnhancedHistoricalStatsStrategy,

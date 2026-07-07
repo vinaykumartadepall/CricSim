@@ -1,6 +1,6 @@
 """Unit tests for the apply_free_hit_modifier utility."""
 import pytest
-from simulator.strategies.ball_outcome_prediction.common.utils import apply_free_hit_modifier
+from simulator.predictors.ball_outcome_prediction.common.utils import apply_free_hit_modifier
 
 
 def _normalise(weights, keys):

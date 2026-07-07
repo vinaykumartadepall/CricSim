@@ -128,3 +128,33 @@ class TestStatusRoute:
         body = resp.json()
         assert body["simulation_type"] == "tournament"
         assert "match_id" not in body
+
+    def test_includes_queue_position_while_pending(self, client, monkeypatch):
+        monkeypatch.setattr(
+            sim_routes, "SimulationRepository",
+            lambda: _FakeSimulationRepository(
+                {"status": "pending", "error_message": None, "simulation_type": "tournament"},
+            ),
+        )
+        monkeypatch.setattr(sim_routes, "get_tournament_progress", lambda sim_id: None)
+        monkeypatch.setattr(sim_routes.job_queue, "position", lambda job_id: 2)
+
+        resp = client.get("/cricsimapi/simulations/some-sim/status")
+
+        assert resp.status_code == 200
+        assert resp.json()["queue_position"] == 2
+
+    def test_omits_queue_position_once_running(self, client, monkeypatch):
+        monkeypatch.setattr(
+            sim_routes, "SimulationRepository",
+            lambda: _FakeSimulationRepository(
+                {"status": "running", "error_message": None, "simulation_type": "tournament"},
+            ),
+        )
+        monkeypatch.setattr(sim_routes, "get_tournament_progress", lambda sim_id: None)
+        monkeypatch.setattr(sim_routes.job_queue, "position", lambda job_id: 0)
+
+        resp = client.get("/cricsimapi/simulations/some-sim/status")
+
+        assert resp.status_code == 200
+        assert "queue_position" not in resp.json()

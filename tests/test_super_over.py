@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from simulator.logger import configure_logger
 from simulator.entities.team import MatchTeam
 from simulator.entities.match import SimulationMatch
-from simulator.strategies.factory import (
+from simulator.predictors.factory import (
     FORMAT_SETTINGS,
     OutcomeStrategyFactory,
     BowlingStrategyFactory,

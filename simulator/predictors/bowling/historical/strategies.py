@@ -22,7 +22,7 @@ from typing import Optional, Tuple
 
 from simulator.entities.inning_player import InningPlayer
 from simulator.entities.match import SimulationMatch
-from simulator.strategies.bowling.historical.base import HistoricalBowlingBase
+from simulator.predictors.bowling.historical.base import HistoricalBowlingBase
 
 log = logging.getLogger(__name__)
 

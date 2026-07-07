@@ -86,12 +86,12 @@ cricket-simulator/
 
 ### Strategy Factory
 
-The abstract factory (`simulator/strategies/factory.py`) is the single source of truth for strategy wiring. To add a new strategy family:
+The abstract factory (`simulator/predictors/factory.py`) is the single source of truth for strategy wiring. To add a new strategy family:
 
 ```python
-from simulator.strategies.factory import StrategyFactory
-from simulator.strategies.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
-from simulator.strategies.bowling.strategy_interface import BowlingStrategy
+from simulator.predictors.factory import StrategyFactory
+from simulator.predictors.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
+from simulator.predictors.bowling.strategy_interface import BowlingStrategy
 
 class MyStrategyFactory(StrategyFactory):
     def __init__(self, fmt: str): self._fmt = fmt

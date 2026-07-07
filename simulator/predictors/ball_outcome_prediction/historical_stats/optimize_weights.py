@@ -7,7 +7,7 @@ from collections import defaultdict
 sys.path.append(os.getcwd())
 
 from db.database import get_db_connection
-from simulator.strategies.ball_outcome_prediction.historical_stats.strategy import compute_context_multiplier
+from simulator.predictors.ball_outcome_prediction.historical_stats.strategy import compute_context_multiplier
 from db.stats_repository import StatsRepository
 
 # Parameters to search:

@@ -22,11 +22,11 @@ from simulator.entities.rules import MatchRules
 from simulator.entities.team import MatchTeam
 from simulator.logger import set_console_level
 from simulator.match_logger import MatchLogger
-from simulator.strategies.factory import (
+from simulator.predictors.factory import (
     FORMAT_SETTINGS, OutcomeStrategyFactory, BowlingStrategyFactory,
     resolve_player, resolve_player_by_id, resolve_venue,
 )
-from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import ERA_NORMALIZE_ALL
+from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import ERA_NORMALIZE_ALL
 from db.entities.tournament import Tournament
 
 

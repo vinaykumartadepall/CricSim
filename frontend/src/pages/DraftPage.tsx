@@ -563,7 +563,6 @@ function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady,
                     {m.display_name}
                     {m.client_id === clientId && <span className="ml-1 text-xs" style={{ color: 'var(--text-dim)' }}>(you)</span>}
                   </span>
-                  {isReady && <CheckCircle2 size={13} style={{ color: 'var(--win)' }} />}
                   {m.client_id === room.host_id && (
                     <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--accent-tint)', color: 'var(--accent)' }}>Host</span>
                   )}
@@ -578,6 +577,7 @@ function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady,
                       Kick
                     </button>
                   )}
+                  {isReady && <CheckCircle2 size={13} style={{ color: 'var(--win)' }} />}
                 </div>
               )
             })}

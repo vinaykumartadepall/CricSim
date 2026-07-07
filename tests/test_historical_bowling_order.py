@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from simulator.strategies.bowling.historical.replay import HistoricalBowlingOrder
+from simulator.predictors.bowling.historical.replay import HistoricalBowlingOrder
 from simulator.entities.player import Player
 from simulator.entities.inning_player import InningPlayer
 

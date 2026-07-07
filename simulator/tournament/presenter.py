@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from simulator.tournament.config import TournamentConfig, TeamConfig
     from simulator.tournament.points_table import PointsTable
     from simulator.tournament.leaderboards import TournamentLeaderboards, BatterStats, BowlerStats
-    from simulator.tournament.awards import PlayerMatchPoints, TournamentAwards
+    from simulator.awards import PlayerAward, TournamentAwards
 
 
 # ── Presenter ──────────────────────────────────────────────────────────────────
@@ -165,13 +165,14 @@ class Presenter:
 
     # ── Awards ─────────────────────────────────────────────────────────────────
 
-    def print_potm(self, potm: "PlayerMatchPoints", match_number: int) -> None:
+    def print_potm(self, potm: "PlayerAward", match_number: int) -> None:
         if not potm:
             return
+        bd = potm.breakdown
         print(f"\n  Player of the Match #{match_number}: "
               f"{bold(potm.player_name)}  "
-              f"({potm.batting_pts:.1f} bat + {potm.bowling_pts:.1f} bowl"
-              f" + {potm.fielding_pts:.1f} fld = {potm.total:.1f} pts)")
+              f"({bd.get('batting_pts', 0.0):.1f} bat + {bd.get('bowling_pts', 0.0):.1f} bowl"
+              f" + {bd.get('fielding_pts', 0.0):.1f} fld = {potm.total:.1f} pts)")
 
     def print_pott(self, awards: "TournamentAwards") -> None:
         lb = awards.leaderboard(10)
@@ -191,7 +192,8 @@ class Presenter:
         for i, p in enumerate(lb):
             pc, sc = self._team_colors(p.team)
             badge  = self._plain_badge(p.team)
-            row    = (f"  {i+1:>3}  {p.player_name:<24}  {badge:<5}  {p.batting_pts:>7.1f}  "
-                      f"{p.bowling_pts:>7.1f}  {p.fielding_pts:>7.1f}  {p.total:>7.1f}")
+            bd     = p.breakdown
+            row    = (f"  {i+1:>3}  {p.player_name:<24}  {badge:<5}  {bd.get('batting_pts', 0.0):>7.1f}  "
+                      f"{bd.get('bowling_pts', 0.0):>7.1f}  {bd.get('fielding_pts', 0.0):>7.1f}  {p.total:>7.1f}")
             print(bg(row, pc, sc))
         print()

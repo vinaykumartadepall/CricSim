@@ -19,7 +19,7 @@ but aggregate delivery statistics bucketed by phase:
   - Dot ball rate
 
 Usage:
-    python -m simulator.strategies.ball_outcome_prediction.historical_stats.validate_simulation \\
+    python -m simulator.predictors.ball_outcome_prediction.historical_stats.validate_simulation \\
         --format T20 --venue "Shere Bangla" --simulations 100 --config match_config.json
 
     # Or auto-pick top venues for the format:
@@ -336,7 +336,7 @@ class SimulationValidator:
         """
         import json
         from simulator.match_runner import MatchRunner
-        from simulator.strategies.factory import OutcomeStrategyFactory, BowlingStrategyFactory
+        from simulator.predictors.factory import OutcomeStrategyFactory, BowlingStrategyFactory
         from simulator.engines.engine_factory import EngineFactory
         from simulator.entities.team import MatchTeam
         from simulator.entities.match import SimulationMatch
@@ -656,7 +656,7 @@ class PlayerProfileValidator:
         bowling_strategy_type: str = 'historical',
     ) -> PlayerProfileResult:
         from simulator.match_runner import MatchRunner
-        from simulator.strategies.factory import OutcomeStrategyFactory, BowlingStrategyFactory
+        from simulator.predictors.factory import OutcomeStrategyFactory, BowlingStrategyFactory
         from simulator.engines.engine_factory import EngineFactory
 
         fmt = MatchRules.get_unified_format(match_format)

@@ -460,14 +460,14 @@ The bus is cleared and rewired at the start of each innings so observers from th
 
 ## Adding a New Ball-Outcome Strategy
 
-1. Create a new folder under `simulator/strategies/ball_outcome_prediction/` with `__init__.py` and `strategy.py`.
+1. Create a new folder under `simulator/predictors/ball_outcome_prediction/` with `__init__.py` and `strategy.py`.
 2. Subclass `BallOutcomeStrategy` from `strategy_interface.py`.
 3. Implement `init_model(match)` (load any caches needed) and `predict_next_ball(match) → BallOutcome`.
 4. Register it in `simulate_driver.py`'s `_OUTCOME_STRATEGIES` dict.
 
 ## Adding a New Bowling Strategy
 
-1. Create a new folder under `simulator/strategies/bowling/` with `__init__.py` and `strategy.py`.
+1. Create a new folder under `simulator/predictors/bowling/` with `__init__.py` and `strategy.py`.
 2. Subclass `BowlingStrategy` from `strategy_interface.py`.
 3. Implement `init_model(match)` and `select_bowler(match) → InningPlayer`.
 4. Pass it to `EngineFactory.create()` or inject directly into `BaseEngine`.

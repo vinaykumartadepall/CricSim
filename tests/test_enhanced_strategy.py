@@ -24,7 +24,7 @@ from db.stats_repository import StatsRepository
 from simulator.entities.match import SimulationMatch
 from simulator.entities.player import Player
 from simulator.entities.team import MatchTeam
-from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import (
+from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import (
     EnhancedBaseHistoricalStatsStrategy,
     PressureContext,
     T20EnhancedHistoricalStatsStrategy,
@@ -69,7 +69,7 @@ class _TestStrategy(EnhancedBaseHistoricalStatsStrategy):
         self._reliability_thresholds = {'batter': 500, 'bowler': 500, 'matchup': 100,
                                          'phase': 1000, 'venue': 2000, 'tournament': 1000,
                                          'innings': 2000, 'milestone': 500}
-        from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import _outcome_category
+        from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import _outcome_category
         self._ordered_keys = list(self.baseline_outcome_probs.keys())
         self._key_categories = {k: _outcome_category(k) for k in self._ordered_keys}
 
@@ -295,7 +295,7 @@ class TestVenueContextRefresh:
 
         patcher_method = patch.object(StatsRepository, "get_venue_distribution", fake_get_venue_distribution)
         patcher_repo = patch(
-            "simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy.StatsRepository",
+            "simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy.StatsRepository",
             return_value=self.fake_repo,
         )
         patcher_method.start()

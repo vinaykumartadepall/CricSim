@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 import json as _json
 
+from api.job_queue import job_queue
 from api.multiplayer.manager import SQUAD_SIZE, RoomState, draft_manager, _snake_sequence
 from db.database import get_db_connection
 from simulator.logger import get_logger
@@ -402,7 +403,13 @@ async def _start_simulation(room: RoomState):
         future.add_done_callback(_log_if_failed)
 
     try:
-        sim_id, match_id = await loop.run_in_executor(None, _run_simulation, room, on_sim_created)
+        # Goes through the shared single-worker job_queue (not a bare
+        # executor call) so this never runs concurrently with another
+        # simulation — see api/job_queue.py. room_id is the tracking key
+        # here since the real sim_id doesn't exist yet (on_sim_created is
+        # what creates it, once the job actually starts).
+        future = job_queue.submit(f"room:{room.room_id}", _run_simulation, room, on_sim_created)
+        sim_id, match_id = await asyncio.wrap_future(future)
         room.sim_id = sim_id
         room.status = "completed"
         await draft_manager.broadcast(room, {

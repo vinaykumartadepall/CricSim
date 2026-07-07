@@ -12,7 +12,7 @@ from simulator.admin_settings import (
     set_default_outcome_strategy,
 )
 from simulator.logger import get_current_log_level, set_log_level
-from simulator.strategies.factory import BowlingStrategyFactory, OutcomeStrategyFactory
+from simulator.predictors.factory import BowlingStrategyFactory, OutcomeStrategyFactory
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

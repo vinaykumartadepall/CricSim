@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Annotated, List, Optional, Union
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from api.job_queue import job_queue
 from api.models.requests import (
     CreateSimRequest,
     FixtureConfig,
@@ -41,7 +42,6 @@ router = APIRouter(prefix="/cricsimapi/simulations", tags=["simulations"])
 @router.post("/createsim", response_model=SimCreatedResponse, status_code=202)
 def create_simulation(
     request: Annotated[Union[MatchSimRequest, TournamentSimRequest], Field(discriminator="simulation_type")],
-    background_tasks: BackgroundTasks,
 ):
     repo = SimulationRepository()
     try:
@@ -57,9 +57,9 @@ def create_simulation(
         repo.close()
 
     if request.simulation_type == "match":
-        background_tasks.add_task(run_match_job, sim_id, config_dict)
+        job_queue.submit(sim_id, run_match_job, sim_id, config_dict)
     else:
-        background_tasks.add_task(run_tournament_job, sim_id, config_dict)
+        job_queue.submit(sim_id, run_tournament_job, sim_id, config_dict)
 
     return SimCreatedResponse(sim_id=sim_id)
 
@@ -76,7 +76,7 @@ class TournamentFromIdRequest(BaseModel):
 
 
 @router.post("/tournament", response_model=SimCreatedResponse, status_code=202)
-def create_tournament_from_id(body: TournamentFromIdRequest, background_tasks: BackgroundTasks):
+def create_tournament_from_id(body: TournamentFromIdRequest):
     """Start a tournament simulation using a pre-seeded tournament_id."""
     conn = get_db_connection(autocommit=False)
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -176,8 +176,8 @@ def create_tournament_from_id(body: TournamentFromIdRequest, background_tasks: B
     finally:
         repo.close()
 
-    background_tasks.add_task(
-        run_tournament_job, sim_id, config_dict,
+    job_queue.submit(
+        sim_id, run_tournament_job, sim_id, config_dict,
         user_team_name=user_team_name,
         client_id=body.client_id,
     )
@@ -230,6 +230,11 @@ def get_status(sim_id: str):
             matches = repo.get_matches_for_sim(sim_id)
             if matches:
                 result["match_id"] = matches[0]["match_id"]
+        # Only meaningful before the job has actually started — job_queue
+        # reports position 0 for a running job, but "status" already tells
+        # the client that; only surface a queue count while still pending.
+        if sim["status"] == "pending":
+            result["queue_position"] = job_queue.position(sim_id)
     finally:
         repo.close()
 

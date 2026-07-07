@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
+from simulator.entities.rules import MatchRules
+
 
 # ── Scorecard ──────────────────────────────────────────────────────────────────
 
@@ -22,6 +24,15 @@ def get_scorecard(cur, match_id: int) -> dict:
     innings = [_build_inning_scorecard(inning_num, rows)
                for inning_num, rows in innings_data.items()]
 
+    potm = None
+    if match_row['player_of_match_id'] is not None:
+        potm = {
+            "player_id": match_row['player_of_match_id'],
+            "name":      match_row['potm_player_name'],
+            "team":      match_row['potm_team_name'],
+            "points":    float(match_row['potm_points']) if match_row['potm_points'] is not None else None,
+        }
+
     return {
         "match_id":           match_id,
         "match_label":        match_row['match_label'],
@@ -32,6 +43,7 @@ def get_scorecard(cur, match_id: int) -> dict:
         "match_format":       match_row['match_format'],
         "result_description": _build_result_description(match_row),
         "innings":            innings,
+        "potm":               potm,
     }
 
 
@@ -140,7 +152,7 @@ def get_match_result(cur, match_id: int) -> Optional[dict]:
 def get_tournament_result(cur, sim_id: str, client_id: str | None = None) -> dict:
     cur.execute(
         """
-        SELECT tournament_name, season, format
+        SELECT tournament_name, season, format, final_standings
         FROM   simulation.tournaments
         WHERE  sim_id = %s
         LIMIT  1
@@ -174,7 +186,18 @@ def get_tournament_result(cur, sim_id: str, client_id: str | None = None) -> dic
     ]
 
     winner, runner_up = _find_final_result(matches)
-    points_table = _build_points_table(cur, sim_id, group_matches)
+
+    if t_row and t_row.get('final_standings') is not None:
+        # Preferred path: the live tournament engine's own standings
+        # (simulator/tournament/points_table.py), persisted once when the
+        # group stage completed — already correct (ICC all-out rule applied,
+        # same points/NRR/won ordering used to decide real playoff seeding).
+        points_table = t_row['final_standings']
+    else:
+        # Fallback for tournaments simulated before final_standings existed
+        # (migration 026). Re-derives from raw deliveries — kept only for
+        # those older sims, not a second live implementation going forward.
+        points_table = _build_points_table(cur, sim_id, group_matches)
 
     # User team placement
     cur.execute(
@@ -247,6 +270,7 @@ def _fetch_match_row(cur, match_id: int) -> Optional[dict]:
                v.name  AS venue_name,
                c.name  AS venue_country,
                m.result, m.win_type, m.win_by,
+               m.player_of_match_id, m.potm_player_name, m.potm_team_name, m.potm_points,
                (m.is_super_over OR (m.match_format != 'Test' AND EXISTS (
                    SELECT 1 FROM simulation.deliveries dso
                    WHERE dso.match_id = m.match_id AND dso.inning_number = 3
@@ -534,8 +558,16 @@ def _find_final_result(matches: list) -> Tuple[Optional[str], Optional[str]]:
 
 def _build_points_table(cur, sim_id: str, group_matches: list) -> list:
     """
+    DEPRECATED fallback, only reached for tournaments simulated before
+    migration 026 added simulation.tournaments.final_standings — every new
+    sim gets its points table from the live engine directly (see
+    get_tournament_result above), not from this function.
+
     Points: win=2, loss=0, tie/no-result=1.
-    NRR uses ICC all-out rule: full allocation used when team is dismissed.
+    NRR uses the ICC all-out rule (full overs allocation credited when a team
+    is dismissed) — mirrors MatchRules.nrr_adjusted_balls, duplicated here in
+    raw SQL only because that logic can't be called from a query; the actual
+    run-rate division/subtraction below does go through MatchRules.net_run_rate.
     """
     group_match_ids = [row['match_id'] for row in group_matches]
     if not group_match_ids:
@@ -617,9 +649,10 @@ def _build_points_table(cur, sim_id: str, group_matches: list) -> list:
         points  = rec['won'] * 2 + rec['tied'] + rec['no_result']
         nrr_row = nrr_rows.get(team)
         if nrr_row:
-            rs, bf = nrr_row['runs_scored'],   nrr_row['balls_faced']
-            rc, bb = nrr_row['runs_conceded'],  nrr_row['balls_bowled']
-            nrr = round((rs / (bf / 6) if bf else 0) - (rc / (bb / 6) if bb else 0), 3)
+            nrr = MatchRules.net_run_rate(
+                nrr_row['runs_scored'], nrr_row['balls_faced'],
+                nrr_row['runs_conceded'], nrr_row['balls_bowled'],
+            )
         else:
             nrr = 0.0
         table.append({
@@ -629,5 +662,8 @@ def _build_points_table(cur, sim_id: str, group_matches: list) -> list:
             'points': points, 'nrr': nrr,
         })
 
-    table.sort(key=lambda x: (-x['points'], -x['nrr']))
+    # Same tiebreak order as the live engine's PointsTable.standings()
+    # (points, nrr, won) — kept in sync so this fallback path (pre-migration
+    # 026 sims only) doesn't silently rank differently from real playoff seeding.
+    table.sort(key=lambda x: (-x['points'], -x['nrr'], -x['won']))
     return table

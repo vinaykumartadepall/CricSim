@@ -29,7 +29,7 @@ import matplotlib.patches as mpatches
 
 from db.stats_repository import StatsRepository
 from simulator.entities.rules import MatchRules
-from simulator.strategies.bowling.historical import create_historical_bowling_strategy
+from simulator.predictors.bowling.historical import create_historical_bowling_strategy
 
 # ── Minimal mock objects (same pattern as validate_bowling_selection) ─────────
 

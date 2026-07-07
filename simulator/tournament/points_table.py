@@ -4,14 +4,18 @@ Points table for a cricket tournament.
 Tracks matches played, wins, losses, ties, no-results, points, and NRR.
 Updated after every match.
 
-NRR = (total runs scored / total legal balls faced * 6)
-      - (total runs conceded / total legal balls bowled against * 6)
+NRR formula lives in MatchRules.net_run_rate/nrr_adjusted_balls (the ICC
+all-out rule — a dismissed side is credited its full overs quota, not just
+balls actually faced) — record_result() callers must pass in balls that
+have already had that adjustment applied.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
+
+from simulator.entities.rules import MatchRules
 
 
 @dataclass
@@ -26,15 +30,16 @@ class TeamRecord:
 
     # NRR accumulators
     _runs_scored: int = 0
-    _balls_faced: int = 0       # legal balls only
+    _balls_faced: int = 0       # NRR-adjusted legal balls (all-out rule applied)
     _runs_conceded: int = 0
-    _balls_bowled: int = 0      # legal balls only
+    _balls_bowled: int = 0      # NRR-adjusted legal balls (all-out rule applied)
 
     @property
     def nrr(self) -> float:
-        off = (self._runs_scored / self._balls_faced * 6) if self._balls_faced else 0.0
-        def_ = (self._runs_conceded / self._balls_bowled * 6) if self._balls_bowled else 0.0
-        return round(off - def_, 3)
+        return MatchRules.net_run_rate(
+            self._runs_scored, self._balls_faced,
+            self._runs_conceded, self._balls_bowled,
+        )
 
 
 class PointsTable:
@@ -55,9 +60,9 @@ class PointsTable:
         away: str,
         result: str,           # "home_win" | "away_win" | "tie" | "no_result"
         home_runs: int,
-        home_balls: int,       # legal balls faced by home team
+        home_balls: int,       # NRR-adjusted balls faced by home team (see MatchRules.nrr_adjusted_balls)
         away_runs: int,
-        away_balls: int,       # legal balls faced by away team
+        away_balls: int,       # NRR-adjusted balls faced by away team
     ) -> None:
         h = self._records[home]
         a = self._records[away]

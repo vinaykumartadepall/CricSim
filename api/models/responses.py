@@ -111,6 +111,13 @@ class InningScorecard(BaseModel):
     bowlers: List[BowlerRow]
 
 
+class PotmInfo(BaseModel):
+    player_id: int
+    name: Optional[str] = None
+    team: Optional[str] = None
+    points: Optional[float] = None
+
+
 class ScorecardResponse(BaseModel):
     match_id: int
     match_label: str
@@ -121,6 +128,7 @@ class ScorecardResponse(BaseModel):
     match_format: Optional[str] = None
     result_description: Optional[str]
     innings: List[InningScorecard]
+    potm: Optional[PotmInfo] = None
 
 
 # ── /commentary ────────────────────────────────────────────────────────────────

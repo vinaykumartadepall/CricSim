@@ -51,8 +51,8 @@ from simulator.events import MatchEvent, EventType
 from simulator.logger import get_logger
 from simulator.match_logger import MatchLogger
 from simulator.presentation.formatters import format_innings_scorecard
-from simulator.strategies.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
-from simulator.strategies.bowling.strategy_interface import BowlingStrategy
+from simulator.predictors.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
+from simulator.predictors.bowling.strategy_interface import BowlingStrategy
 
 _log = get_logger()
 

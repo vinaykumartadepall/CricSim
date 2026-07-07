@@ -1,11 +1,11 @@
-from simulator.strategies.bowling.historical.base import HistoricalBowlingBase
-from simulator.strategies.bowling.historical.strategies import (
+from simulator.predictors.bowling.historical.base import HistoricalBowlingBase
+from simulator.predictors.bowling.historical.strategies import (
     T20HistoricalBowlingStrategy,
     ODIHistoricalBowlingStrategy,
     TestHistoricalBowlingStrategy,
     create_historical_bowling_strategy,
 )
-from simulator.strategies.bowling.historical.replay import HistoricalBowlingOrder
+from simulator.predictors.bowling.historical.replay import HistoricalBowlingOrder
 
 __all__ = [
     'HistoricalBowlingBase',

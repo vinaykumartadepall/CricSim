@@ -399,7 +399,12 @@ CREATE TABLE IF NOT EXISTS simulation.tournaments (
     tournament_name VARCHAR(256),
     season          VARCHAR(32),
     format          VARCHAR(32),
-    gender          VARCHAR(16)
+    gender          VARCHAR(16),
+    -- Group-stage standings (team, played, won, lost, tied, no_result, points, nrr),
+    -- as computed once by the live tournament engine (simulator/tournament/points_table.py)
+    -- when the group stage completes. Read by the results page instead of
+    -- re-deriving standings from simulation.deliveries per request.
+    final_standings JSONB
 );
 
 CREATE TABLE IF NOT EXISTS simulation.tournament_teams (
@@ -431,6 +436,9 @@ CREATE TABLE IF NOT EXISTS simulation.matches (
     win_by             INT,
     is_super_over      BOOLEAN NOT NULL DEFAULT FALSE,
     player_of_match_id INT  REFERENCES history.players(player_id),
+    potm_player_name   TEXT,
+    potm_team_name     TEXT,
+    potm_points        NUMERIC(6,2),
     toss_winner_id     INT  REFERENCES simulation.teams(team_id),
     toss_decision      VARCHAR(32),
     season             VARCHAR(32),

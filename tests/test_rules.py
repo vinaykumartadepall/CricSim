@@ -157,3 +157,45 @@ class TestIsBowlerCreditedWicket:
 
     def test_none_is_not_credited(self):
         assert not MatchRules.is_bowler_credited_wicket(None)
+
+
+class TestNrrAdjustedBalls:
+    def test_all_out_inside_quota_credited_full_quota(self):
+        # Bowled out in 16.3 overs (99 balls) of a 20-over (120-ball) innings.
+        assert MatchRules.nrr_adjusted_balls(legal_balls=99, wickets=10, max_balls=120) == 120
+
+    def test_not_all_out_uses_actual_balls_faced(self):
+        # Chased down in 12.2 overs (74 balls), 2 wickets down — no adjustment.
+        assert MatchRules.nrr_adjusted_balls(legal_balls=74, wickets=2, max_balls=120) == 74
+
+    def test_all_out_using_full_quota_is_a_noop(self):
+        assert MatchRules.nrr_adjusted_balls(legal_balls=120, wickets=10, max_balls=120) == 120
+
+    def test_no_max_balls_is_a_noop(self):
+        # Test cricket: no fixed overs quota to credit against.
+        assert MatchRules.nrr_adjusted_balls(legal_balls=250, wickets=10, max_balls=None) == 250
+
+    def test_zero_max_balls_is_a_noop(self):
+        assert MatchRules.nrr_adjusted_balls(legal_balls=50, wickets=10, max_balls=0) == 50
+
+
+class TestNetRunRate:
+    def test_matches_hand_verified_rajasthan_royals_example(self):
+        # Cross-checked by hand against a real production sim's 14-match group
+        # stage (see conversation history) — the ICC all-out-rule-correct
+        # answer is +0.390, which is what the app displayed and what this
+        # formula must reproduce given the same adjusted totals.
+        nrr = MatchRules.net_run_rate(
+            runs_for=2471, balls_for=1622,       # 270.3333 overs
+            runs_against=2386, balls_against=1636,  # 272.6667 overs
+        )
+        assert nrr == 0.390
+
+    def test_zero_balls_faced_does_not_divide_by_zero(self):
+        assert MatchRules.net_run_rate(0, 0, 50, 120) == round(0.0 - 50 / 120 * 6, 3)
+
+    def test_zero_balls_bowled_does_not_divide_by_zero(self):
+        assert MatchRules.net_run_rate(50, 120, 0, 0) == round(50 / 120 * 6, 3)
+
+    def test_equal_rates_give_zero_nrr(self):
+        assert MatchRules.net_run_rate(120, 120, 120, 120) == 0.0

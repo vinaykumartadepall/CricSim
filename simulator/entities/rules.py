@@ -109,6 +109,33 @@ class MatchRules:
         return 'late'
 
     @staticmethod
+    def nrr_adjusted_balls(legal_balls: int, wickets: int, max_balls: Optional[int]) -> int:
+        """
+        ICC all-out rule: a side dismissed inside its full overs quota is credited
+        the full quota for NRR purposes, not just the balls it actually faced.
+        No-op (returns legal_balls unchanged) when there's no fixed quota to credit
+        against — e.g. Test cricket, where max_balls is None and NRR/all-out-rule
+        don't apply in the first place.
+
+        Single source of truth for this adjustment — every NRR computation (live
+        tournament engine, results-page display) must go through this, not
+        reimplement the CASE WHEN wickets >= 10 ... check independently.
+        """
+        if max_balls and wickets >= 10:
+            return max_balls
+        return legal_balls
+
+    @staticmethod
+    def net_run_rate(runs_for: int, balls_for: int, runs_against: int, balls_against: int) -> float:
+        """
+        NRR = (runs scored / legal balls faced * 6) - (runs conceded / legal balls bowled * 6).
+        balls_for/balls_against should already have nrr_adjusted_balls() applied by the caller.
+        """
+        off = (runs_for / balls_for * 6) if balls_for else 0.0
+        de = (runs_against / balls_against * 6) if balls_against else 0.0
+        return round(off - de, 3)
+
+    @staticmethod
     def is_bowler_credited_wicket(wicket_kind: str) -> bool:
         """
         Returns whether the bowler receives credit for a given wicket type.

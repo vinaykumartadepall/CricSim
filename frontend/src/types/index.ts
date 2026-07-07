@@ -233,6 +233,13 @@ export interface Innings {
   bowlers: BowlerRow[]
 }
 
+export interface PotmInfo {
+  player_id: number
+  name: string | null
+  team: string | null
+  points: number | null
+}
+
 export interface Scorecard {
   match_id: number
   match_label: string
@@ -243,6 +250,7 @@ export interface Scorecard {
   match_format: string | null
   result_description: string | null
   innings: Innings[]
+  potm: PotmInfo | null
 }
 
 export interface AwardEntry {

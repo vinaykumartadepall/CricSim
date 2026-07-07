@@ -56,7 +56,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Union
 
-from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats.strategy import ERA_NORMALIZE_ALL
+from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats.strategy import ERA_NORMALIZE_ALL
 
 
 @dataclass

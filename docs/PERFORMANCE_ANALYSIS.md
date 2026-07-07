@@ -45,7 +45,7 @@ logger.ball(text)                # logger.debug() call
 
 ## 2. `predict()` / `_compute_distribution()` in `EnhancedHistoricalStatsStrategy`
 
-**File:** `simulator/strategies/ball_outcome_prediction/enhanced_historical_stats/strategy.py`
+**File:** `simulator/predictors/ball_outcome_prediction/enhanced_historical_stats/strategy.py`
 
 ### Current cost (dominant bottleneck)
 
@@ -121,7 +121,7 @@ Similarly, `phase` and `milestone` (lines 1312–1313) are computed outside any 
 
 ## 3. `select_bowler()` in `HistoricalBowlingBase`
 
-**File:** `simulator/strategies/bowling/historical/base.py`
+**File:** `simulator/predictors/bowling/historical/base.py`
 
 ### Current cost
 

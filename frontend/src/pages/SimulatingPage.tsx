@@ -207,6 +207,7 @@ export function SimulatingPage() {
   const [status, setStatus] = useState<'pending' | 'running' | 'failed'>('pending')
   const [errorMsg, setErrorMsg] = useState('')
   const [progress, setProgress] = useState<Progress | null>(null)
+  const [queuePosition, setQueuePosition] = useState<number | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -227,6 +228,7 @@ export function SimulatingPage() {
           setErrorMsg(s.error || 'Simulation failed')
         } else {
           setStatus(s.status as 'pending' | 'running')
+          setQueuePosition(s.status === 'pending' ? s.queue_position ?? null : null)
           setProgress(
             s.matches_total
               ? {
@@ -336,7 +338,16 @@ export function SimulatingPage() {
                 style={{ border: '2px solid var(--accent)' }}>
                 <Spinner size={28} />
               </div>
-              <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Running ball-by-ball. Takes 10–30 seconds.</div>
+              {queuePosition != null && queuePosition >= 1 ? (
+                <>
+                  <div className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
+                    Waiting in line — {queuePosition} simulation{queuePosition !== 1 ? 's' : ''} ahead of you
+                  </div>
+                  <div className="text-xs" style={{ color: 'var(--text-dim)' }}>Only one runs at a time, so results stay fast and predictable.</div>
+                </>
+              ) : (
+                <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Running ball-by-ball. Takes 10–30 seconds.</div>
+              )}
             </>
           )}
 

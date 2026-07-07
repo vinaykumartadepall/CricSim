@@ -19,7 +19,7 @@ and appear correctly in the primary list.
 import pytest
 from unittest.mock import MagicMock
 
-from simulator.strategies.bowling.historical.strategies import T20HistoricalBowlingStrategy
+from simulator.predictors.bowling.historical.strategies import T20HistoricalBowlingStrategy
 from simulator.entities.inning_player import InningPlayer
 from simulator.entities.player import Player
 

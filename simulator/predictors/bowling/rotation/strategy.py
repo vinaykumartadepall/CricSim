@@ -2,7 +2,7 @@ from typing import Optional
 
 from simulator.entities.match import SimulationMatch
 from simulator.entities.inning_player import InningPlayer
-from simulator.strategies.bowling.strategy_interface import BowlingStrategy
+from simulator.predictors.bowling.strategy_interface import BowlingStrategy
 
 
 class RotationBowlingStrategy(BowlingStrategy):

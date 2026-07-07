@@ -25,20 +25,20 @@ from typing import ClassVar, Optional
 from db.entities.venue import Venue
 from db.stats_repository import StatsRepository
 from simulator.entities.player import Player
-from simulator.strategies.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
-from simulator.strategies.ball_outcome_prediction.historical_stats.strategy import (
+from simulator.predictors.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
+from simulator.predictors.ball_outcome_prediction.historical_stats.strategy import (
     ODIHistoricalStatsStrategy,
     T20HistoricalStatsStrategy,
     TestHistoricalStatsStrategy,
 )
-from simulator.strategies.ball_outcome_prediction.enhanced_historical_stats import (
+from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats import (
     ODIEnhancedHistoricalStatsStrategy,
     T20EnhancedHistoricalStatsStrategy,
     TestEnhancedHistoricalStatsStrategy,
 )
-from simulator.strategies.bowling.strategy_interface import BowlingStrategy
-from simulator.strategies.bowling.historical import create_historical_bowling_strategy
-from simulator.strategies.bowling.smart import SmartBowlingStrategy
+from simulator.predictors.bowling.strategy_interface import BowlingStrategy
+from simulator.predictors.bowling.historical import create_historical_bowling_strategy
+from simulator.predictors.bowling.smart import SmartBowlingStrategy
 
 log = logging.getLogger(__name__)
 

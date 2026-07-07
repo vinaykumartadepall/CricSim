@@ -25,8 +25,8 @@ from db.stats_repository import StatsRepository
 from simulator.entities.match import SimulationMatch
 from simulator.entities.ball_outcome import BallOutcome
 from simulator.entities.rules import MatchRules
-from simulator.strategies.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
-from simulator.strategies.ball_outcome_prediction.common.utils import (
+from simulator.predictors.ball_outcome_prediction.strategy_interface import BallOutcomeStrategy
+from simulator.predictors.ball_outcome_prediction.common.utils import (
     BASELINE_FALLBACK,
     apply_free_hit_modifier,
     collect_player_ids,

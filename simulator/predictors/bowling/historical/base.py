@@ -29,7 +29,7 @@ from db.stats_repository import StatsRepository
 from simulator.entities.inning_player import InningPlayer
 from simulator.entities.match import SimulationMatch
 from simulator.entities.rules import MatchRules
-from simulator.strategies.bowling.strategy_interface import BowlingStrategy
+from simulator.predictors.bowling.strategy_interface import BowlingStrategy
 from simulator.logger import TRACE, get_logger, is_level_active
 
 log = get_logger()
