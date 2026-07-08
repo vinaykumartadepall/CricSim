@@ -1,10 +1,9 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Copy, Check, Dice5, Users, Swords, Link, X, ChevronLeft } from 'lucide-react'
+import { Dice5, Users, Swords, Link, X, ChevronLeft } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
-import type { RoomResponse } from '@/types'
 
 // ── Name randomizer ───────────────────────────────────────────────────────────
 
@@ -16,31 +15,6 @@ function randomName(mode: '1v1' | 'tournament'): string {
   const adj  = ADJS[Math.floor(Math.random() * ADJS.length)]
   const noun = mode === '1v1' ? 'Clash' : NOUNS[Math.floor(Math.random() * NOUNS.length)]
   return `${adj} ${noun} ${YEAR}`
-}
-
-// ── CopyButton ────────────────────────────────────────────────────────────────
-
-function CopyButton({ text, label }: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false)
-  function copy() {
-    navigator.clipboard.writeText(text).catch(() => {})
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1800)
-  }
-  return (
-    <button
-      onClick={copy}
-      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all flex-shrink-0"
-      style={{
-        background: copied ? 'rgba(34,197,94,0.12)' : 'var(--surface-2)',
-        color: copied ? 'var(--win)' : 'var(--text-muted)',
-        border: `1px solid ${copied ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`,
-      }}
-    >
-      {copied ? <Check size={12} /> : <Copy size={12} />}
-      {label ? (copied ? 'Copied!' : label) : (copied ? 'Copied!' : 'Copy')}
-    </button>
-  )
 }
 
 // ── Modal wrapper ─────────────────────────────────────────────────────────────
@@ -84,54 +58,11 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   )
 }
 
-// ── Room created panel ────────────────────────────────────────────────────────
-
-function RoomCreatedPanel({ room, clientId: _clientId, onClose }: { room: RoomResponse; clientId: string; onClose: () => void }) {
-  const navigate = useNavigate()
-
-  return (
-    <Modal title="Room Created" onClose={onClose}>
-      <div className="flex flex-col gap-4">
-        <div className="text-center">
-          <div className="text-xs font-medium uppercase tracking-wider mb-1" style={{ color: 'var(--accent)' }}>Room Created!</div>
-          <div className="text-sm" style={{ color: 'var(--text-muted)' }}>{room.tournament_name}</div>
-        </div>
-
-        <div>
-          <div className="text-xs mb-1.5 font-medium" style={{ color: 'var(--text-dim)' }}>Room Code</div>
-          <div className="flex items-center gap-2">
-            <div
-              className="font-mono text-2xl font-bold tracking-[0.2em] px-4 py-2 rounded-lg flex-1 text-center"
-              style={{ background: 'var(--surface-2)', color: 'var(--accent)', border: '1px solid var(--border)' }}
-            >
-              {room.room_id}
-            </div>
-            <CopyButton text={room.room_id} />
-          </div>
-        </div>
-
-        <div className="text-xs text-center" style={{ color: 'var(--text-dim)' }}>
-          Share this code with your friends to invite them.
-        </div>
-
-        <button
-          onClick={() => navigate(`/multiplayer/draft/${room.room_id}`)}
-          className="w-full py-2.5 rounded-xl font-semibold text-sm transition-all"
-          style={{ background: 'var(--accent)', color: 'var(--bg)', cursor: 'pointer' }}
-          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = 'var(--accent-dim)')}
-          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'var(--accent)')}
-        >
-          Enter Room
-        </button>
-      </div>
-    </Modal>
-  )
-}
-
 // ── Create Room Modal ─────────────────────────────────────────────────────────
 
 function CreateRoomModal({ onClose }: { onClose: () => void }) {
   const { clientId, displayName } = useAuth()
+  const navigate = useNavigate()
 
   const [mode, setMode]             = useState<'1v1' | 'tournament'>('1v1')
   const [name, setName]             = useState(() => randomName('1v1'))
@@ -139,7 +70,6 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
   const [playerCount, setPlayerCount] = useState<number>(4)
   const [creating, setCreating]     = useState(false)
   const [error, setError]           = useState<string | null>(null)
-  const [created, setCreated]       = useState<RoomResponse | null>(null)
 
   function switchMode(m: '1v1' | 'tournament') {
     setMode(m)
@@ -158,16 +88,14 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
         player_count: mode === '1v1' ? 2 : playerCount,
         match_format: matchFormat,
       })
-      setCreated(room)
+      // Straight into the Waiting Room — the room code/link are shown there
+      // too, so the old "Room Created" confirmation step was just an extra
+      // click with nothing on it the Waiting Room doesn't already have.
+      navigate(`/multiplayer/draft/${room.room_id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create room')
-    } finally {
       setCreating(false)
     }
-  }
-
-  if (created) {
-    return <RoomCreatedPanel room={created} clientId={clientId} onClose={onClose} />
   }
 
   const pill = (active: boolean) => ({

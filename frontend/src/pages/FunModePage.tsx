@@ -7,6 +7,7 @@ import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import { SquadEditor } from '@/components/SquadEditor'
+import { sortTournamentNames } from '@/lib/sortTournamentNames'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest } from '@/types'
 
 type Step = 'tournament' | 'season' | 'team' | 'squad' | 'confirm'
@@ -128,7 +129,7 @@ export function FunModePage() {
     acc[t.name].push(t)
     return acc
   }, {})
-  const uniqueNames = Object.keys(grouped).sort()
+  const uniqueNames = sortTournamentNames(Object.keys(grouped))
 
   function selectTournamentName(name: string) {
     setTournamentName(name)
@@ -468,7 +469,7 @@ export function FunModePage() {
               ✈ Too many overseas players ({selectedSeason?.overseas_limit} max). Trade in a local player to continue.
             </div>
           )}
-          <div className="mt-4 flex flex-col gap-2">
+          <div className="mt-4 sticky bottom-0 -mx-4 px-4 py-3 flex flex-col gap-2" style={{ background: 'var(--bg)', borderTop: '1px solid var(--border)' }}>
             <button
               className="btn-accent w-full py-3 text-base"
               onClick={() => setStep('confirm')}

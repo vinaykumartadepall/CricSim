@@ -13,6 +13,18 @@ from simulator.logger import get_logger
 
 SQUAD_SIZE = 11
 PICK_TIMEOUT_S = 60
+HOST_RECONNECT_GRACE_S = 15  # host disconnect (e.g. a page reload) before host transfers to someone else
+
+
+def _place_in_first_gap(order: List[Optional[int]], player_id: int) -> None:
+    """Mutates order in place, dropping player_id into its first None slot
+    (appending defensively if somehow already full — shouldn't happen since
+    order is always kept at SQUAD_SIZE length)."""
+    for i, v in enumerate(order):
+        if v is None:
+            order[i] = player_id
+            return
+    order.append(player_id)
 
 
 @dataclass
@@ -20,7 +32,14 @@ class Member:
     client_id: str
     display_name: str
     draft_order: int = 0
-    squad: List[int] = field(default_factory=list)      # player_ids in batting order
+    squad: List[int] = field(default_factory=list)      # player_ids in pick order — drives turn-tracking, never reordered
+    # Display/lineup order — SQUAD_SIZE slots, None where a pick hasn't landed
+    # yet. Decoupled from `squad` specifically so reorder_squad can move a
+    # drafted player past not-yet-picked slots to reserve a later batting
+    # position, without disturbing turn order (which only ever reads
+    # len(squad)). make_pick() drops each new pick into the first open slot
+    # here, not necessarily the end, so a reserved gap actually gets filled.
+    batting_order: List[Optional[int]] = field(default_factory=lambda: [None] * SQUAD_SIZE)
     ws: Optional[WebSocket] = field(default=None, repr=False)
 
     def has_keeper(self, keeper_ids: Set[int]) -> bool:
@@ -89,6 +108,7 @@ class RoomState:
                     "team_name": m.display_name,
                     "draft_order": m.draft_order,
                     "squad": m.squad,
+                    "batting_order": m.batting_order,
                     "connected": m.ws is not None,
                 }
                 for m in sorted(self.members.values(), key=lambda x: x.draft_order)
@@ -219,6 +239,7 @@ class DraftManager:
         member.squad.append(player_id)
         room.drafted_ids.add(player_id)
         room.current_pick_idx += 1
+        _place_in_first_gap(member.batting_order, player_id)
         return {"picker": client_id, "player_id": player_id, "squad_size": len(member.squad)}
 
     def auto_pick(self, room: RoomState, all_player_ids: List[int]) -> Optional[dict]:
@@ -238,13 +259,22 @@ class DraftManager:
         player_id = random.choice(pool)
         return self.make_pick(room, client_id, player_id)
 
-    def reorder_squad(self, room: RoomState, client_id: str, order: List[int]) -> None:
+    def reorder_squad(self, room: RoomState, client_id: str, order: List[Optional[int]]) -> None:
+        """
+        order: SQUAD_SIZE slots, each a drafted player_id or None for an
+        open slot — lets a drafted player be moved past not-yet-picked
+        positions to reserve a later batting spot. squad (turn-tracking)
+        is untouched; only the display/lineup order changes.
+        """
         member = room.members.get(client_id)
         if not member:
             raise ValueError("Not a member of this room")
-        if set(order) != set(member.squad) or len(order) != len(member.squad):
-            raise ValueError("Invalid reorder: must contain same player IDs")
-        member.squad = order
+        if len(order) != SQUAD_SIZE:
+            raise ValueError(f"Invalid reorder: must have exactly {SQUAD_SIZE} slots")
+        non_null = [pid for pid in order if pid is not None]
+        if set(non_null) != set(member.squad) or len(non_null) != len(member.squad):
+            raise ValueError("Invalid reorder: must contain exactly the drafted player IDs")
+        member.batting_order = order
 
     # ── broadcast ──────────────────────────────────────────────────────────────
 

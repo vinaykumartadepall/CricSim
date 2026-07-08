@@ -6,6 +6,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { FilterDropdown } from '@/components/ui/FilterDropdown'
+import { ShareButton } from '@/components/ui/ShareButton'
+import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import type { MultiplayerPlayer, PlayerFilterOptions, RoomState } from '@/types'
 
 const DRAFT_HELP_KEY = '/multiplayer/draft'
@@ -17,9 +19,29 @@ const DRAFT_HELP_KEY = '/multiplayer/draft'
 // open a websocket to its OWN localhost:8000 instead of the real server.
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
 const WS_BASE = `${WS_PROTOCOL}//${window.location.host}/cricsimapi/multiplayer/ws`
+const SQUAD_SIZE = 11
 const SEARCH_DEBOUNCE_MS = 300
 const PICK_TIMER_TOTAL   = 60
 const PING_INTERVAL_MS   = 30_000
+
+// Same palette as FunModePage/ChallengeModePage/CustomModePage/SimCard's
+// FormatBadge — match format was only ever shown as plain text here, with
+// no color at all to distinguish T20/ODI/Test.
+const FORMAT_BADGE_STYLES: Record<string, { bg: string; color: string }> = {
+  T20:  { bg: 'rgba(59,130,246,0.1)', color: 'var(--accent)' },
+  ODI:  { bg: 'rgba(14,165,233,0.1)', color: '#0ea5e9' },
+  Test: { bg: 'rgba(245,158,11,0.1)', color: 'var(--score)' },
+}
+
+function FormatBadge({ format }: { format?: string | null }) {
+  if (!format) return null
+  const s = FORMAT_BADGE_STYLES[format] ?? { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold" style={{ background: s.bg, color: s.color }}>
+      {format}
+    </span>
+  )
+}
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 
@@ -286,12 +308,12 @@ function TeamChips({
 function SquadView({
   squad, playerMap, isMyTeam, onMoveUp, onMoveDown,
 }: {
-  squad: number[]; playerMap: Map<number, PickedPlayer>; isMyTeam: boolean
+  squad: (number | null)[]; playerMap: Map<number, PickedPlayer>; isMyTeam: boolean
   onMoveUp?: (i: number) => void; onMoveDown?: (i: number) => void
 }) {
   return (
     <div className="flex flex-col gap-1.5 px-3 py-3 overflow-y-auto flex-1" style={{ minHeight: 0 }}>
-      {Array.from({ length: 11 }).map((_, idx) => {
+      {Array.from({ length: SQUAD_SIZE }).map((_, idx) => {
         const pid = squad[idx] ?? null
         const p   = pid != null ? playerMap.get(pid) : null
         if (!p) {
@@ -351,6 +373,7 @@ function PickPanel({
   const [loading, setLoading]           = useState(false)
   const debounceRef                     = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef                        = useRef<HTMLInputElement>(null)
+  const viewportHeight                  = useVisualViewportHeight()
 
   const hasQuery  = query.trim().length > 0
   const hasFilter = roles.length > 0 || countryIds.length > 0 || battingStyles.length > 0 || bowlingStyles.length > 0
@@ -360,6 +383,21 @@ function PickPanel({
   // instead of a dedicated "keepers only" toggle.
   useEffect(() => { if (needsKeeper && isMyTurn) setRoles(['Keeper']) }, [needsKeeper, isMyTurn])
   useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 100) }, [open])
+
+  // This component never unmounts (the parent always renders it, gated by
+  // `open`) — so search/filter state naturally survives opening and closing
+  // the panel, which is exactly what we want while just browsing during
+  // someone else's turn. Only reset it on an actual draft pick, not on close
+  // in general.
+  function selectPlayer(id: number) {
+    onPick(id)
+    onClose()
+    setQuery('')
+    setRoles([])
+    setCountryIds([])
+    setBattingStyles([])
+    setBowlingStyles([])
+  }
 
   useEffect(() => {
     import('@/api/client').then(({ api }) =>
@@ -383,11 +421,15 @@ function PickPanel({
   if (!open) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center"
-      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+    <div className="fixed top-0 left-0 right-0 z-50 flex flex-col justify-end md:items-center md:justify-center"
+      style={{ height: viewportHeight ?? '100dvh', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="w-full md:max-w-md rounded-t-2xl md:rounded-2xl flex flex-col overflow-hidden fade-in"
-        style={{ background: 'var(--surface)', border: '1px solid var(--border)', maxHeight: '85vh', boxShadow: '0 -8px 32px rgba(0,0,0,0.4)' }}>
+        style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          maxHeight: viewportHeight ? viewportHeight * 0.85 : '85dvh',
+          boxShadow: '0 -8px 32px rgba(0,0,0,0.4)',
+        }}>
 
         {/* Handle bar (mobile) */}
         <div className="flex justify-center pt-3 pb-1 md:hidden">
@@ -469,8 +511,8 @@ function PickPanel({
             const drafted = draftedIds.has(p.player_id)
             return (
               <button key={p.player_id}
-                onClick={() => { if (!drafted && isMyTurn) { onPick(p.player_id); onClose() } }}
-                disabled={drafted || !isMyTurn}
+                onClick={() => { if (!drafted && isMyTurn) selectPlayer(p.player_id) }}
+                aria-disabled={drafted || !isMyTurn}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-xl w-full text-left transition-all"
                 style={{ opacity: drafted ? 0.38 : 1, cursor: drafted || !isMyTurn ? 'not-allowed' : 'pointer' }}
                 onMouseEnter={e => { if (!drafted && isMyTurn) (e.currentTarget as HTMLElement).style.background = 'var(--accent-tint)' }}
@@ -527,7 +569,7 @@ function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady,
           <div className="text-xs font-medium tracking-widest uppercase mb-2" style={{ color: 'var(--accent)' }}>Waiting Room</div>
           <h2 className="text-2xl font-bold mb-1" style={{ color: 'var(--text)' }}>{room.tournament_name}</h2>
           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-            {isTournament ? 'Tournament' : '1 vs 1 Match'} · {room.match_format ?? 'T20'} · {room.members.length}/{room.player_count} joined
+            {isTournament ? 'Tournament' : '1 vs 1 Match'} · <FormatBadge format={room.match_format ?? 'T20'} /> · {room.members.length}/{room.player_count} joined
           </p>
         </div>
 
@@ -545,7 +587,7 @@ function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady,
               style={{ background: 'var(--surface-2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
               {shareUrl}
             </div>
-            <CopyButton text={shareUrl}/>
+            <ShareButton text={`Join my ${room.tournament_name} room on CricSim!`} url={shareUrl} />
           </div>
         </div>
 
@@ -595,9 +637,12 @@ function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady,
           disabled={myReady}
           className="w-full py-2.5 rounded-xl font-medium text-sm mb-2 flex items-center justify-center gap-2 transition-all"
           style={{
-            background: myReady ? 'var(--accent-tint)' : 'var(--surface-2)',
+            // Was mixing a gold-tinted (--accent-tint) background with green
+            // (--win) text/border — read as a muddy olive/brown. Use a green
+            // tint to match, same as the reorder-phase ready state below.
+            background: myReady ? 'rgba(34,197,94,0.12)' : 'var(--surface-2)',
             color: myReady ? 'var(--win)' : 'var(--text)',
-            border: `1px solid ${myReady ? 'var(--win)' : 'var(--border)'}`,
+            border: `1px solid ${myReady ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`,
             cursor: myReady ? 'default' : 'pointer',
           }}
         >
@@ -677,7 +722,11 @@ export function DraftPage() {
 
   // Draft state
   const [playerMap, setPlayerMap]     = useState<Map<number, PickedPlayer>>(new Map())
-  const [mySquadOrder, setMySquadOrder] = useState<number[]>([])
+  // Display/lineup order — SQUAD_SIZE slots, null where a pick hasn't landed
+  // yet. Distinct from each member's `squad` (pick order, turn-tracking only,
+  // read straight off `room` where needed) so a drafted player can be moved
+  // past not-yet-picked slots to reserve a later batting position.
+  const [myBattingOrder, setMyBattingOrder] = useState<(number | null)[]>(Array(SQUAD_SIZE).fill(null))
 
   // UI state
   const [viewingId, setViewingId]       = useState<string>(clientId)
@@ -708,7 +757,7 @@ export function DraftPage() {
         const data = msg.data as FullRoomState & { player_details?: PickedPlayer[] }
         setRoom(data)
         const me = data.members.find(m => m.client_id === clientId)
-        if (me) setMySquadOrder(me.squad)
+        if (me) setMyBattingOrder(me.batting_order)
         if (data.ready_members) setReadyMembers(data.ready_members)
         if (data.player_details?.length) {
           setPlayerMap(prev => {
@@ -741,7 +790,7 @@ export function DraftPage() {
         setReadyMembers(data.ready_members ?? [])
         setMyReady(false)
         const me = data.members.find(m => m.client_id === clientId)
-        if (me) setMySquadOrder(me.squad)
+        if (me) setMyBattingOrder(me.batting_order)
         break
       }
       case 'pick_made': {
@@ -752,7 +801,7 @@ export function DraftPage() {
         addToPlayerMap(data.player)
         setRoom(data.room)
         const me = data.room.members.find(m => m.client_id === clientId)
-        if (me) setMySquadOrder(me.squad)
+        if (me) setMyBattingOrder(me.batting_order)
         // Show pick notification for everyone
         const picker = data.room.members.find(m => m.client_id === data.picker)
         if (picker) {
@@ -766,11 +815,11 @@ export function DraftPage() {
         break
       }
       case 'squad_reordered': {
-        const { client_id, squad } = msg.data as { client_id: string; squad: number[] }
+        const { client_id, batting_order } = msg.data as { client_id: string; batting_order: (number | null)[] }
         setRoom(prev => prev ? {
-          ...prev, members: prev.members.map(m => m.client_id === client_id ? { ...m, squad } : m),
+          ...prev, members: prev.members.map(m => m.client_id === client_id ? { ...m, batting_order } : m),
         } : prev)
-        if (client_id === clientId) setMySquadOrder(squad)
+        if (client_id === clientId) setMyBattingOrder(batting_order)
         break
       }
       case 'timer_tick': {
@@ -911,17 +960,22 @@ export function DraftPage() {
 
   function handleStartDraft() { setStarting(true); sendWs({ type: 'start_draft' }); setTimeout(() => setStarting(false), 5000) }
   function handlePick(id: number) { sendWs({ type: 'pick_player', player_id: id }) }
-  function handleReorder(order: number[]) { setMySquadOrder(order); sendWs({ type: 'reorder_squad', order }) }
-  function moveUp(idx: number) { if (idx === 0) return; const n = [...mySquadOrder]; [n[idx-1],n[idx]]=[n[idx],n[idx-1]]; handleReorder(n) }
-  function moveDown(idx: number) { if (idx >= mySquadOrder.length-1) return; const n = [...mySquadOrder]; [n[idx],n[idx+1]]=[n[idx+1],n[idx]]; handleReorder(n) }
+  // order is always SQUAD_SIZE slots (with nulls for open ones) — moving a
+  // drafted player past an open slot reserves that position for whichever
+  // pick lands in it next, instead of only being able to reorder among
+  // players already drafted.
+  function handleReorder(order: (number | null)[]) { setMyBattingOrder(order); sendWs({ type: 'reorder_squad', order }) }
+  function moveUp(idx: number) { if (idx === 0) return; const n = [...myBattingOrder]; [n[idx-1],n[idx]]=[n[idx],n[idx-1]]; handleReorder(n) }
+  function moveDown(idx: number) { if (idx >= myBattingOrder.length-1) return; const n = [...myBattingOrder]; [n[idx],n[idx+1]]=[n[idx+1],n[idx]]; handleReorder(n) }
   function handleReady() { setMyReady(true); sendWs({ type: 'player_ready' }) }
   function handleKick(targetId: string) { sendWs({ type: 'kick_player', client_id: targetId }) }
 
   // Derived
   const isMyTurn   = !!room && room.current_picker === clientId && room.status === 'drafting'
   const draftedIds = new Set(room?.members.flatMap(m => m.squad) ?? [])
-  const hasKeeper  = mySquadOrder.some(id => playerMap.get(id)?.is_keeper)
-  const needsKeeper = isMyTurn && !hasKeeper && (11 - mySquadOrder.length) === 1
+  const mySquad     = room?.members.find(m => m.client_id === clientId)?.squad ?? []
+  const hasKeeper  = mySquad.some(id => playerMap.get(id)?.is_keeper)
+  const needsKeeper = isMyTurn && !hasKeeper && (SQUAD_SIZE - mySquad.length) === 1
 
   // Map player_id → team name of who drafted them
   const pickedByName = useMemo(() => {
@@ -936,7 +990,7 @@ export function DraftPage() {
   }, [room])
 
   const viewedMember  = room?.members.find(m => m.client_id === viewingId) ?? null
-  const viewedSquad   = viewingId === clientId ? mySquadOrder : (viewedMember?.squad ?? [])
+  const viewedSquad   = viewingId === clientId ? myBattingOrder : (viewedMember?.batting_order ?? [])
   const isViewingMyTeam = viewingId === clientId
 
   // ── Dead state ────────────────────────────────────────────────────────────────
@@ -1022,7 +1076,7 @@ export function DraftPage() {
       <>
         {toast && <Toast message={toast} onDone={() => setToast(null)} />}
 
-        <div className="flex flex-col" style={{ height: '100vh', background: 'var(--bg)' }}>
+        <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--bg)' }}>
           {/* Header */}
           <div className="flex-shrink-0 px-4 py-3 flex items-center justify-between"
             style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
@@ -1082,15 +1136,17 @@ export function DraftPage() {
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
       {pickNotif && <PickNotification notif={pickNotif} onDone={() => setPickNotif(null)} />}
 
-      {/* Reconnecting banner */}
-      {connStatus === 'reconnecting' && (
-        <div className="text-xs text-center px-4 py-2 font-medium" style={{ background: 'rgba(245,158,11,0.12)', color: 'var(--score)' }}>
-          <span className="spin inline-block w-3 h-3 rounded-full border-2 mr-2 align-middle" style={{ borderColor: 'rgba(245,158,11,0.3)', borderTopColor: 'var(--score)' }} />
-          Reconnecting…
-        </div>
-      )}
+      <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--bg)' }}>
 
-      <div className="flex flex-col" style={{ height: '100vh', background: 'var(--bg)' }}>
+        {/* Reconnecting banner — inside the height-constrained flex column
+            (not a sibling above it) so it shrinks the scrollable area
+            instead of pushing the bottom pick button off-screen. */}
+        {connStatus === 'reconnecting' && (
+          <div className="flex-shrink-0 text-xs text-center px-4 py-2 font-medium" style={{ background: 'rgba(245,158,11,0.12)', color: 'var(--score)' }}>
+            <span className="spin inline-block w-3 h-3 rounded-full border-2 mr-2 align-middle" style={{ borderColor: 'rgba(245,158,11,0.3)', borderTopColor: 'var(--score)' }} />
+            Reconnecting…
+          </div>
+        )}
 
         {/* Sticky header */}
         <div className="flex-shrink-0 px-4 py-3 flex items-center justify-between"
@@ -1098,7 +1154,7 @@ export function DraftPage() {
           <div>
             <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{room.tournament_name}</div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Pick {room.picks_made}/{room.total_picks} · {room.mode === '1v1' ? '1v1' : 'Tournament'} · {room.match_format ?? 'T20'}
+              Pick {room.picks_made}/{room.total_picks} · {room.mode === '1v1' ? '1v1' : 'Tournament'} · <FormatBadge format={room.match_format ?? 'T20'} />
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1125,11 +1181,11 @@ export function DraftPage() {
         <TeamChips room={room} clientId={clientId} viewingId={viewingId} onSelect={setViewingId} />
 
         {/* Keeper warning (my team only) — from the 6th pick onwards, not just once overdue */}
-        {isViewingMyTeam && !hasKeeper && mySquadOrder.length >= 5 && (
+        {isViewingMyTeam && !hasKeeper && mySquad.length >= 5 && (
           <div className="flex-shrink-0 mx-3 mt-2 px-3 py-2 rounded-lg text-xs flex items-center gap-2"
             style={{ background: 'rgba(245,158,11,0.08)', color: 'var(--score)', border: '1px solid rgba(245,158,11,0.2)' }}>
             <AlertTriangle size={12} />
-            {11 - mySquadOrder.length === 1 && isMyTurn
+            {11 - mySquad.length === 1 && isMyTurn
               ? 'Last pick — must choose a keeper!'
               : "No keeper yet — don't forget one"}
           </div>

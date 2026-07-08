@@ -7,6 +7,7 @@ import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import { SquadEditor } from '@/components/SquadEditor'
+import { sortTournamentNames } from '@/lib/sortTournamentNames'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistoryTeamBest } from '@/types'
 
 
@@ -155,7 +156,7 @@ export function ChallengeModePage() {
     acc[t.name].push(t)
     return acc
   }, {})
-  const uniqueNames = Object.keys(grouped).sort()
+  const uniqueNames = sortTournamentNames(Object.keys(grouped))
 
   function pickName(name: string) {
     setSelectedName(name)
@@ -495,7 +496,7 @@ export function ChallengeModePage() {
                   ✈ Too many overseas players ({selectedTournament?.overseas_limit} max). Trade in a local player to continue.
                 </div>
               )}
-              <div className="mt-4">
+              <div className="mt-4 sticky bottom-0 -mx-4 px-4 py-3" style={{ background: 'var(--bg)', borderTop: '1px solid var(--border)' }}>
                 <button
                   className="btn-accent w-full py-3 text-base"
                   style={{ background: (!hasKeeper || !overseasValid) ? undefined : 'var(--score)', color: 'var(--bg)', opacity: (!hasKeeper || !overseasValid) ? 0.45 : 1, cursor: (!hasKeeper || !overseasValid) ? 'not-allowed' : undefined }}

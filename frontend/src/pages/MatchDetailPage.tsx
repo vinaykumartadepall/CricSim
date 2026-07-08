@@ -132,6 +132,16 @@ function ballColor(sym: string): string {
   return 'var(--text-muted)'
 }
 
+// Row-highlight backgrounds for the ball-by-ball commentary list — built
+// from the app's own theme variables (color-mix against var(--loss) etc.,
+// same pattern as --accent-tint) so they adapt per-theme instead of being
+// fixed rgba literals that only happen to look right in one theme. Six gets
+// the strongest highlight (--accent-tint), four a lighter one off --score,
+// matching the text colors ballColor() already uses for each symbol.
+const WICKET_ROW_BG = 'color-mix(in srgb, var(--loss) 7%, transparent)'
+const SIX_ROW_BG    = 'var(--accent-tint)'
+const FOUR_ROW_BG   = 'color-mix(in srgb, var(--score) 6%, transparent)'
+
 // ── Per-over snapshot ─────────────────────────────────────────────────────────
 
 interface BatterStat { name: string; runs: number; balls: number }
@@ -370,7 +380,7 @@ function OverSummaryCard({ snap, ctx, isFinalOver }: {
       <div className="flex items-stretch" style={{ borderBottom: hasBatterPanel || statusLine ? '1px solid var(--border)' : undefined }}>
         <div className="flex flex-col justify-center px-3 py-2 shrink-0" style={{ minWidth: 100, borderRight: '1px solid var(--border)' }}>
           <span className="text-xs font-bold" style={{ color: 'var(--text)' }}>Over {overNum + 1}</span>
-          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{cumulativeScore.runs}-{cumulativeScore.wickets}</span>
+          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{cumulativeScore.runs}/{cumulativeScore.wickets}</span>
         </div>
         <div className="flex-1 flex flex-col items-end px-3 py-2 gap-1">
           <div className="flex gap-1 flex-wrap justify-end">
@@ -1076,7 +1086,12 @@ export function MatchDetailPage() {
                                 const ws = ball.is_wicket ? wicketStats.get(ball) : undefined
                                 return (
                                   <div key={i} className="flex gap-3 px-3 py-1.5 rounded-md"
-                                    style={{ background: ball.is_wicket ? 'rgba(239,68,68,0.07)' : ball.runs_batter === 6 ? 'rgba(245,158,11,0.06)' : 'transparent' }}>
+                                    style={{
+                                      background: ball.is_wicket ? WICKET_ROW_BG
+                                        : ball.runs_batter === 6 ? SIX_ROW_BG
+                                        : ball.runs_batter === 4 ? FOUR_ROW_BG
+                                        : 'transparent',
+                                    }}>
                                     <span className="shrink-0 text-xs font-mono font-semibold pt-0.5"
                                       style={{ color: ball.is_wicket ? 'var(--loss)' : ball.runs_batter >= 4 ? 'var(--score)' : 'var(--accent)', minWidth: 32 }}>
                                       {ball.over_ball}

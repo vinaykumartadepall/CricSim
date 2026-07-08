@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 import json as _json
 
 from api.job_queue import job_queue
-from api.multiplayer.manager import SQUAD_SIZE, RoomState, draft_manager, _snake_sequence
+from api.multiplayer.manager import HOST_RECONNECT_GRACE_S, SQUAD_SIZE, RoomState, draft_manager, _snake_sequence
 from db.database import get_db_connection
 from simulator.logger import get_logger
 
@@ -225,13 +225,28 @@ async def room_ws(ws: WebSocket, room_id: str, client_id: str = Query(...)):
         pass
     finally:
         draft_manager.disconnect(room, client_id)
-        # Transfer host to next player if host leaves during waiting
-        if room.status == "waiting":
-            draft_manager.transfer_host(room, client_id)
         await draft_manager.broadcast(room, {"type": "member_disconnected", "data": {"client_id": client_id}})
-        # During waiting, push full room_state so member list and host badge refresh
+        # During waiting, push full room_state so the member list's
+        # connected/disconnected dot refreshes immediately.
         if room.status == "waiting":
             await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
+        # Host leaving is very often just a page reload (same client_id
+        # reconnects within a couple seconds) — wait out a grace period
+        # before actually handing host to someone else, instead of
+        # transferring instantly on every disconnect.
+        if room.status == "waiting" and client_id == room.host_id:
+            asyncio.create_task(_transfer_host_after_grace_period(room, client_id))
+
+
+async def _transfer_host_after_grace_period(room: RoomState, client_id: str) -> None:
+    await asyncio.sleep(HOST_RECONNECT_GRACE_S)
+    if room.status != "waiting" or room.host_id != client_id:
+        return  # already resolved (transferred some other way, draft started, etc.)
+    member = room.members.get(client_id)
+    if member is not None and member.ws is not None:
+        return  # reconnected within the grace period — nothing to do
+    if draft_manager.transfer_host(room, client_id):
+        await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
 
 
 # ── message handler ────────────────────────────────────────────────────────────
@@ -291,7 +306,7 @@ async def _handle_message(room: RoomState, client_id: str, ws: WebSocket, msg: d
             return
         await draft_manager.broadcast(room, {
             "type": "squad_reordered",
-            "data": {"client_id": client_id, "squad": order},
+            "data": {"client_id": client_id, "batting_order": order},
         })
 
     elif t == "player_ready":
@@ -499,9 +514,16 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
     members = sorted(room.members.values(), key=lambda m: m.draft_order)
 
     def _team_cfg(member) -> dict:
+        # batting_order reflects any reordering the player did (including
+        # moving a pick past an already-filled gap) — squad is pick order
+        # only and never touched by reorder_squad. Defensive fallback to
+        # squad if batting_order is somehow short/still has gaps (shouldn't
+        # happen once the draft is actually complete).
+        lineup = [pid for pid in member.batting_order if pid is not None]
+        players = lineup if set(lineup) == set(member.squad) else member.squad
         return {
             "name": member.display_name,
-            "players": member.squad,
+            "players": players,
             "primary_color": "#1a1a2e",
             "secondary_color": "#16213e",
         }
@@ -548,6 +570,13 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
             config = {
                 "simulation_type": "tournament",
                 "tournament_name": room.tournament_name,
+                # No real historical season backs a multiplayer tournament
+                # (teams are freely drafted, not seeded from one) — leaving
+                # this out would default to '2025' (TournamentConfig.from_dict),
+                # which then got displayed appended to a name that already
+                # has the creation year baked in via MultiplayerLobbyPage's
+                # randomName(), e.g. "Mighty Championship 2026 2025".
+                "season": "",
                 "format": fmt,
                 "gender": "male",
                 "teams": teams,
@@ -697,7 +726,13 @@ def _restore_room_from_db(room_id: str) -> "RoomState | None":
         )
         for cid, dname, draft_order, squad_raw in members_rows:
             squad = squad_raw if isinstance(squad_raw, list) else (_json.loads(squad_raw) if squad_raw else [])
-            room.members[cid] = Member(client_id=cid, display_name=dname, draft_order=draft_order or 0, squad=squad)
+            # batting_order isn't persisted (only squad is) — any manual
+            # reorder is lost across a server restart mid-draft, but the
+            # already-drafted picks themselves must still show up, so seed
+            # it from squad rather than leaving it all-None.
+            batting_order = list(squad) + [None] * (SQUAD_SIZE - len(squad))
+            room.members[cid] = Member(client_id=cid, display_name=dname, draft_order=draft_order or 0,
+                                        squad=squad, batting_order=batting_order)
 
         if status in ("drafting", "reordering"):
             ordered = sorted(room.members.keys(), key=lambda c: room.members[c].draft_order)

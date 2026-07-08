@@ -88,9 +88,10 @@ export function FilterDropdown({
         style={{
           padding: '7px 10px',
           fontSize: 12,
-          background: 'var(--surface-2)',
-          border: `1px solid ${open ? 'var(--accent)' : 'var(--border)'}`,
-          color: values.length > 0 ? 'var(--text)' : 'var(--text-muted)',
+          background: values.length > 0 ? 'var(--accent-tint)' : 'var(--surface-2)',
+          border: `1px solid ${open || values.length > 0 ? 'var(--accent)' : 'var(--border)'}`,
+          color: values.length > 0 ? 'var(--accent)' : 'var(--text-muted)',
+          fontWeight: values.length > 0 ? 600 : 400,
           cursor: disabled ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.6 : 1,
         }}
@@ -98,7 +99,7 @@ export function FilterDropdown({
         <span className="truncate">{triggerText}</span>
         <ChevronDown
           size={12}
-          style={{ color: 'var(--text-dim)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}
+          style={{ color: values.length > 0 ? 'var(--accent)' : 'var(--text-dim)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}
         />
       </button>
 

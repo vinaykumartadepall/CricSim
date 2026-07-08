@@ -8,6 +8,8 @@ import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import { FilterDropdown } from '@/components/ui/FilterDropdown'
+import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
+import { sortTournamentNames } from '@/lib/sortTournamentNames'
 import type { Tournament, Team, Player, MultiplayerPlayer, PlayerFilterOptions } from '@/types'
 
 type Step = 'tournament' | 'season' | 'team' | 'draft' | 'confirm'
@@ -154,6 +156,7 @@ function PickPanel({
   const [searchResults, setSearchResults] = useState<Player[]>([])
   const [searching, setSearching] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const viewportHeight = useVisualViewportHeight()
 
   const [roles, setRoles] = useState<string[]>([])
   const [countryIds, setCountryIds] = useState<number[]>([])
@@ -229,7 +232,7 @@ function PickPanel({
     return (
       <button key={p.player_id}
         onClick={() => { if (!isDisabled) { onPick(p); onClose() } }}
-        disabled={isDisabled}
+        aria-disabled={isDisabled}
         className="flex items-center gap-3 px-3 py-2.5 rounded-xl w-full text-left transition-all"
         style={{ opacity: isDisabled ? 0.38 : 1, cursor: isDisabled ? 'not-allowed' : 'pointer' }}
         onMouseEnter={e => { if (!isDisabled) (e.currentTarget as HTMLElement).style.background = 'rgba(168,85,247,0.07)' }}
@@ -270,11 +273,15 @@ function PickPanel({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col justify-end md:items-center md:justify-center"
-      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+    <div className="fixed top-0 left-0 right-0 z-50 flex flex-col justify-end md:items-center md:justify-center"
+      style={{ height: viewportHeight ?? '100dvh', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="w-full md:max-w-md rounded-t-2xl md:rounded-2xl flex flex-col overflow-hidden fade-in"
-        style={{ background: 'var(--surface)', border: '1px solid var(--border)', maxHeight: '85vh', boxShadow: '0 -8px 32px rgba(0,0,0,0.4)' }}>
+        style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          maxHeight: viewportHeight ? viewportHeight * 0.85 : '85dvh',
+          boxShadow: '0 -8px 32px rgba(0,0,0,0.4)',
+        }}>
 
         <div className="flex justify-center pt-3 pb-1 md:hidden">
           <div className="w-10 h-1 rounded-full" style={{ background: 'var(--border)' }} />
@@ -447,7 +454,7 @@ export function CustomModePage() {
     acc[t.name].push(t)
     return acc
   }, {}), [tournaments])
-  const uniqueNames = Object.keys(grouped).sort()
+  const uniqueNames = sortTournamentNames(Object.keys(grouped))
 
   function selectTournamentName(name: string) {
     setTournamentName(name)
@@ -533,7 +540,7 @@ export function CustomModePage() {
   if (step === 'draft' && selectedTeam) {
     return (
       <>
-        <div className="flex flex-col" style={{ height: 'calc(100vh - 60px)', background: 'var(--bg)' }}>
+        <div className="flex flex-col" style={{ height: 'calc(100dvh - 60px)', background: 'var(--bg)' }}>
           {/* Header */}
           <div className="flex-shrink-0 px-4 py-3 flex items-center justify-between"
             style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
@@ -725,13 +732,13 @@ export function CustomModePage() {
           {loadingTeams ? (
             <div className="flex justify-center py-8"><Spinner /></div>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {allTeams.map(team => (
                 <button key={team.team_id} onClick={() => selectTeam(team)}
                   className="card-sm px-3 py-3 cursor-pointer text-left transition-all"
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = '#a855f7'}
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}>
-                  <div className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{team.team_name}</div>
+                  <div className="text-sm font-medium leading-snug" style={{ color: 'var(--text)' }}>{team.team_name}</div>
                 </button>
               ))}
             </div>

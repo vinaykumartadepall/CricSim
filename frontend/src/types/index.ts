@@ -294,7 +294,8 @@ export interface RoomMember {
   display_name: string
   team_name: string
   draft_order: number
-  squad: number[]
+  squad: number[]                    // player_ids in pick order — turn-tracking only
+  batting_order: (number | null)[]   // SQUAD_SIZE slots, null where a pick hasn't landed yet — display/lineup order
   connected: boolean
 }
 
