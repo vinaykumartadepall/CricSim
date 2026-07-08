@@ -112,6 +112,7 @@ export function FilterDropdown({
             <div className="p-1.5" style={{ borderBottom: '1px solid var(--border)' }}>
               <input
                 autoFocus
+                type="search" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search…"

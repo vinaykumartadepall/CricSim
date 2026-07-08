@@ -338,6 +338,7 @@ export function ChallengeModePage() {
               className="input"
               style={{ paddingLeft: '2rem' }}
               placeholder="Search tournaments…"
+              type="search" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
               value={search}
               onChange={e => setSearch(e.target.value)}
             />

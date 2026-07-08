@@ -461,6 +461,7 @@ function PickPanel({
         {/* Search bar + filters */}
         <div className="px-4 py-3 flex-shrink-0 flex flex-col gap-2">
           <input ref={inputRef} className="input w-full" placeholder="Search players…"
+            type="search" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
             value={query} onChange={e => setQuery(e.target.value)} />
           <div className="grid grid-cols-2 gap-2">
             <FilterDropdown

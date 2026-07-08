@@ -305,6 +305,7 @@ export function FunModePage() {
           <input
             className="input mb-4"
             placeholder="Search tournaments…"
+            type="search" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
             value={search}
             onChange={e => setSearch(e.target.value)}
           />

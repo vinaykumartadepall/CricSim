@@ -397,6 +397,7 @@ function LeaderboardModal({
             style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
             <Search size={13} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />
             <input
+              type="search" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search player or team…"

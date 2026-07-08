@@ -305,6 +305,7 @@ function PickPanel({
               className="input w-full"
               style={{ paddingLeft: 34 }}
               placeholder="Search all players…"
+              type="search" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
               value={query}
               onChange={e => setQuery(e.target.value)}
               autoFocus
@@ -672,6 +673,7 @@ export function CustomModePage() {
           <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>Select tournament</div>
           <div className="text-sm mb-5" style={{ color: 'var(--text-muted)' }}>Choose a tournament to build your XI for</div>
           <input className="input mb-4" placeholder="Search tournaments…"
+            type="search" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
             value={search} onChange={e => setSearch(e.target.value)} />
           {loadingTournaments ? (
             <div className="flex justify-center py-8"><Spinner /></div>
