@@ -57,7 +57,7 @@ def search_players(
 
         cur.execute(
             f"""
-            SELECT p.player_id, p.display_name, p.player_role, p.batting_style, p.bowling_style,
+            SELECT p.player_id, COALESCE(p.display_name, p.name) AS display_name, p.player_role, p.batting_style, p.bowling_style,
                    p.cricinfo_id, p.player_role = 'Keeper' AS is_keeper, c.name AS country
             FROM history.players p
             LEFT JOIN history.countries c ON c.country_id = p.country_id
@@ -764,7 +764,7 @@ def _fetch_player_details(player_ids: list) -> list:
         return []
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute(
-        "SELECT player_id, display_name, player_role, cricinfo_id "
+        "SELECT player_id, COALESCE(display_name, name) AS display_name, player_role, cricinfo_id "
         "FROM history.players WHERE player_id = ANY(%s)",
         (player_ids,),
     )
@@ -919,7 +919,7 @@ def _load_all_player_ids() -> list:
 def _player_info(player_id: int) -> dict:
     conn = get_db_connection(); cur = conn.cursor()
     cur.execute(
-        "SELECT display_name, player_role, cricinfo_id FROM history.players WHERE player_id=%s",
+        "SELECT COALESCE(display_name, name) AS display_name, player_role, cricinfo_id FROM history.players WHERE player_id=%s",
         (player_id,),
     )
     row = cur.fetchone()
