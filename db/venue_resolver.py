@@ -1,8 +1,8 @@
 """
 Shared venue resolution logic used by:
-  - db/repository.py            — applied at venue INSERT time during ingestion
-  - db/populate_venue_countries.py — batch geocoding + override pass
-  - db/dedup_venues.py          — merges existing duplicate venue rows
+  - db/repository.py            - applied at venue INSERT time during ingestion
+  - db/populate_venue_countries.py - batch geocoding + override pass
+  - db/dedup_venues.py          - merges existing duplicate venue rows
 
 Two concerns are handled here:
 
@@ -14,9 +14,9 @@ Two concerns are handled here:
 
 2. Country resolution
    Three-tier lookup (most specific wins):
-     by_name_city    — exact case-insensitive name, optional city
-     by_name_pattern — city match + name substring
-     by_city         — exact city name
+     by_name_city    - exact case-insensitive name, optional city
+     by_name_pattern - city match + name substring
+     by_city         - exact city name
    Then west_indies_countries remaps WI member nations → "West Indies".
 """
 
@@ -57,7 +57,7 @@ def resolve_canonical(
     Otherwise return (name, city, None) unchanged.
 
     Matching is exact and case-insensitive on the name string.
-    The incoming city is ignored when checking alias membership — the alias list
+    The incoming city is ignored when checking alias membership - the alias list
     already encodes which name variants belong to the same ground.
     """
     name_lower = name.lower().strip()
@@ -85,14 +85,14 @@ def resolve_country(name: str, city: Optional[str], overrides: dict) -> Optional
     """
     Three-tier country lookup. Returns the raw country string or None.
 
-    Tier 1 — by_name_city (highest):
+    Tier 1 - by_name_city (highest):
       Exact case-insensitive name match; city must also match when specified in
       the entry.  City-less entries match any city.
 
-    Tier 2 — by_name_pattern:
+    Tier 2 - by_name_pattern:
       Both city (exact) and name_contains (substring) must match.
 
-    Tier 3 — by_city (lowest):
+    Tier 3 - by_city (lowest):
       Exact city string match.
     """
     name_lower = name.lower().strip()
@@ -134,7 +134,7 @@ def resolve_final_country(
 
     Priority:
       1. canonical_names[].country (if this name belongs to a canonical group
-         that specifies a country — avoids needing a duplicate by_name_city entry)
+         that specifies a country - avoids needing a duplicate by_name_city entry)
       2. by_name_city / by_name_pattern / by_city
       3. geocoded_country (Nominatim result, passed in from populate_venue_countries)
 

@@ -65,7 +65,7 @@ class LimitedOversEngine(BaseEngine):
         return inn1.batting_team.total_runs == inn2.batting_team.total_runs
 
     def _nrr_summary(self) -> dict:
-        """Per-team (runs, NRR-adjusted balls) for the two main-match innings —
+        """Per-team (runs, NRR-adjusted balls) for the two main-match innings -
         used for points-table/NRR, not the super over (which never counts toward it)."""
         max_balls = self.match.overs_per_innings * 6 if self.match.overs_per_innings else None
         summary = {}

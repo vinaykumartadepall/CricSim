@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
+import { SimulationTypeToggle } from '@/components/ui/SimulationTypeToggle'
 import { SquadEditor } from '@/components/SquadEditor'
 import { sortTournamentNames } from '@/lib/sortTournamentNames'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest } from '@/types'
@@ -38,7 +39,8 @@ const FUN_STEP_SLIDE: Partial<Record<Step, number>> = {
 
 export function FunModePage() {
   const navigate = useNavigate()
-  const location = useLocation()
+  const [searchParams] = useSearchParams()
+  const retrySimId = searchParams.get('retrySimId')
   const { clientId } = useAuth()
   const { openHelp } = useHelp()
 
@@ -72,32 +74,43 @@ export function FunModePage() {
       .catch(() => {/* non-critical */})
   }, [clientId])
 
-  // Try-again resume flow
+  // Try-again resume flow - driven by a URL query param (?retrySimId=) and a
+  // fresh fetch of that session, rather than router state carried in memory,
+  // so this also works when landing here from a historical sim (My
+  // Simulations) or after a reload of this very page, not just immediately
+  // after finishing a fresh run.
   useEffect(() => {
-    const s = location.state as any
-    if (!s?.tryAgain || !s?.tournamentId) return
-    setTournamentName(s.tournamentName ?? '')
-    setSelectedSeason({ tournament_id: s.tournamentId, name: s.tournamentName ?? '', season: s.season ?? '', team_count: 0, gender: '' })
-    setLoadingTeams(true)
-    api.getTournamentSquads(s.tournamentId)
-      .then(data => {
-        const teams = data.teams || []
-        setAllTeams(teams)
-        if (s.teamName) {
-          const team = teams.find((t: any) => t.team_name === s.teamName) ?? null
-          if (team) {
-            setSelectedTeam(team)
-            setBattingOrder(team.players.map((p: any) => p.player_id))
-            setStep('squad')
-          } else {
-            setStep('team')
-          }
-        } else {
-          setStep('team')
-        }
+    if (!retrySimId) return
+    api.getSimResult(retrySimId, clientId)
+      .then(result => {
+        if (!result?.source_tournament_id) return
+        setTournamentName(result.tournament_name ?? '')
+        setSelectedSeason({
+          tournament_id: result.source_tournament_id,
+          name: result.tournament_name ?? '',
+          season: result.season ?? '',
+          team_count: 0, gender: '',
+        })
+        setLoadingTeams(true)
+        return api.getTournamentSquads(result.source_tournament_id)
+          .then(data => {
+            const teams = data.teams || []
+            setAllTeams(teams)
+            const team = result.user_team_name
+              ? teams.find((t: any) => t.team_name === result.user_team_name) ?? null
+              : null
+            if (team) {
+              setSelectedTeam(team)
+              setBattingOrder(team.players.map((p: any) => p.player_id))
+              setSwaps(result.swaps ?? [])
+              setStep('squad')
+            } else {
+              setStep('team')
+            }
+          })
+          .finally(() => setLoadingTeams(false))
       })
-      .catch(() => setStep('team'))
-      .finally(() => setLoadingTeams(false))
+      .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -110,19 +123,18 @@ export function FunModePage() {
   }, [search])
 
   // The try-again resume flow above jumps straight to 'team'/'squad' without going
-  // through selectTournamentName(), so `seasons` is never populated — backing up
+  // through selectTournamentName(), so `seasons` is never populated - backing up
   // to the season step then shows an empty list. Fill it in once tournaments load,
   // but only if nothing has set it yet (normal selectTournamentName() calls always
   // take precedence once the user actually interacts with the flow).
   useEffect(() => {
-    const s = location.state as any
-    if (!s?.tryAgain || !s?.tournamentName || seasons.length > 0 || tournaments.length === 0) return
+    if (!retrySimId || !tournamentName || seasons.length > 0 || tournaments.length === 0) return
     const nameSeasons = tournaments
-      .filter(t => t.name === s.tournamentName)
+      .filter(t => t.name === tournamentName)
       .sort((a, b) => b.season.localeCompare(a.season))
     setSeasons(nameSeasons)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tournaments])
+  }, [tournaments, tournamentName])
 
   const grouped = tournaments.reduce<Record<string, Tournament[]>>((acc, t) => {
     if (!acc[t.name]) acc[t.name] = []
@@ -396,7 +408,7 @@ export function FunModePage() {
             {tournamentName} {selectedSeason?.season}
           </div>
           <div className="text-sm mb-5" style={{ color: 'var(--text-muted)' }}>
-            Pick a team to follow — or simulate all equally
+            Pick a team to follow - or simulate all equally
           </div>
           {loadingTeams ? (
             <div className="flex justify-center py-8"><Spinner /></div>
@@ -430,7 +442,7 @@ export function FunModePage() {
                 })}
               </div>
               <button onClick={skipTeam} className="btn-outline w-full text-sm">
-                No preference — simulate all teams
+                No preference - simulate all teams
               </button>
             </>
           )}
@@ -451,7 +463,6 @@ export function FunModePage() {
             squad={selectedTeam.players}
             allTeams={allTeams}
             userTeamId={selectedTeam.team_id}
-            maxSwaps={3}
             swaps={swaps}
             onSwapsChange={setSwaps}
             onOrderChange={setBattingOrder}
@@ -499,6 +510,10 @@ export function FunModePage() {
               />
             )}
             <Row label="Mode" value="Fun Mode" accent />
+          </div>
+
+          <div className="mb-6">
+            <SimulationTypeToggle />
           </div>
 
           {error && (

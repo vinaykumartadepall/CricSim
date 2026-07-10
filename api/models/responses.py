@@ -129,6 +129,7 @@ class ScorecardResponse(BaseModel):
     result_description: Optional[str]
     innings: List[InningScorecard]
     potm: Optional[PotmInfo] = None
+    room_id: Optional[str] = None
 
 
 # ── /commentary ────────────────────────────────────────────────────────────────

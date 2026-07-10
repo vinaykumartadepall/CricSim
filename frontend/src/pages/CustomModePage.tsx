@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
+import { SimulationTypeToggle } from '@/components/ui/SimulationTypeToggle'
 import { FilterDropdown } from '@/components/ui/FilterDropdown'
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import { sortTournamentNames } from '@/lib/sortTournamentNames'
@@ -299,7 +300,7 @@ function PickPanel({
             {/* paddingLeft as an inline style, not the pl-9 utility class: Tailwind
                 v4's utilities live in @layer, and .input's own unlayered padding
                 shorthand in index.css always wins over any layered utility
-                regardless of source order — pl-9 was silently never applying,
+                regardless of source order - pl-9 was silently never applying,
                 which is why the icon sat on top of the placeholder text. */}
             <input
               className="input w-full"
@@ -417,7 +418,7 @@ export function CustomModePage() {
 
   const overseasExceeded = !!(selectedSeason?.overseas_limit && overseasCount > selectedSeason.overseas_limit)
 
-  // Players already in other teams' seeded squads — player_id → team_name
+  // Players already in other teams' seeded squads - player_id → team_name
   const takenByTeam = useMemo(() => {
     const map = new Map<number, string>()
     for (const team of allTeams) {
@@ -602,13 +603,13 @@ export function CustomModePage() {
                 {!hasKeeper && (
                   <div className="mb-2 px-3 py-2 rounded-lg text-xs text-center"
                     style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
-                    No wicket-keeper in your squad — remove a player and add a keeper.
+                    No wicket-keeper in your squad - remove a player and add a keeper.
                   </div>
                 )}
                 {overseasExceeded && (
                   <div className="mb-2 px-3 py-2 rounded-lg text-xs text-center"
                     style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
-                    ✈ Too many overseas players ({selectedSeason?.overseas_limit} max) — remove one to continue.
+                    ✈ Too many overseas players ({selectedSeason?.overseas_limit} max) - remove one to continue.
                   </div>
                 )}
                 <button
@@ -729,7 +730,7 @@ export function CustomModePage() {
             {tournamentName} {selectedSeason?.season}
           </div>
           <div className="text-sm mb-5" style={{ color: 'var(--text-muted)' }}>
-            Pick a team — you'll build their XI from scratch
+            Pick a team - you'll build their XI from scratch
           </div>
           {loadingTeams ? (
             <div className="flex justify-center py-8"><Spinner /></div>
@@ -781,6 +782,10 @@ export function CustomModePage() {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="mb-6">
+            <SimulationTypeToggle />
           </div>
 
           {error && (

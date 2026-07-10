@@ -34,7 +34,7 @@ export function AuthModal() {
   }
 
   const handleGoogle = async () => {
-    if (!supabase) { setError('Auth not configured — add Supabase env vars.'); return }
+    if (!supabase) { setError('Auth not configured - add Supabase env vars.'); return }
     setLoading(true)
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',

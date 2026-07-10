@@ -2,7 +2,7 @@
 Tests for the MvpStrategy contract itself (simulator/awards/mvp_strategy.py).
 
 This is the extension point every future scoring algorithm (statistical
-awards today, something like win-probability-added later) must satisfy —
+awards today, something like win-probability-added later) must satisfy -
 one method, compute(match) -> List[PlayerAward]. Concrete rubric coverage
 lives in test_statistical_awards.py; this file only pins down the contract
 and proves it's genuinely swappable.
@@ -29,9 +29,9 @@ class TestPlayerAward:
 
 class TestMvpStrategyIsSwappable:
     def test_a_new_strategy_only_needs_to_implement_compute(self):
-        # Proves the extension point: a whole new scoring algorithm — with no
+        # Proves the extension point: a whole new scoring algorithm - with no
         # ball-by-ball hooks, no fixed batting/bowling/fielding categories,
-        # nothing shared with StatisticalAwardsStrategy — is just this.
+        # nothing shared with StatisticalAwardsStrategy - is just this.
         class FixedScoreStrategy(MvpStrategy):
             def compute(self, match):
                 return [PlayerAward(player_id=1, player_name="Solo", team="X", total=99.0)]
@@ -41,4 +41,4 @@ class TestMvpStrategyIsSwappable:
 
     def test_cannot_instantiate_without_implementing_compute(self):
         with pytest.raises(TypeError):
-            MvpStrategy()  # abstract — compute() has no default implementation
+            MvpStrategy()  # abstract - compute() has no default implementation

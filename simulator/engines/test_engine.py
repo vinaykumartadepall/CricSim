@@ -166,7 +166,7 @@ class TestMatchEngine(BaseEngine):
 
         if len(innings) == 4:
             # Equal totals / a reached target / an all-out dismissal all decide the match
-            # outright — even if the global 450-over cap is hit on the same ball. Only
+            # outright - even if the global 450-over cap is hit on the same ball. Only
             # fall back to a draw once none of those decisive conditions hold.
             batting_4th = innings[3].batting_team
             target_reached = bool(self.match.target_score) and batting_4th.total_runs >= self.match.target_score

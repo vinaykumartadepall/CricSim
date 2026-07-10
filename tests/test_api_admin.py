@@ -1,7 +1,7 @@
 """
 Tests for api/routes/admin.py using FastAPI's TestClient.
 
-No live DB connection required — these routes only touch in-process state
+No live DB connection required - these routes only touch in-process state
 (simulator.logger's level, db.stats_repository's cache strategy,
 simulator.admin_settings' simulation defaults), none of which need Postgres.
 """

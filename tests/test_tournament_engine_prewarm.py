@@ -6,10 +6,10 @@ Part of the venue-context fix: EnhancedStrategy's venue_cache/player_venue_cache
 /player_country_cache now refresh on every init_model call rather than only
 the first, but real matches only ever get a cache HIT if every distinct venue
 the tournament could use was already resolved before match 1. This is what
-_prewarm_strategies' venue loop is for — these tests verify it actually finds
+_prewarm_strategies' venue loop is for - these tests verify it actually finds
 and primes every distinct venue, not just the first one.
 
-No live DB connection required — StatsRepository is bypassed via conn=None,
+No live DB connection required - StatsRepository is bypassed via conn=None,
 resolve_venue is monkeypatched, and the two strategies are replaced with
 MagicMocks so we only assert on how _prewarm_strategies drives them.
 """
@@ -53,7 +53,7 @@ def _fake_resolve_venue(known_venues):
 
 def _make_engine(config) -> TournamentEngine:
     """_prewarm_strategies mutates and reuses a single warm_match object
-    across calls (matching production's real behavior — each real init_model
+    across calls (matching production's real behavior - each real init_model
     call reads match.venue synchronously before the next iteration mutates
     it again). A MagicMock just stores a reference to that object, so
     call_args_list would only ever show its FINAL state. Capture venue ids
@@ -108,7 +108,7 @@ class TestPrewarmVenuePriming:
 
     def test_bowling_strategy_is_not_primed_per_venue(self):
         """Bowling model has no precomputed venue-specific data at all (see
-        base.py's venue_over_freq_cache always being {}) — only the outcome
+        base.py's venue_over_freq_cache always being {}) - only the outcome
         strategy needs the per-venue priming loop."""
         config = _make_config(venues=["Wankhede Stadium", "Eden Gardens"])
         engine = _make_engine(config)

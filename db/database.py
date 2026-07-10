@@ -9,7 +9,7 @@ from simulator.logger import get_logger, is_level_active
 def _is_insert_query(query) -> bool:
     # psycopg2.extras.execute_batch (used by save_deliveries etc.) mogrifies each
     # row itself and passes the already-rendered, semicolon-joined batch to
-    # execute() as bytes, not str — str(some_bytes) gives "b'...'" in Python 3,
+    # execute() as bytes, not str - str(some_bytes) gives "b'...'" in Python 3,
     # which would never match "INSERT" and silently defeated this check.
     if isinstance(query, (bytes, bytearray)):
         try:
@@ -24,14 +24,14 @@ def make_query_logging_cursor(base_cursor_cls):
     Wrap a psycopg2 cursor class so every .execute() call logs the fully
     rendered SQL (query text with parameters substituted in) at DEBUG level.
 
-    DEBUG, not TRACE — TRACE is dominated by extremely high-volume per-ball/
+    DEBUG, not TRACE - TRACE is dominated by extremely high-volume per-ball/
     per-over strategy dumps (see simulator/logger.py's level table), which
     would drown out query visibility entirely if SQL logging shared that
     level. DEBUG is opt-in (not enabled by default like INFO) but doesn't
     carry that TRACE-level noise, so flipping to DEBUG gives clean query
     visibility on demand without it cluttering the default log output.
 
-    INSERTs are skipped entirely — bulk inserts (e.g. save_deliveries, writing
+    INSERTs are skipped entirely - bulk inserts (e.g. save_deliveries, writing
     every ball of a match in one statement) render via mogrify() with every
     row's literal values embedded, producing a single log line thousands of
     lines long. Confirmed in practice: one such INSERT consumed most of a
@@ -40,7 +40,7 @@ def make_query_logging_cursor(base_cursor_cls):
 
     The active sim_id/match_id (set via simulator.logger.log_context, e.g. in
     api/worker.py's run_match_job/run_tournament_job) is injected into the log
-    line automatically by the existing ContextFilter — callers never need to
+    line automatically by the existing ContextFilter - callers never need to
     pass it explicitly.
     """
     class _QueryLoggingCursor(base_cursor_cls):
@@ -58,7 +58,7 @@ def make_query_logging_cursor(base_cursor_cls):
 # Falls back to individual DB_* vars for local dev without a URL.
 _DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# Supabase DB — stores only the profiles table.
+# Supabase DB - stores only the profiles table.
 # Falls back to main connection if not set (e.g. local dev).
 _SUPABASE_DATABASE_URL = os.environ.get('SUPABASE_DATABASE_URL')
 

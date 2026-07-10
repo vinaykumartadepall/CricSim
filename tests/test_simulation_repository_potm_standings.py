@@ -1,8 +1,8 @@
 """
-Unit tests for SimulationRepository.save_match_potm / save_final_standings —
+Unit tests for SimulationRepository.save_match_potm / save_final_standings -
 the persistence half of moving POTM and NRR/points-table off of recomputed-
 on-every-request logic and onto values the live simulation already computed
-once, correctly. No live DB connection — cursor is mocked per this project's
+once, correctly. No live DB connection - cursor is mocked per this project's
 convention (see tests/test_simulation_repository_sim_history.py).
 """
 from types import SimpleNamespace
@@ -43,7 +43,7 @@ class TestSavePlayerAwards:
     """
     save_player_awards reads batting_pts/bowling_pts/fielding_pts out of each
     PlayerAward.breakdown by convention (that's what StatisticalAwardsStrategy
-    reports) rather than off fixed attributes — this pins that contract down
+    reports) rather than off fixed attributes - this pins that contract down
     so a future MvpStrategy's differently-shaped breakdown doesn't silently
     break persistence (it'll just persist zeros for the categories it doesn't
     report, per simulator/awards/mvp_strategy.py's documented convention).
@@ -95,5 +95,5 @@ class TestSaveFinalStandings:
         assert "UPDATE simulation.tournaments" in query
         assert "final_standings" in query
         assert params[1] == "sim-1"
-        # psycopg2.extras.Json wraps the payload — check it round-trips the data, not the wrapper type.
+        # psycopg2.extras.Json wraps the payload - check it round-trips the data, not the wrapper type.
         assert params[0].adapted == standings

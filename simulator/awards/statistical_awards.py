@@ -1,29 +1,29 @@
 """
-Statistical Awards — the default MVP scoring rubric.
+Statistical Awards - the default MVP scoring rubric.
 
 Scores every ball against a fixed, per-format point table. Point values are
 looked up once per match (via _rules_for, which routes through
 MatchRules.get_unified_format so format aliases like 'MDM'/'IT20' resolve
 correctly) and handed to a private per-player accumulator (_PlayerTally) that
 does the actual ball-by-ball bookkeeping. Nothing outside this module ever
-sees _PlayerTally or MvpPointsRules — the only thing StatisticalAwardsStrategy
+sees _PlayerTally or MvpPointsRules - the only thing StatisticalAwardsStrategy
 exposes is compute(match) -> List[PlayerAward], per the MvpStrategy contract.
 
-  Batting (points differ by format — see _RULES)
+  Batting (points differ by format - see _RULES)
     Run                base points, every run scored
     Boundary bonus      extra, on top of run points, for a four
     Six bonus            extra, on top of run points, for a six
-    Milestone bonuses    30/50/100/150/200 runs — stack within an innings,
+    Milestone bonuses    30/50/100/150/200 runs - stack within an innings,
                           reset at the start of each new innings
 
   Bowling
     Wicket (credited)    base points per dismissal
     Bowled/LBW bonus     extra, only for those two dismissal types
     Maiden over          per maiden (6 legal balls, 0 runs conceded)
-    Wicket-haul bonuses  3/4/5 wickets — stack within an innings, reset per innings
+    Wicket-haul bonuses  3/4/5 wickets - stack within an innings, reset per innings
     Dot ball              per scoreless legal delivery
     Ten-wicket match     10+ wickets across the whole match (both Test
-                          innings combined) — a no-op for T20/ODI (0 pts)
+                          innings combined) - a no-op for T20/ODI (0 pts)
 
   Fielding (event-based, from wicket deliveries)
     Catch                 per catch, plus a one-time bonus at 3 catches (match-total)
@@ -70,7 +70,7 @@ class MvpPointsRules:
 
 
 class StatisticalAwardsStrategy(MvpStrategy):
-    """The default MVP rubric — a fixed, per-format point table."""
+    """The default MVP rubric - a fixed, per-format point table."""
 
     _RULES: Dict[str, MvpPointsRules] = {
         'T20': MvpPointsRules(
@@ -138,7 +138,7 @@ class StatisticalAwardsStrategy(MvpStrategy):
                 bt.on_batting_ball(inn_num, rb, wkt, et)
                 bw.on_bowling_ball(inn_num, rb, rx, et, wkt, wkind)
 
-            # Over-end events for bowlers (maiden bonus) — call once per over
+            # Over-end events for bowlers (maiden bonus) - call once per over
             # so _PlayerTally.on_over_end_bowler checks its own
             # internally-tracked over totals (built up ball-by-ball above),
             # rather than reconstructing a second copy of the same accounting.
@@ -202,7 +202,7 @@ class StatisticalAwardsStrategy(MvpStrategy):
 class _PlayerTally:
     """
     Internal per-player, per-match ball-by-ball accumulator. Private to
-    StatisticalAwardsStrategy — nothing outside this module constructs or
+    StatisticalAwardsStrategy - nothing outside this module constructs or
     reads one directly; compute() converts these into PlayerAward objects
     before returning.
     """
@@ -215,7 +215,7 @@ class _PlayerTally:
     bowling_pts: float = 0.0
     fielding_pts: float = 0.0
 
-    # Per-innings batting state — resets whenever this player starts a new
+    # Per-innings batting state - resets whenever this player starts a new
     # innings as a batter, since batting milestones are an innings
     # achievement (a century is scored in an innings, not accumulated
     # across a Test match's two innings).
@@ -223,13 +223,13 @@ class _PlayerTally:
     _innings_runs: int = 0
     _batting_milestones_awarded: Set[int] = field(default_factory=set)
 
-    # Per-innings bowling-haul state — a "5-wicket haul" is likewise scoped
+    # Per-innings bowling-haul state - a "5-wicket haul" is likewise scoped
     # to one innings, resetting when this player starts bowling a new one.
     _bowling_inning: Optional[int] = None
     _innings_wickets: int = 0
     _bowling_milestones_awarded: Set[int] = field(default_factory=set)
 
-    # Match-total state — never resets between innings.
+    # Match-total state - never resets between innings.
     _match_wickets: int = 0
     _ten_wicket_bonus_awarded: bool = False
     _match_catches: int = 0
@@ -273,7 +273,7 @@ class _PlayerTally:
         self._current_over_runs += runs_batter + (runs_extras if charged else 0)
 
         if extras_type in (ExtraType.WIDE, ExtraType.NOBALL):
-            return  # not a legal delivery — no dot-ball credit, doesn't count toward a maiden
+            return  # not a legal delivery - no dot-ball credit, doesn't count toward a maiden
 
         self._current_over_legal_balls += 1
         if runs_batter == 0 and not is_wicket:

@@ -37,7 +37,7 @@ export function PlayModePage() {
             <div>
               <div className="text-base font-semibold mb-1" style={{ color: 'var(--text)' }}>Fun Mode</div>
               <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                Pick a tournament, season, and team — then watch the season play out with optional squad tweaks.
+                Pick a tournament, season, and team - then watch the season play out with optional squad tweaks.
               </div>
               <div className="mt-3 text-sm font-medium" style={{ color: 'var(--accent)' }}>
                 Start →

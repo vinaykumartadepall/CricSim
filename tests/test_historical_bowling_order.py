@@ -56,7 +56,7 @@ PLAN = {
 # ── Tests: normal toss (matches historical) ───────────────────────────────────
 
 class TestNormalToss:
-    """Simulation toss matches the historical match — no flip needed."""
+    """Simulation toss matches the historical match - no flip needed."""
 
     def test_returns_correct_bowler_for_each_over(self):
         strategy = HistoricalBowlingOrder(PLAN)
@@ -117,7 +117,7 @@ class TestTossFlip:
         """
         Demonstrates the pre-fix behaviour: plan pid not in bowling team →
         eligible[0] (pid=1, always the first player) regardless of over number.
-        This test documents what the bug looked like — the fix should NOT trigger
+        This test documents what the bug looked like - the fix should NOT trigger
         this branch (the assertion below verifies the fix avoids eligible[0]).
         """
         strategy = HistoricalBowlingOrder(PLAN)
@@ -128,9 +128,9 @@ class TestTossFlip:
         result = strategy.select_bowler(match)
         # After fix: returns pid=2, NOT eligible[0] (pid=1)
         assert result.id == 2, (
-            f"Expected pid 2 (flipped plan), got {result.id} — toss-flip not handled"
+            f"Expected pid 2 (flipped plan), got {result.id} - toss-flip not handled"
         )
-        assert result.id != 1, "Returned eligible[0] fallback — toss-flip bug not fixed"
+        assert result.id != 1, "Returned eligible[0] fallback - toss-flip bug not fixed"
 
 
 # ── Tests: missing over in plan (simulation runs longer than historical) ───────

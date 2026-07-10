@@ -402,7 +402,7 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
                   {p._position}
                 </span>
 
-                {/* Headshot — desktop */}
+                {/* Headshot - desktop */}
                 <div className="hidden md:block flex-shrink-0">
                   {isSwappedOut && p._swapIn ? (
                     <Headshot url={p._swapIn.headshot_url} name={p._swapIn.player_name} size={30} />

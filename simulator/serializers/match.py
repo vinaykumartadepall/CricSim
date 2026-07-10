@@ -3,7 +3,7 @@ Read-side serializer: queries simulation.deliveries / simulation.matches and
 joins history.players / history.venues to produce scorecard and commentary dicts.
 
 All public functions take a RealDictCursor (repo.dict_cursor) so every row is
-accessed by column name — no hardcoded indices.
+accessed by column name - no hardcoded indices.
 """
 
 from __future__ import annotations
@@ -190,19 +190,19 @@ def get_tournament_result(cur, sim_id: str, client_id: str | None = None) -> dic
     if t_row and t_row.get('final_standings') is not None:
         # Preferred path: the live tournament engine's own standings
         # (simulator/tournament/points_table.py), persisted once when the
-        # group stage completed — already correct (ICC all-out rule applied,
+        # group stage completed - already correct (ICC all-out rule applied,
         # same points/NRR/won ordering used to decide real playoff seeding).
         points_table = t_row['final_standings']
     else:
         # Fallback for tournaments simulated before final_standings existed
-        # (migration 026). Re-derives from raw deliveries — kept only for
+        # (migration 026). Re-derives from raw deliveries - kept only for
         # those older sims, not a second live implementation going forward.
         points_table = _build_points_table(cur, sim_id, group_matches)
 
     # User team placement
     cur.execute(
         """
-        SELECT gs.user_team_id, gs.mode, gs.source_tournament_id,
+        SELECT gs.user_team_id, gs.mode, gs.source_tournament_id, gs.swaps, gs.room_id,
                ut.name AS user_team_name,
                CASE
                    WHEN mf.winner_id = gs.user_team_id THEN 'Winner'
@@ -254,6 +254,8 @@ def get_tournament_result(cur, sim_id: str, client_id: str | None = None) -> dic
         "mode":                 gs_row['mode']                   if gs_row else None,
         "source_tournament_id": gs_row['source_tournament_id']   if gs_row else None,
         "user_team_id":         gs_row['user_team_id']           if gs_row else None,
+        "swaps":                gs_row['swaps']                  if gs_row else [],
+        "room_id":              gs_row['room_id']                if gs_row else None,
     }
 
 
@@ -454,6 +456,10 @@ def _build_result_description(row) -> Optional[str]:
             return "Match drawn"
         return "No result"
     if result == 'tie':
+        tie_winner = row.get('winner') if hasattr(row, 'get') else row['winner']
+        tie_is_so  = bool(row.get('is_super_over'))
+        if tie_is_so and tie_winner:
+            return f"Match tied · Super Over tied · {tie_winner} advanced due to better group stage finish"
         return "Match tied"
     winner   = row['winner']
     win_type = row['win_type']
@@ -481,6 +487,8 @@ def _dismissal_text(okind: Optional[str], bowler: Optional[str], fielder: Option
         if fielder and fielder != bowler:
             return f"c {fielder} b {bowler}"
         return f"c&b {bowler}" if bowler else "caught"
+    if kind in ('caught and bowled', 'c and b'):
+        return f"c&b {bowler}" if bowler else "caught and bowled"
     if kind == 'lbw':
         return f"lbw b {bowler}" if bowler else "lbw"
     if kind in ('run out', 'runout', 'run_out'):
@@ -502,7 +510,7 @@ def _format_commentary_text(
     is_free_hit: bool,
 ) -> str:
     label  = f"{over}.{ball}"
-    prefix = "[FREE HIT] " if is_free_hit else ""
+    prefix = "Freehit! " if is_free_hit else ""
 
     if outcome_type == "Wicket":
         kind = (outcome_kind or "out").lower()
@@ -521,24 +529,27 @@ def _format_commentary_text(
             dismissal = f"run out by {outcome_player or 'fielder'}"
         else:
             dismissal = f"{outcome_kind} by {outcome_player or bowler}"
-        return f"{label}  {prefix}WICKET! {batter} is out — {dismissal}"
+        return f"{label}  {prefix}WICKET! {batter} is out - {dismissal}"
 
-    if outcome_kind and outcome_kind.lower() in ("wide", "noball", "no ball"):
-        ext        = "wide" if "wide" in outcome_kind.lower() else "no ball"
+    if outcome_kind and outcome_kind.lower() == "wide":
         extra_runs = f"+{runs_extras}" if runs_extras > 1 else ""
-        return f"{label}  {prefix}{bowler} to {batter} — {ext}{extra_runs}"
+        return f"{label}  {prefix}{bowler} to {batter} - wide{extra_runs}"
+
+    if outcome_kind and outcome_kind.lower() in ("noball", "no ball"):
+        run_word = f"{runs_batter} run{'s' if runs_batter != 1 else ''}"
+        return f"{label}  {prefix}{bowler} to {batter} - {run_word}, and it's a no ball!"
 
     if outcome_type == "Extras" and outcome_kind:
         kind = outcome_kind.lower().rstrip("s")
-        return f"{label}  {prefix}{bowler} to {batter} — {runs_extras} {kind}"
+        return f"{label}  {prefix}{bowler} to {batter} - {runs_extras} {kind}"
 
     if runs_batter == 0:
-        return f"{label}  {prefix}{bowler} to {batter} — dot ball"
+        return f"{label}  {prefix}{bowler} to {batter} - dot ball"
     if runs_batter == 4:
-        return f"{label}  {prefix}{bowler} to {batter} — FOUR!"
+        return f"{label}  {prefix}{bowler} to {batter} - FOUR!"
     if runs_batter == 6:
-        return f"{label}  {prefix}{bowler} to {batter} — SIX!"
-    return f"{label}  {prefix}{bowler} to {batter} — {runs_batter} run{'s' if runs_batter != 1 else ''}"
+        return f"{label}  {prefix}{bowler} to {batter} - SIX!"
+    return f"{label}  {prefix}{bowler} to {batter} - {runs_batter} run{'s' if runs_batter != 1 else ''}"
 
 
 def _find_final_result(matches: list) -> Tuple[Optional[str], Optional[str]]:
@@ -559,13 +570,13 @@ def _find_final_result(matches: list) -> Tuple[Optional[str], Optional[str]]:
 def _build_points_table(cur, sim_id: str, group_matches: list) -> list:
     """
     DEPRECATED fallback, only reached for tournaments simulated before
-    migration 026 added simulation.tournaments.final_standings — every new
+    migration 026 added simulation.tournaments.final_standings - every new
     sim gets its points table from the live engine directly (see
     get_tournament_result above), not from this function.
 
     Points: win=2, loss=0, tie/no-result=1.
     NRR uses the ICC all-out rule (full overs allocation credited when a team
-    is dismissed) — mirrors MatchRules.nrr_adjusted_balls, duplicated here in
+    is dismissed) - mirrors MatchRules.nrr_adjusted_balls, duplicated here in
     raw SQL only because that logic can't be called from a query; the actual
     run-rate division/subtraction below does go through MatchRules.net_run_rate.
     """
@@ -663,7 +674,7 @@ def _build_points_table(cur, sim_id: str, group_matches: list) -> list:
         })
 
     # Same tiebreak order as the live engine's PointsTable.standings()
-    # (points, nrr, won) — kept in sync so this fallback path (pre-migration
+    # (points, nrr, won) - kept in sync so this fallback path (pre-migration
     # 026 sims only) doesn't silently rank differently from real playoff seeding.
     table.sort(key=lambda x: (-x['points'], -x['nrr'], -x['won']))
     return table

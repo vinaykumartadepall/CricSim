@@ -1,5 +1,5 @@
 """
-Kept for backward compatibility — delegates to MatchRunner.
+Kept for backward compatibility - delegates to MatchRunner.
 New code should use run_match.py or MatchRunner directly.
 """
 

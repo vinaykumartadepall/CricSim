@@ -1,4 +1,4 @@
-# Cricket Simulator — Codebase Write-up
+# Cricket Simulator - Codebase Write-up
 
 ## Overview
 
@@ -24,7 +24,7 @@ A ball-by-ball cricket simulation engine that drives T20, ODI, and Test matches 
 cricket-simulator/
 ├── db/                          # Database layer
 │   ├── database.py              # Connection factory (get_db_connection)
-│   ├── stats_repository.py      # Query facade — all simulation queries live here
+│   ├── stats_repository.py      # Query facade - all simulation queries live here
 │   ├── entities/                # Plain data classes mirroring DB tables
 │   │   ├── match.py  player.py  venue.py  team.py  tournament.py  delivery.py
 │   ├── ingest_data.py           # Cricsheet JSON → PostgreSQL ingestion script
@@ -37,58 +37,58 @@ cricket-simulator/
 │
 ├── simulator/
 │   ├── entities/                # Match-state dataclasses
-│   │   ├── match.py             # SimulationMatch — the central mutable state object
-│   │   ├── rules.py             # MatchRules — all cricket law logic (pure static methods)
-│   │   ├── ball_outcome.py      # BallOutcome (frozen dataclass) — one delivery result
-│   │   ├── delivery.py          # SimulationDelivery — persisted delivery record
+│   │   ├── match.py             # SimulationMatch - the central mutable state object
+│   │   ├── rules.py             # MatchRules - all cricket law logic (pure static methods)
+│   │   ├── ball_outcome.py      # BallOutcome (frozen dataclass) - one delivery result
+│   │   ├── delivery.py          # SimulationDelivery - persisted delivery record
 │   │   ├── player.py            # Player (id, name, is_keeper)
-│   │   ├── team.py              # MatchTeam — squad-level representation
-│   │   ├── inning.py            # Inning — container for InningTeam + deliveries
-│   │   ├── inning_team.py       # InningTeam — running totals, batting order management
-│   │   └── inning_player.py     # InningPlayer — per-delivery stat accumulator (MatchObserver)
+│   │   ├── team.py              # MatchTeam - squad-level representation
+│   │   ├── inning.py            # Inning - container for InningTeam + deliveries
+│   │   ├── inning_team.py       # InningTeam - running totals, batting order management
+│   │   └── inning_player.py     # InningPlayer - per-delivery stat accumulator (MatchObserver)
 │   │
 │   ├── events.py                # EventType, MatchEvent, MatchObserver, MatchEventBus
 │   │
 │   ├── engines/
-│   │   ├── base_engine.py       # BaseEngine ABC — inning wiring, toss, scorecard output
+│   │   ├── base_engine.py       # BaseEngine ABC - inning wiring, toss, scorecard output
 │   │   ├── limited_overs_engine.py  # T20 / ODI: two innings, run chase, super-over trigger
 │   │   ├── test_engine.py       # Test: four innings, follow-on, draw detection
 │   │   ├── super_over_engine.py # Super over: 1-over per side, bowler/batter selection
-│   │   ├── innings_simulator.py # InningsSimulator — drives overs and balls within an innings
-│   │   └── engine_factory.py    # EngineFactory.create() — format → engine class
+│   │   ├── innings_simulator.py # InningsSimulator - drives overs and balls within an innings
+│   │   └── engine_factory.py    # EngineFactory.create() - format → engine class
 │   │
 │   ├── strategies/
 │   │   ├── ball_outcome_prediction/
 │   │   │   ├── strategy_interface.py           # BallOutcomeStrategy ABC
 │   │   │   ├── common/utils.py                 # Shared constants, helpers, apply_free_hit_modifier
 │   │   │   ├── historical_stats/strategy.py    # BaseHistoricalStatsStrategy (RMS v1)
-│   │   │   ├── historical_stats/validate.py    # ModelValidator — backtest against held-out data
+│   │   │   ├── historical_stats/validate.py    # ModelValidator - backtest against held-out data
 │   │   │   └── enhanced_historical_stats/strategy.py # EnhancedBaseHistoricalStatsStrategy (RMS v2)
 │   │   │
 │   │   └── bowling/
 │   │       ├── strategy_interface.py     # BowlingStrategy ABC
-│   │       ├── historical/base.py        # HistoricalBowlingBase — scoring framework + cache mgmt
+│   │       ├── historical/base.py        # HistoricalBowlingBase - scoring framework + cache mgmt
 │   │       ├── historical/strategies.py  # T20/ODI/TestHistoricalBowlingStrategy + factory
-│   │       ├── rotation/strategy.py      # SimpleRotationBowlingStrategy — round-robin fallback
-│   │       └── smart/strategy.py         # SmartBowlingStrategy — phase-aware heuristic
+│   │       ├── rotation/strategy.py      # SimpleRotationBowlingStrategy - round-robin fallback
+│   │       └── smart/strategy.py         # SmartBowlingStrategy - phase-aware heuristic
 │   │
 │   ├── tournament/              # Tournament simulation layer
 │   │   ├── __init__.py          # Re-exports TournamentEngine, TournamentConfig, load_tournament_config
-│   │   ├── engine.py            # TournamentEngine — orchestrates group stage + playoffs
+│   │   ├── engine.py            # TournamentEngine - orchestrates group stage + playoffs
 │   │   ├── config.py            # TournamentConfig, TeamConfig, ScheduleConfig, PlayoffConfig
-│   │   ├── scheduler.py         # generate_fixtures / generate_playoffs — fixture list builders
-│   │   ├── points_table.py      # PointsTable — standings, NRR, points tracking
-│   │   ├── leaderboards.py      # TournamentLeaderboards — batting/bowling aggregates
+│   │   ├── scheduler.py         # generate_fixtures / generate_playoffs - fixture list builders
+│   │   ├── points_table.py      # PointsTable - standings, NRR, points tracking
+│   │   ├── leaderboards.py      # TournamentLeaderboards - batting/bowling aggregates
 │   │   ├── awards.py            # MatchAwards (POTM) + TournamentAwards (POTT)
-│   │   └── presenter.py         # Coloured terminal output — scorecards, points table, leaderboards
+│   │   └── presenter.py         # Coloured terminal output - scorecards, points table, leaderboards
 │   │
 │   ├── presentation/
 │   │   └── formatters.py        # format_ball_commentary, format_over_summary, format_innings_scorecard
 │   │
 │   ├── logger.py                # Centralised logger: console + 2 rotating files; ContextVar injection;
 │   │                            #   configure_logger(), log_context(), set_log_level(), get_logger()
-│   ├── match_logger.py          # MatchLogger — routes to global logger; NO per-match files
-│   └── simulate_driver.py       # CLI entry point — loads config, builds match, calls engine
+│   ├── match_logger.py          # MatchLogger - routes to global logger; NO per-match files
+│   └── simulate_driver.py       # CLI entry point - loads config, builds match, calls engine
 │
 ├── tests/                       # pytest unit tests (no DB required)
 │   ├── test_rules.py
@@ -143,7 +143,7 @@ BaseEngine.__init__()       Stores match + both strategies (ball-outcome and bow
 ```
 ball_outcomes.init_model(match)      For each strategy, loads player data from _PRECOMPUTED_CACHE
 bowling_strategy.init_model(match)   (warmed at server startup). Cache reads are pure dict lookups
-                                     — no DB round-trips in the hot path.
+                                     - no DB round-trips in the hot path.
                                      In tournament mode, init_model is called before every match
                                      so strategies can extend caches for newly-seen players.
                                      All caches are in-memory dicts keyed by player_id,
@@ -189,8 +189,8 @@ predict_next_ball(match):
      → adjusts for score pressure, consecutive dots, wicket rate, partnership length.
   6. apply_free_hit_modifier(weights, keys) if match.is_free_hit
      → 6s×2.5, 4s×2.0, 1–3×1.2, dots×0.45, non-run-out wickets×0.15.
-  7. random.choices(keys, weights=normalised) — sample outcome.
-  8. _assign_fielder() — pick catcher/stumper from fielding cache.
+  7. random.choices(keys, weights=normalised) - sample outcome.
+  8. _assign_fielder() - pick catcher/stumper from fielding cache.
 ```
 
 ---
@@ -218,14 +218,14 @@ The single mutable god-object passed throughout the simulation. Key fields:
 
 Pure static methods encoding cricket law. Used across the entire codebase so phase logic is never duplicated.
 
-- `get_unified_format(s)` — normalise "IT20"→"T20", "MDM"→"Test", etc.
-- `is_legal_delivery(extras_type)` — False for Wide/Noball.
-- `is_free_hit_awarded(extras_type)` — True for Noball only.
-- `supports_free_hit(match_format)` — True for T20/ODI.
-- `is_death_over(over_0indexed, format)` — T20≥16, ODI≥40.
-- `get_phase(over_0indexed, format)` — "powerplay" / "middle" / "death" / "none".
-- `get_fine_grained_phase(over_1indexed, format)` — 6 T20 buckets, 7 ODI, 4 Test.
-- `is_bowler_credited_wicket(wicket_kind)` — False for run-out and non-bowling dismissals.
+- `get_unified_format(s)` - normalise "IT20"→"T20", "MDM"→"Test", etc.
+- `is_legal_delivery(extras_type)` - False for Wide/Noball.
+- `is_free_hit_awarded(extras_type)` - True for Noball only.
+- `supports_free_hit(match_format)` - True for T20/ODI.
+- `is_death_over(over_0indexed, format)` - T20≥16, ODI≥40.
+- `get_phase(over_0indexed, format)` - "powerplay" / "middle" / "death" / "none".
+- `get_fine_grained_phase(over_1indexed, format)` - 6 T20 buckets, 7 ODI, 4 Test.
+- `is_bowler_credited_wicket(wicket_kind)` - False for run-out and non-bowling dismissals.
 
 ### InningPlayer (`simulator/entities/inning_player.py`)
 
@@ -254,23 +254,23 @@ class BallOutcome:
 
 Both implement `BallOutcomeStrategy` with two methods: `init_model(match)` and `predict_next_ball(match) → BallOutcome`.
 
-#### BaseHistoricalStatsStrategy (v1 — `historical_stats/strategy.py`)
+#### BaseHistoricalStatsStrategy (v1 - `historical_stats/strategy.py`)
 
 Relative Multiplicative Scaling with fixed integer-per-over lookup. Good baseline. Weights: batter, bowler, venue, innings, tournament, overs.
 
-#### EnhancedBaseHistoricalStatsStrategy (v2 — `enhanced_historical_stats/strategy.py`)
+#### EnhancedBaseHistoricalStatsStrategy (v2 - `enhanced_historical_stats/strategy.py`)
 
 Four improvements over v1:
 
-1. **Fine-grained phase** — 6 T20 / 7 ODI / 4 Test buckets instead of per-over lookup.
-2. **Batter milestone context** — conditions on 10-run score buckets (m0…m100) to capture set vs new batter behaviour.
-3. **Reliability-weighted blending** — contexts with sparse ball counts are down-weighted and their budget redistributed.
-4. **Outcome-category relevance** — wickets rely more on bowler; boundaries more on batter; extras almost entirely on bowler.
+1. **Fine-grained phase** - 6 T20 / 7 ODI / 4 Test buckets instead of per-over lookup.
+2. **Batter milestone context** - conditions on 10-run score buckets (m0…m100) to capture set vs new batter behaviour.
+3. **Reliability-weighted blending** - contexts with sparse ball counts are down-weighted and their budget redistributed.
+4. **Outcome-category relevance** - wickets rely more on bowler; boundaries more on batter; extras almost entirely on bowler.
 
 Additional:
-- **Pressure modifier** — post-RMS multiplicative modifier for chase urgency, dot-ball pressure, wicket rate, partnership length.
-- **Free-hit modifier** — when `match.is_free_hit`, boundaries boosted 2–2.5×, dots reduced to 0.45×.
-- **Player venue blending** — `_get_player_venue_probs()` blends per-player historical data at the venue with the general venue distribution (up to 65% player weight at ≥60 balls).
+- **Pressure modifier** - post-RMS multiplicative modifier for chase urgency, dot-ball pressure, wicket rate, partnership length.
+- **Free-hit modifier** - when `match.is_free_hit`, boundaries boosted 2–2.5×, dots reduced to 0.45×.
+- **Player venue blending** - `_get_player_venue_probs()` blends per-player historical data at the venue with the general venue distribution (up to 65% player weight at ≥60 balls).
 
 Format subclasses set their `WEIGHTS` dict:
 
@@ -295,12 +295,12 @@ Scores each eligible bowler on six factors (F1–F6) and returns the highest sco
 
 | Factor | Description |
 |--------|-------------|
-| F1 | Phase affinity — how well the bowler's historical stats match the current phase |
-| F2 | Match form — recent wickets/economy in the current innings |
-| F3 | Spell management — avoids bowling the same bowler consecutively |
-| F4 | Matchup — head-to-head advantage over the current batter |
-| F5 | Quota pacing — urgency to use remaining quota before the innings ends |
-| F6 | Death reservation — holds specialists back for the death overs |
+| F1 | Phase affinity - how well the bowler's historical stats match the current phase |
+| F2 | Match form - recent wickets/economy in the current innings |
+| F3 | Spell management - avoids bowling the same bowler consecutively |
+| F4 | Matchup - head-to-head advantage over the current batter |
+| F5 | Quota pacing - urgency to use remaining quota before the innings ends |
+| F6 | Death reservation - holds specialists back for the death overs |
 
 **Tournament cache management**: `init_model` is called before every match in a tournament. On the first call it performs a full parallel cache load. On subsequent calls it detects new player IDs not seen before and calls `_extend_global_caches(new_ids)` to load their global-level data, merging into the existing caches. This ensures every team's bowlers are properly scored rather than falling back to a zero-score default.
 
@@ -417,8 +417,8 @@ All results are normalised probability dicts keyed by `(runs_batter, runs_extras
 
 Two-layer system:
 
-- `simulator/logger.py` — Python `logging`-backed dual sink: console (WARNING+) + rotating file (DEBUG, 10MB × 5 backups). `configure_logger(log_file, level)` attaches the file handler once at startup. `set_console_level(level)` adjusts the console threshold (used by tournament engine to suppress engine-level noise).
-- `simulator/match_logger.py` — `MatchLogger` owns all human-readable output for one match. Opens `match_<id>.txt` (ball-by-ball commentary, always written) and `match_<id>.log` (timestamped structured events). Set `MatchLogger.SILENT = True` before a batch or tournament run to suppress all console output while still writing both files.
+- `simulator/logger.py` - Python `logging`-backed dual sink: console (WARNING+) + rotating file (DEBUG, 10MB × 5 backups). `configure_logger(log_file, level)` attaches the file handler once at startup. `set_console_level(level)` adjusts the console threshold (used by tournament engine to suppress engine-level noise).
+- `simulator/match_logger.py` - `MatchLogger` owns all human-readable output for one match. Opens `match_<id>.txt` (ball-by-ball commentary, always written) and `match_<id>.log` (timestamped structured events). Set `MatchLogger.SILENT = True` before a batch or tournament run to suppress all console output while still writing both files.
 
 ---
 
@@ -451,8 +451,8 @@ When `match.is_free_hit` is True before `predict_next_ball()` is called, `apply_
 
 `MatchEventBus` is a simple list-based observer. Events:
 
-- `BALL_BOWLED` — carries `match`, `batter`, `bowler`, `outcome`. Both batting and bowling `InningPlayer` accumulate per-delivery stats from this event.
-- `OVER_COMPLETED` — carries `bowler`, `runs`. Used to detect maiden overs.
+- `BALL_BOWLED` - carries `match`, `batter`, `bowler`, `outcome`. Both batting and bowling `InningPlayer` accumulate per-delivery stats from this event.
+- `OVER_COMPLETED` - carries `bowler`, `runs`. Used to detect maiden overs.
 
 The bus is cleared and rewired at the start of each innings so observers from the previous innings don't accumulate stale events.
 
@@ -481,11 +481,11 @@ python -m pytest tests/ -v
 ```
 
 All tests run without a database connection. They cover:
-- `MatchRules` — all phase detection, format normalisation, and rule checks.
-- `InningPlayer` — stat accumulation for batters and bowlers across legal/extra deliveries and death overs.
-- `InningsSimulator._apply_free_hit_rules` — state transitions and wicket cancellation.
-- `apply_free_hit_modifier` — boundary boost, dot suppression, wicket suppression.
-- `StatsRepository._parse_rows_to_probs[_with_count]` — probability normalisation.
+- `MatchRules` - all phase detection, format normalisation, and rule checks.
+- `InningPlayer` - stat accumulation for batters and bowlers across legal/extra deliveries and death overs.
+- `InningsSimulator._apply_free_hit_rules` - state transitions and wicket cancellation.
+- `apply_free_hit_modifier` - boundary boost, dot suppression, wicket suppression.
+- `StatsRepository._parse_rows_to_probs[_with_count]` - probability normalisation.
 
 ## Running a Tournament
 

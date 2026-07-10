@@ -106,6 +106,8 @@ export interface TournamentResult {
   mode?: string | null
   source_tournament_id?: number | null
   user_team_id?: number | null
+  swaps?: SwapEntry[]
+  room_id?: string | null
 }
 
 export interface BattingRow {
@@ -251,6 +253,7 @@ export interface Scorecard {
   result_description: string | null
   innings: Innings[]
   potm: PotmInfo | null
+  room_id?: string | null
 }
 
 export interface AwardEntry {
@@ -294,8 +297,8 @@ export interface RoomMember {
   display_name: string
   team_name: string
   draft_order: number
-  squad: number[]                    // player_ids in pick order — turn-tracking only
-  batting_order: (number | null)[]   // SQUAD_SIZE slots, null where a pick hasn't landed yet — display/lineup order
+  squad: number[]                    // player_ids in pick order - turn-tracking only
+  batting_order: (number | null)[]   // SQUAD_SIZE slots, null where a pick hasn't landed yet - display/lineup order
   connected: boolean
 }
 

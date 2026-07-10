@@ -3,17 +3,17 @@ Shared base for all historical bowling strategies.
 
 Scoring is decomposed into four explicit factors, applied by each subclass:
 
-  F1  phase_venue  — how often this bowler bowls in this phase (data-driven),
+  F1  phase_venue  - how often this bowler bowls in this phase (data-driven),
                      quality in that phase, plus venue modifier.
                      Dominant factor in all formats.
 
-  F2  match_form   — economy + wickets this match, blended with career as
+  F2  match_form   - economy + wickets this match, blended with career as
                      match sample grows. Career stats are the cold-start baseline.
 
-  F3  spell        — positive ramp while within spell limit (continuity bonus);
+  F3  spell        - positive ramp while within spell limit (continuity bonus);
                      escalating quadratic penalty once spell limit is exceeded.
 
-  F4  matchup      — H2H economy + wicket-rate vs the striker (full)
+  F4  matchup      - H2H economy + wicket-rate vs the striker (full)
                      and non-striker (half, faces ~40% of balls).
                      Least-weighted factor in every format.
 
@@ -161,14 +161,14 @@ class HistoricalBowlingBase(BowlingStrategy):
             self._loaded_ids.update(new_ids)
 
     def _do_full_init(self, match: SimulationMatch, all_ids: list) -> None:
-        """First-time full cache load. All reads from precomputed tables — never deliveries."""
+        """First-time full cache load. All reads from precomputed tables - never deliveries."""
         self._fmt    = MatchRules.get_unified_format(match.match_format)
         self._gender = getattr(match, "gender", "male").lower()
 
         venue    = getattr(match, "venue", None)
         venue_id = venue.id if venue else None
 
-        log.console("[BowlingModel] Loading caches — format=%s  gender=%s  players=%d  venue_id=%s",
+        log.console("[BowlingModel] Loading caches - format=%s  gender=%s  players=%d  venue_id=%s",
                     self._fmt, self._gender, len(all_ids), venue_id)
         t0 = time.perf_counter()
         repo = self.repo
@@ -185,7 +185,7 @@ class HistoricalBowlingBase(BowlingStrategy):
         log.info("[BowlingModel]   %-38s  %.3fs  (%d pairs)", "matchup_aggregate",
                  time.perf_counter() - t, len(self.matchup_cache))
 
-        # career/phase/form caches are unused in scoring — skip
+        # career/phase/form caches are unused in scoring - skip
         self.career_cache = {}
         self.phase_cache  = {}
         self.form_cache   = {}
@@ -229,7 +229,7 @@ class HistoricalBowlingBase(BowlingStrategy):
             log.info("[BowlingModel]   %-38s  %.3fs  (%d players)", "ODI over_freq+phase_dist",
                      time.perf_counter() - t, len(self.global_over_freq_cache))
 
-        log.console("[BowlingModel] All caches ready — total %.3fs", time.perf_counter() - t0)
+        log.console("[BowlingModel] All caches ready - total %.3fs", time.perf_counter() - t0)
 
     def _extend_global_caches(self, new_ids: list) -> None:
         """
@@ -319,7 +319,7 @@ class HistoricalBowlingBase(BowlingStrategy):
 
         team_name = getattr(match.current_bowling_team, 'name', '?')
         log.trace(
-            "[BowlingSelection] Inn%d Ov%d — %s:\n%s\n    → %s",
+            "[BowlingSelection] Inn%d Ov%d - %s:\n%s\n    → %s",
             len(match.innings), match.current_over + 1,
             team_name, "\n".join(lines), scored[0][0].name,
         )
@@ -371,7 +371,7 @@ class HistoricalBowlingBase(BowlingStrategy):
         cf = c_entry.get(key, 0.0) if c_entry is not None else 0.0
         vf = v_entry.get(key, 0.0) if v_entry is not None else 0.0
 
-        # n counts not stored in over_freq cache — use presence as a binary signal,
+        # n counts not stored in over_freq cache - use presence as a binary signal,
         # so venue/country weights are fixed at their saturation values when data exists.
         n_v = _VENUE_SAT   if v_entry else 0
         n_c = _COUNTRY_SAT if c_entry else 0

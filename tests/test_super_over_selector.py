@@ -95,7 +95,7 @@ class TestGlobalBat:
         assert SuperOverSelector._global_bat(None) is None
 
     def test_empty_dict_returns_none(self):
-        # Empty dict is falsy — treated same as None (no historical data)
+        # Empty dict is falsy - treated same as None (no historical data)
         assert SuperOverSelector._global_bat({}) is None
 
     def test_average_player_scores_half(self):
@@ -139,7 +139,7 @@ class TestMatchBatSplit:
         assert m_full == 0.0
 
     def test_no_death_balls_means_m_death_is_zero(self):
-        # Player batted in powerplay only — no career proxy should substitute
+        # Player batted in powerplay only - no career proxy should substitute
         ip = _ip(balls_faced=12, runs_scored=18, fours=1, sixes=1)
         m_death, _ = SuperOverSelector._match_bat_split(ip)
         assert m_death == 0.0
@@ -215,7 +215,7 @@ class TestMatchBowlSplit:
         assert m_full == 0.0
 
     def test_no_death_balls_means_m_death_is_zero(self):
-        # Bowler only bowled powerplay — no career proxy
+        # Bowler only bowled powerplay - no career proxy
         ip = _ip(balls_bowled=24, runs_conceded=20)
         m_death, _ = SuperOverSelector._match_bowl_split(ip)
         assert m_death == 0.0
@@ -340,7 +340,7 @@ class TestSelectBowlerNoCareerProxy:
 
         team = MatchTeam(id=1, name="Test", players=[p_death, p_pp])
 
-        # p_death bowled at death: 6 balls, 6 runs (eco 6.0 — very good)
+        # p_death bowled at death: 6 balls, 6 runs (eco 6.0 - very good)
         ip_death = _ip(pid=1, death_balls_bowled=6, death_runs_conceded=6,
                        balls_bowled=24, runs_conceded=24)
         # p_pp bowled only in powerplay, same career stats

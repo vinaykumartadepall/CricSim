@@ -8,9 +8,9 @@ Usage:
     python -m tools.plot_sim_scores --config match_config.json --inning 1 --out sim_bowling
 
 Outputs:
-    <out>_f3.png       — 4 subplots: continuity / fatigue / workload / combined F3
-    <out>_affinity.png — phase-affinity heatmap for the bowling team
-    <out>_scores.png   — total score (F1+F2+F3+F4) per bowler vs over
+    <out>_f3.png       - 4 subplots: continuity / fatigue / workload / combined F3
+    <out>_affinity.png - phase-affinity heatmap for the bowling team
+    <out>_scores.png   - total score (F1+F2+F3+F4) per bowler vs over
 """
 
 import argparse
@@ -204,7 +204,7 @@ def plot_f3(records, out_path, title_suffix=''):
                ('f3_wl',  'Workload'),    ('f3_combined', 'F3 Combined')]
 
     fig, axes = plt.subplots(2, 2, figsize=(18, 12), sharex=True)
-    fig.suptitle(f'F3 Spell Score Components — per over{title_suffix}',
+    fig.suptitle(f'F3 Spell Score Components - per over{title_suffix}',
                  fontsize=13, fontweight='bold')
     axes_flat = [axes[0,0], axes[0,1], axes[1,0], axes[1,1]]
 
@@ -286,7 +286,7 @@ def plot_affinity(strategy, fmt, player_ids, out_path, title_suffix=''):
     active.sort(key=lambda x: -sum(freq(x[0], k) for k in phase_keys))
 
     if not active:
-        print('No phase affinity data — skipping affinity plot.')
+        print('No phase affinity data - skipping affinity plot.')
         return
 
     matrix = np.array([[freq(pid, k) * ph_weight for k in phase_keys]
@@ -308,7 +308,7 @@ def plot_affinity(strategy, fmt, player_ids, out_path, title_suffix=''):
                     fontsize=7, color='black' if val < matrix.max() * 0.6 else 'white')
 
     plt.colorbar(im, ax=ax, label='Phase affinity score (freq × weight)')
-    ax.set_title(f'Phase Affinity — {fmt} (F1 score at 0 workload){title_suffix}',
+    ax.set_title(f'Phase Affinity - {fmt} (F1 score at 0 workload){title_suffix}',
                  fontsize=12, fontweight='bold')
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches='tight')
@@ -323,7 +323,7 @@ def plot_total_scores(records, out_path, title_suffix=''):
     colors = _assign_colors(names)
 
     fig, ax = plt.subplots(figsize=(18, 7))
-    fig.suptitle(f'Total Bowling Score (F1+F2+F3+F4) — per over{title_suffix}',
+    fig.suptitle(f'Total Bowling Score (F1+F2+F3+F4) - per over{title_suffix}',
                  fontsize=13, fontweight='bold')
 
     by_name_over = defaultdict(dict)
@@ -394,7 +394,7 @@ def main():
           f'{len(selected_names)} bowlers, '
           f'{len({r["over"] for r in records})} overs.')
 
-    title_suffix = (f' — {match.current_bowling_team.name} bowling '
+    title_suffix = (f' - {match.current_bowling_team.name} bowling '
                     f'(simulated {fmt})')
 
     plot_f3(records, f'{args.out}_f3.png', title_suffix)

@@ -8,9 +8,9 @@ Usage:
     python -m tools.plot_bowling_scores --match-id 12345 --inning 2
 
 Outputs (all in one run):
-    bowling_f3.png       — 4 subplots: continuity / fatigue / workload / combined F3 vs over
-    bowling_affinity.png — phase-affinity heatmap for all players in the match
-    bowling_scores.png   — total score (F1+F2+F3+F4) per bowler vs over
+    bowling_f3.png       - 4 subplots: continuity / fatigue / workload / combined F3 vs over
+    bowling_affinity.png - phase-affinity heatmap for all players in the match
+    bowling_scores.png   - total score (F1+F2+F3+F4) per bowler vs over
 """
 
 import argparse
@@ -73,7 +73,7 @@ class _Match:
 def replay_match(repo, strategy, match_id, target_inning):
     """
     Replay one inning of a historical match.
-    Returns list of dicts — one per (over, bowler) evaluation.
+    Returns list of dicts - one per (over, bowler) evaluation.
     """
     rows = repo.get_match_ball_log(match_id)
     if not rows:
@@ -167,7 +167,7 @@ def plot_f3(records, out_path):
                  ('f3_wl',  'Workload'),    ('f3_combined', 'F3 Combined')]
 
     fig, axes = plt.subplots(2, 2, figsize=(18, 12), sharex=True)
-    fig.suptitle('F3 Spell Score Components — per over (real match replay)', fontsize=13, fontweight='bold')
+    fig.suptitle('F3 Spell Score Components - per over (real match replay)', fontsize=13, fontweight='bold')
     axes_flat = [axes[0,0], axes[0,1], axes[1,0], axes[1,1]]
 
     # Build per-name, per-over lookup
@@ -242,7 +242,7 @@ def plot_affinity(strategy, fmt, player_ids, name_map, out_path):
     active.sort(key=lambda x: -sum(freq(x[0], k) for k in phase_keys))
 
     if not active:
-        print('No phase affinity data found — skipping affinity plot.')
+        print('No phase affinity data found - skipping affinity plot.')
         return
 
     matrix = np.array([[freq(pid, k) * ph_weight for k in phase_keys]
@@ -265,7 +265,7 @@ def plot_affinity(strategy, fmt, player_ids, name_map, out_path):
                     fontsize=7, color='black' if val < matrix.max() * 0.6 else 'white')
 
     plt.colorbar(im, ax=ax, label=f'Phase affinity score (freq × weight)')
-    ax.set_title(f'Phase Affinity — {fmt} (F1 score at 0 workload)', fontsize=12, fontweight='bold')
+    ax.set_title(f'Phase Affinity - {fmt} (F1 score at 0 workload)', fontsize=12, fontweight='bold')
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches='tight')
     print(f'Saved: {out_path}')
@@ -279,7 +279,7 @@ def plot_total_scores(records, out_path):
     colors    = _assign_colors(names)
 
     fig, ax = plt.subplots(figsize=(18, 7))
-    fig.suptitle('Total Bowling Score (F1+F2+F3+F4) — per over (real match replay)',
+    fig.suptitle('Total Bowling Score (F1+F2+F3+F4) - per over (real match replay)',
                  fontsize=13, fontweight='bold')
 
     by_name_over = defaultdict(dict)
@@ -340,7 +340,7 @@ def main():
 
     match_id = args.match_id or config.get('match_id')
     if not match_id:
-        print('No match_id found in config or CLI — pass --match-id <id>')
+        print('No match_id found in config or CLI - pass --match-id <id>')
         return
 
     repo = StatsRepository()
@@ -393,7 +393,7 @@ def main():
     records, _ = replay_match(repo, strategy, match_id, args.inning)
 
     if not records:
-        print('No records generated — check match_id and inning.')
+        print('No records generated - check match_id and inning.')
         return
 
     # Filter to bowlers only (skip players who never bowled)

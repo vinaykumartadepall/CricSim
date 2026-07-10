@@ -2,22 +2,22 @@
 Seed simulation.tournament_seeded.config for all simulation-ready tournaments.
 
 Step 1 of 2: builds tournament metadata, venue list, team list (with colors/home
-venues), schedule, and playoffs.  players arrays are left empty — they are filled
+venues), schedule, and playoffs.  players arrays are left empty - they are filled
 by db/precompute.py --seed-squads (step 2).
 
 Run with:
     conda run -n cricsim python -m db.seed_sim_configs [--dry-run]
 
 config schema (TournamentConfig-compatible):
-  tournament_name  — display name
-  format           — T20 | ODI
-  gender           — male | female
-  season           — e.g. "2025"
-  venues[]         — {name, city} from history.matches
-  teams[]          — {team_id, name, short_name, primary_color, secondary_color,
+  tournament_name  - display name
+  format           - T20 | ODI
+  gender           - male | female
+  season           - e.g. "2025"
+  venues[]         - {name, city} from history.matches
+  teams[]          - {team_id, name, short_name, primary_color, secondary_color,
                        home_venue, players:[]}
-  schedule         — {type, neutral_venues, [groups], [within/cross_matches_per_pair]}
-  playoffs         — {format, top_n}
+  schedule         - {type, neutral_venues, [groups], [within/cross_matches_per_pair]}
+  playoffs         - {format, top_n}
 
 schedule.type values:
   round_robin | double_round_robin | two_group_hybrid
@@ -123,8 +123,8 @@ def _derive_groups_from_db(cur, tournament_id: int) -> list[list[str]] | None:
     Derive two groups of 5 teams from historical group-stage pair counts.
 
     Two formats appear in the DB:
-      bipartite  — within×1, ALL cross×2 (2023, 2026).
-      within×2   — within×2 + some cross×2 (2022, 2024, 2025).
+      bipartite  - within×1, ALL cross×2 (2023, 2026).
+      within×2   - within×2 + some cross×2 (2022, 2024, 2025).
 
     Returns None if fewer than 30 group-stage pair rows are found.
     """
@@ -204,7 +204,7 @@ def _build_ipl_schedule(cur, tournament_id: int, season: str) -> dict:
     if groups is None:
         print(
             f"  WARNING: could not derive groups for IPL {season} "
-            "(insufficient match data) — using double_round_robin fallback",
+            "(insufficient match data) - using double_round_robin fallback",
             file=sys.stderr,
         )
         return {
@@ -423,7 +423,7 @@ def run(dry_run: bool = False) -> None:
             )
             rows = cur.fetchall()
             if not rows:
-                print(f"\n{t_name}: no tournaments in history DB — skipping")
+                print(f"\n{t_name}: no tournaments in history DB - skipping")
                 continue
 
             sched_type = sched_po["schedule"]["type"]
@@ -457,7 +457,7 @@ def run(dry_run: bool = False) -> None:
             conn.commit()
             print("\n✓ config committed for all tournaments.")
         else:
-            print("\n(dry-run — no changes written)")
+            print("\n(dry-run - no changes written)")
 
     except Exception:
         conn.rollback()

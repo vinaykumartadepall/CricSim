@@ -11,8 +11,8 @@ What gets optimised (per format):
                 venue and tournament weights are fixed at current values
                 during training because the validator uses empty caches for
                 those; only the 6 active sources are trained.
-  sharpness_k   scalar ∈ [1.0, 4.0] — exponent for batter/bowler/matchup mults
-  milestone_k   scalar ∈ [1.0, 5.0] — sharper exponent for milestone context
+  sharpness_k   scalar ∈ [1.0, 4.0] - exponent for batter/bowler/matchup mults
+  milestone_k   scalar ∈ [1.0, 5.0] - sharper exponent for milestone context
 
 Algorithm detail
   Objective is vectorised with NumPy: per-delivery context distributions are
@@ -103,7 +103,7 @@ class ParameterOptimizer:
         # Pre-computed matrices (set by _precompute)
         self._log_ratio   = None   # (N_SRC, N_VALID, N_KEYS)
         self._reliability = None   # (N_SRC, N_VALID)
-        self._cat_rel_mat = None   # (N_SRC, N_KEYS) — category relevance (fixed)
+        self._cat_rel_mat = None   # (N_SRC, N_KEYS) - category relevance (fixed)
         self._log_baseline= None   # (N_KEYS,)
         self._actual_idx  = None   # (N_VALID,) integer index into ordered_keys
         self._n_valid     = 0
@@ -164,7 +164,7 @@ class ParameterOptimizer:
         log_baseline = np.array([math.log(max(p, _BASELINE_EPSILON)) for p in baseline.values()])
         self._log_baseline = log_baseline
 
-        # ── Category relevance matrix (N_SRC, N_KEYS) — fixed ────────────
+        # ── Category relevance matrix (N_SRC, N_KEYS) - fixed ────────────
         cat_rel = np.ones((_N_SOURCES, N_KEYS))
         src_names = TRAINABLE_KEYS  # 6 sources
         for ki, key in enumerate(self._ordered_keys):
@@ -448,7 +448,7 @@ class OptimResult:
             lines.append(f"  {key:<20}  {cur:>8.4f}  {opt:>8.4f}  {d:>+8.4f}{fixed_note}")
 
         if delta < -0.002:
-            lines.append("\n  ✓ Meaningful improvement found — consider updating strategy WEIGHTS.")
+            lines.append("\n  ✓ Meaningful improvement found - consider updating strategy WEIGHTS.")
         elif delta < 0:
             lines.append("\n  ~ Small improvement found (< 0.002 nats). May not be worth the change.")
         else:

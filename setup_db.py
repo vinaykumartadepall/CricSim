@@ -1,5 +1,5 @@
 """
-Database setup script — download, ingest, and precompute from scratch.
+Database setup script - download, ingest, and precompute from scratch.
 
 Steps:
   1. Create DB and initialise schema (idempotent).
@@ -31,7 +31,7 @@ Usage:
     # Skip Pass 2 only (assign cricinfo_ids but don't hit ESPN API):
     python setup_db.py --skip-enrich-api
 
-    # Dry run — print what would happen without writing to DB:
+    # Dry run - print what would happen without writing to DB:
     python setup_db.py --dry-run
 """
 
@@ -63,7 +63,7 @@ class DatabaseSetupFacade:
         self.dry_run = dry_run
 
     def create_schema(self) -> None:
-        _header("Step 1 — Create DB and initialise schema")
+        _header("Step 1 - Create DB and initialise schema")
         if self.dry_run:
             print("  [dry-run] would call db.database.create_database() + initialize_schema()")
             return
@@ -72,7 +72,7 @@ class DatabaseSetupFacade:
         initialize_schema()
 
     def download(self) -> None:
-        _header("Step 2 — Download Cricsheet archive")
+        _header("Step 2 - Download Cricsheet archive")
         ZIP_PATH.parent.mkdir(parents=True, exist_ok=True)
         if self.dry_run:
             print(f"  [dry-run] would download {CRICSHEET_URL} → {ZIP_PATH}")
@@ -94,11 +94,11 @@ class DatabaseSetupFacade:
         print(f"\n  Downloaded {size_mb:.1f} MB in {elapsed:.1f}s")
 
     def unzip(self) -> None:
-        _header("Step 3 — Unzip archive")
+        _header("Step 3 - Unzip archive")
         DATA_DIR.mkdir(parents=True, exist_ok=True)
 
         if not ZIP_PATH.exists():
-            print(f"  {ZIP_PATH} not found — skipping unzip")
+            print(f"  {ZIP_PATH} not found - skipping unzip")
             return
 
         if self.dry_run:
@@ -120,38 +120,38 @@ class DatabaseSetupFacade:
         print(f"  Extracted {new_count} new files ({len(members) - new_count} already present)")
 
     def ingest(self) -> None:
-        _header("Step 4 — Ingest un-ingested matches")
+        _header("Step 4 - Ingest un-ingested matches")
         if not DATA_DIR.exists():
-            print(f"  {DATA_DIR} not found — skipping ingestion")
+            print(f"  {DATA_DIR} not found - skipping ingestion")
             return
 
         json_files = list(DATA_DIR.glob("*.json"))
         print(f"  Found {len(json_files)} JSON files in {DATA_DIR}")
 
         if self.dry_run:
-            print("  [dry-run] would call db.ingest_data.ingest_data() — skipped")
+            print("  [dry-run] would call db.ingest_data.ingest_data() - skipped")
             return
 
         from db.ingest_data import ingest_data
         ingest_data()
 
     def dedup_venues(self) -> None:
-        _header("Step 5 — Deduplicate venue rows")
+        _header("Step 5 - Deduplicate venue rows")
         from db.dedup_venues import run as dedup_run
         dedup_run(commit=not self.dry_run)
 
     def populate_venue_countries(self) -> None:
-        _header("Step 6 — Populate venue countries")
+        _header("Step 6 - Populate venue countries")
         cmd = [sys.executable, "-m", "db.populate_venue_countries"]
         if not self.dry_run:
             cmd.append("--commit")
         print(f"  Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, cwd=str(Path(__file__).parent))
         if result.returncode != 0:
-            print("  Warning: venue country population exited with non-zero status — check output above.")
+            print("  Warning: venue country population exited with non-zero status - check output above.")
 
     def precompute(self, current_year_only: bool = False) -> None:
-        _header("Step 7 — Populate precomputed tables")
+        _header("Step 7 - Populate precomputed tables")
         from db.precompute import populate_global_yearly_baseline
         populate_global_yearly_baseline(
             current_year_only=current_year_only,
@@ -159,7 +159,7 @@ class DatabaseSetupFacade:
         )
 
     def enrich_players(self, skip_api: bool = False) -> None:
-        _header("Step 8 — Enrich players from ESPN")
+        _header("Step 8 - Enrich players from ESPN")
         cmd_base = [sys.executable, "-m", "db.enrich_players"]
         if not self.dry_run:
             cmd_base.append("--commit")
@@ -169,7 +169,7 @@ class DatabaseSetupFacade:
         print(f"  Running: {' '.join(cmd1)}")
         result = subprocess.run(cmd1, cwd=str(Path(__file__).parent))
         if result.returncode != 0:
-            print("  Warning: Pass 1 exited with non-zero status — check output above.")
+            print("  Warning: Pass 1 exited with non-zero status - check output above.")
 
         if skip_api:
             print("  Pass 2 (ESPN API) skipped via --skip-enrich-api.")
@@ -180,7 +180,7 @@ class DatabaseSetupFacade:
         print(f"  Running: {' '.join(cmd2)}")
         result = subprocess.run(cmd2, cwd=str(Path(__file__).parent))
         if result.returncode != 0:
-            print("  Warning: Pass 2 exited with non-zero status — check output above.")
+            print("  Warning: Pass 2 exited with non-zero status - check output above.")
 
     def full_setup(
         self,

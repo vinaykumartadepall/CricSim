@@ -4,7 +4,7 @@ Comprehensive Model Validator
 Backtest of ball-outcome prediction strategies against held-out historical
 deliveries.  Supports multiple model types (enhanced and basic historical),
 tests every calibrated mechanism individually, and validates at the
-individual-player level — not just global averages.
+individual-player level - not just global averages.
 
 Usage:
     # Enhanced strategy (default)
@@ -52,7 +52,7 @@ Regression detection
   JSON baseline comparison; metrics degrading beyond threshold are flagged.
 
 Venue context lift  (--venue)
-  Same deliveries run twice — empty caches vs loaded venue+player_venue —
+  Same deliveries run twice - empty caches vs loaded venue+player_venue -
   to measure how much venue context improves predictions.
 
 Note on pressure modifier
@@ -86,7 +86,7 @@ _REGRESSION_THRESHOLDS: Dict[str, Dict[str, float]] = {
         'wicket_rate_err':   0.003,
         'dot_rate_err':      0.020,   # Test dot rate ~70%; σ≈0.007 → 2σ gap between runs
         'extra_rate_err':    0.007,
-        'economy_err':       0.300,   # high variance — phase-composition shifts with sampling
+        'economy_err':       0.300,   # high variance - phase-composition shifts with sampling
     },
     'ODI': {
         'log_loss':          0.015,
@@ -282,7 +282,7 @@ class ValidationResult:
         _bucket_table("By phase", self.by_phase)
         _bucket_table("By innings", self.by_innings, order=[1,2,3,4])
         _bucket_table(
-            "By batter state (confidence arc — tests _SHARPNESS_K on batter context)",
+            "By batter state (confidence arc - tests _SHARPNESS_K on batter context)",
             self.by_batter_state,
             order=['new', 'settling', 'set', 'dominant']
         )
@@ -318,7 +318,7 @@ class ValidationResult:
             order=['low', 'medium', 'high']
         )
         _bucket_table(
-            "By pressure proxy — base dist only, _apply_pressure_modifier not tested here",
+            "By pressure proxy - base dist only, _apply_pressure_modifier not tested here",
             self.by_pressure_proxy,
             min_n=30
         )
@@ -660,7 +660,7 @@ def _build_assertions(result: ValidationResult) -> List[str]:
         ok_bnd = dom_m.pred_boundary > new_m.pred_boundary
         out.append(f"{'✓' if ok_bnd else '✗'} Confidence arc: dominant batters have higher pred_bnd  (dom={dom_m.pred_boundary:.3f} > new={new_m.pred_boundary:.3f})")
         if result.match_format == 'Test':
-            # In Test, new batters are genuinely vulnerable — higher wicket probability
+            # In Test, new batters are genuinely vulnerable - higher wicket probability
             ok_wkt = new_m.pred_wicket > dom_m.pred_wicket
             out.append(f"{'✓' if ok_wkt else '✗'} Confidence arc [Test]: new batters have higher pred_wkt  (new={new_m.pred_wicket:.3f} > dom={dom_m.pred_wicket:.3f})")
         else:
@@ -672,7 +672,7 @@ def _build_assertions(result: ValidationResult) -> List[str]:
         d2 = result.by_pressure_proxy.get('inn2_death')
         p2 = result.by_pressure_proxy.get('inn2_pp')
         if d2 and p2 and d2.n >= 30 and p2.n >= 30:
-            # Check that death overs have higher economy than PP (always true — more aggressive play)
+            # Check that death overs have higher economy than PP (always true - more aggressive play)
             ok_eco_act  = d2.act_economy  > p2.act_economy
             ok_eco_pred = d2.pred_economy > p2.pred_economy
             out.append(f"{'✓' if ok_eco_act  else '✗'} Chase: death overs have higher actual economy than PP  (death={d2.act_economy:.2f} vs pp={p2.act_economy:.2f})")
@@ -912,7 +912,7 @@ class ModelValidator:
                 b.n         += 1
 
         if global_acc.n == 0:
-            raise RuntimeError("No deliveries scored — check baseline key coverage.")
+            raise RuntimeError("No deliveries scored - check baseline key coverage.")
 
         n = global_acc.n
 
@@ -1129,7 +1129,7 @@ class ModelValidator:
             from simulator.predictors.ball_outcome_prediction.common.utils import BASELINE_FALLBACK
             strategy.baseline_outcome_probs = BASELINE_FALLBACK
 
-        # Basic strategy has no ball counts — set empty dicts for per-player richness
+        # Basic strategy has no ball counts - set empty dicts for per-player richness
         strategy.batter_ball_counts  = {}
         strategy.bowler_ball_counts  = {}
         strategy.matchup_ball_counts = {}
@@ -1232,7 +1232,7 @@ def _cli():
     strategy  = strategy_cls()
     validator = ModelValidator(repo)
 
-    print(f"\nValidating {args.model}/{args.format} ({args.gender}) — {args.samples:,} deliveries …\n")
+    print(f"\nValidating {args.model}/{args.format} ({args.gender}) - {args.samples:,} deliveries …\n")
     result = validator.validate(strategy, args.format, args.gender, args.samples)
 
     if args.venue:

@@ -7,5 +7,5 @@ psutil            # Memory monitoring for cache eviction
 fastapi
 uvicorn[standard]
 pydantic>=2.0
-PyJWT[crypto]     # JWT verification for Supabase auth — [crypto] adds cryptography for ES256/RS256
+PyJWT[crypto]     # JWT verification for Supabase auth - [crypto] adds cryptography for ES256/RS256
 python-dotenv     # loads .env at startup; no-op in production where env vars are set by the host

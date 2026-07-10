@@ -2,7 +2,7 @@
 Read-only repository for List-of-Values (LOV) data used by the UI.
 
 All queries are delegated to SquadRepository which reads from
-simulation.tournament_seeded.config — no runtime deliveries scans.
+simulation.tournament_seeded.config - no runtime deliveries scans.
 """
 
 from __future__ import annotations

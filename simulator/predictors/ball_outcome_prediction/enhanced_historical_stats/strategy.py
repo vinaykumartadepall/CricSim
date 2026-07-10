@@ -1,7 +1,7 @@
 """
 Enhanced Historical Statistics Ball Outcome Strategy
 =====================================================
-Relative Multiplicative Scaling (RMS) model — improved in four areas over the
+Relative Multiplicative Scaling (RMS) model - improved in four areas over the
 base historical strategy:
 
 1. Fine-grained phase context
@@ -15,14 +15,14 @@ base historical strategy:
    Conditions on the batter's running score in the current innings: 'new' (0–5),
    'settling' (6–20), 'set' (21–49), 'dominant' (50+).  Distribution is pre-computed
    from historical data via window functions that track score_before each delivery.
-   A new batter genuinely faces different outcomes than a set batter — this makes that
+   A new batter genuinely faces different outcomes than a set batter - this makes that
    explicit rather than blending it into the global batter historical average.
 
 3. Data-reliability-weighted context blending
    Sparse player/matchup data should not compete equally with rich phase/venue data.
    For each context, a reliability score [0, 1] is computed from the number of balls
    in the cache (linear ramp to a format-specific threshold).  The base weights are
-   rescaled by these reliability scores and renormalised — so an uncached batter
+   rescaled by these reliability scores and renormalised - so an uncached batter
    (reliability = 0) releases their share of weight to the remaining contexts rather
    than silently falling back to a 1.0 multiplier while still consuming weight budget.
 
@@ -35,7 +35,7 @@ base historical strategy:
 
 Additional improvements:
 - Baseline from full delivery-level aggregate (not an averaged innings distribution).
-- Candidate key set restricted to baseline keys — sparse contexts cannot inject
+- Candidate key set restricted to baseline keys - sparse contexts cannot inject
   rare outcome keys with inflated multipliers.
 - Clean (ratio ** weight) multiplier with no salt or aggression constant, so
   weights are directly interpretable and correctly optimised by optimize_weights.py.
@@ -130,7 +130,7 @@ _PARTTIME_THRESHOLDS: Dict[str, int] = {
 }
 
 # Category-level multipliers vs. the aggregate baseline, per format.
-# T20:  batters slog at part-timers — many boundaries, but also miscued-shot wickets.
+# T20:  batters slog at part-timers - many boundaries, but also miscued-shot wickets.
 # ODI:  moderate aggression, some wickets from injudicious attacking shots.
 # Test: batters patiently milk singles/twos; part-timers almost never break through.
 _PARTTIME_CATEGORY_MULT: Dict[str, Dict[str, float]] = {
@@ -344,9 +344,9 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
     """
     Enhanced data-driven ball outcome predictor.
 
-    init_model()         — called once at match start; populates all caches from DB.
-    predict_next_ball()  — called once per delivery; returns a sampled BallOutcome.
-    _compute_distribution() — pure probability computation without sampling;
+    init_model()         - called once at match start; populates all caches from DB.
+    predict_next_ball()  - called once per delivery; returns a sampled BallOutcome.
+    _compute_distribution() - pure probability computation without sampling;
                               used by the ModelValidator for backtesting.
     """
 
@@ -359,8 +359,8 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         self.bowler_cache     = {}
         self.matchup_cache    = {}
         self.venue_cache         = {}
-        self.player_venue_cache:   dict = {}  # {player_id: (probs, ball_count)} — venue-specific
-        self.player_country_cache: dict = {}  # {player_id: (probs, ball_count)} — country/region
+        self.player_venue_cache:   dict = {}  # {player_id: (probs, ball_count)} - venue-specific
+        self.player_country_cache: dict = {}  # {player_id: (probs, ball_count)} - country/region
         self.tournament_cache = {}
         self.innings_cache    = {}
         self.phase_cache      = {}
@@ -411,7 +411,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         self._match_format = match_format
         self._gender = gender
 
-        log.info("[EnhancedStrategy] Initialising — format: %s (%s)", match_format, gender)
+        log.info("[EnhancedStrategy] Initialising - format: %s (%s)", match_format, gender)
 
         all_player_ids = collect_player_ids(match)
         tournament = getattr(match, 'tournament', None)
@@ -455,10 +455,10 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
                 log.warning("[EnhancedModel] Cache '%s' failed: %s", label, e)
                 results[label] = {}
 
-        # Baseline must be resolved first — all era-normalization calls reference it.
+        # Baseline must be resolved first - all era-normalization calls reference it.
         self.baseline_outcome_probs = results["baseline"]
         if not self.baseline_outcome_probs:
-            log.warning("[EnhancedStrategy] No aggregate data — using empirical prior.")
+            log.warning("[EnhancedStrategy] No aggregate data - using empirical prior.")
             self.baseline_outcome_probs = BASELINE_FALLBACK
         self._ordered_keys = list(self.baseline_outcome_probs.keys())
         self._key_categories = {k: _outcome_category(k) for k in self._ordered_keys}
@@ -559,7 +559,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
     def _refresh_venue_context(self, match: SimulationMatch) -> None:
         """Resolve venue/player-venue/player-country context for the match
         CURRENTLY being simulated. Runs on every init_model call, not just the
-        first — unlike the player/format caches _extend_player_caches only
+        first - unlike the player/format caches _extend_player_caches only
         ever grows, venue changes match to match within a tournament, so a
         cache populated once from match 1 would silently stay wrong (or, for
         the tournament prewarm's venueless synthetic match, permanently
@@ -568,7 +568,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         Cheap on repeat: get_venue_distribution / get_player_venue_probs_precomputed
         / get_player_country_distribution are all cached by venue_id/country at
         the StatsRepository layer already, so calling this again for an
-        already-seen venue is a dict lookup, not a query — TournamentEngine's
+        already-seen venue is a dict lookup, not a query - TournamentEngine's
         _prewarm_strategies() calls init_model once per distinct tournament
         venue before match 1 for exactly this reason, so real match simulation
         never pays a live DB round-trip here.
@@ -590,7 +590,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             venue_result = repo.get_venue_distribution(venue.id, match_format, gender)
             if not venue_result and getattr(venue, 'country', None):
                 venue_result = repo.get_country_distribution(venue.country, match_format, gender)
-                log.info("[Model] Venue absent — using country distribution (%s)", venue.country)
+                log.info("[Model] Venue absent - using country distribution (%s)", venue.country)
         except Exception as e:
             log.warning("[EnhancedModel] Cache 'venue' failed: %s", e)
             venue_result = {}
@@ -909,7 +909,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
                 # ceiling scales with wickets in hand
                 score_p = min(0.40, max(0.15, wkts_rem / 10.0 * 0.40))
             elif wkts_rem >= 5:
-                # Wickets in hand — neutral; phase distribution already encodes the base scoring rate
+                # Wickets in hand - neutral; phase distribution already encodes the base scoring rate
                 score_p = 0.0
             else:
                 # Wickets running low in non-death overs: firm conservation pressure.
@@ -989,7 +989,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         net_attack = ctx.score_p - wicket_conservation * conservation_weight + ctx.dot_p * 0.2
         bowl_loose = ctx.partnership_p * test_mult * 0.12
 
-        # Scale attacking intent by wickets in hand — more wickets = more freedom to attack
+        # Scale attacking intent by wickets in hand - more wickets = more freedom to attack
         wkt_risk_scale = min(1.0, max(0.2, ctx.wkts_remaining / 7.0))
 
         adjusted = []
@@ -1147,7 +1147,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         selected_key: tuple,
         pressure: PressureContext,
     ) -> None:
-        # No handler-level check needed here — the only caller (predict_next_ball)
+        # No handler-level check needed here - the only caller (predict_next_ball)
         # already gates on is_level_active(TRACE) before invoking this at all.
         thresholds  = _RELIABILITY_THRESHOLDS.get(self._match_format, _RELIABILITY_THRESHOLDS['T20'])
         base_w      = self.WEIGHTS
@@ -1187,8 +1187,8 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         lines.append(f"  {'─'*68}")
 
         def _ctx_row(label, hit, balls, rel, base_wt, eff_wt, k=1.0):
-            balls_s = f"{balls:>7.2f}" if balls else f"{'—':>7}"
-            rel_s   = f"{rel:>6.3f}" if rel is not None else f"{'—':>6}"
+            balls_s = f"{balls:>7.2f}" if balls else f"{'-':>7}"
+            rel_s   = f"{rel:>6.3f}" if rel is not None else f"{'-':>6}"
             k_s     = f"{k:>4.1f}" if k != 1.0 else f"{'1':>4}"
             return (f"  {label:<22} {'HIT' if hit else 'MISS':<6} {balls_s}  {rel_s}  "
                     f"{base_wt:>7.4f}  {eff_wt:>7.4f}  {k_s}")
@@ -1213,7 +1213,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
 
         dropped = base_w['venue'] * (not venue_hit) + base_w['tournament'] * (not tourn_hit)
         if dropped > 1e-4:
-            lines.append(f"  [Dropped {dropped:.4f} weight from missing venue/tournament — redistributed to active contexts]")
+            lines.append(f"  [Dropped {dropped:.4f} weight from missing venue/tournament - redistributed to active contexts]")
 
         lines.append("")
         lines.append(
@@ -1278,7 +1278,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         venue_probs = self._get_player_venue_probs(batter_id)
         tourn_probs = self.tournament_cache if self.tournament_cache else self.baseline_outcome_probs
 
-        # On a free hit the batter attacks without dismissal fear — nullify the matchup
+        # On a free hit the batter attacks without dismissal fear - nullify the matchup
         # weight so the batter's own profile dominates (and the T20 70/30 batter/bowler
         # redistribution kicks in). The matchup context still shapes the delivery type
         # via _compute_distribution but with zero exponent influence.
@@ -1288,8 +1288,8 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         # Super over: substitute all-over batter cache with the batter's own death-phase
         # distribution so each batter's death-over tendencies drive the simulation.
         # Only applied when the batter has at least _PHASE_BATTER_THRESHOLD balls in that
-        # phase — below the threshold the sample is too sparse and all-over stats are
-        # more reliable. Bowler is left as-is — the phase component already anchors the
+        # phase - below the threshold the sample is too sparse and all-over stats are
+        # more reliable. Bowler is left as-is - the phase component already anchors the
         # blend to the death phase, so overriding it too would double-count and inflate
         # wicket probability. Matchup has no phase-specific variant so it stays as-is.
         _override_batter: Optional[dict] = None

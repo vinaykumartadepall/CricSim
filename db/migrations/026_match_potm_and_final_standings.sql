@@ -1,7 +1,7 @@
 -- Migration 026: persist per-match Player of the Match and final group-stage
 -- standings, instead of recomputing them on every results-page load.
 --
--- simulation.matches.player_of_match_id already existed (reserved, unused —
+-- simulation.matches.player_of_match_id already existed (reserved, unused -
 -- the only prior write of that column name in the codebase targets
 -- history.matches via db/repository.py's offline ingest pipeline, a
 -- different table entirely). Reusing it here for the player_id half of the
@@ -11,7 +11,7 @@
 --
 -- simulation.tournaments.final_standings stores the live tournament engine's
 -- own (already NRR-all-out-rule-correct) group-stage standings as JSONB,
--- written once when the group stage completes — the results page reads this
+-- written once when the group stage completes - the results page reads this
 -- instead of re-deriving standings from simulation.deliveries per request.
 
 BEGIN;

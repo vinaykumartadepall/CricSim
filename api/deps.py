@@ -7,7 +7,7 @@ import jwt as pyjwt
 from jwt import PyJWKClient
 from fastapi import Header, HTTPException
 
-# Module-level singleton — fetches JWKS once, then caches signing keys.
+# Module-level singleton - fetches JWKS once, then caches signing keys.
 # PyJWKClient automatically re-fetches when it encounters an unknown kid.
 _jwks_client: PyJWKClient | None = None
 
@@ -24,7 +24,7 @@ def _get_jwks_client() -> PyJWKClient:
 
 def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
     """
-    FastAPI dependency — extracts the Supabase user ID from the JWT.
+    FastAPI dependency - extracts the Supabase user ID from the JWT.
     Verifies using Supabase's public JWKS endpoint (supports ES256 and RS256).
     Raises 401 if missing/invalid, 503 if SUPABASE_URL not set.
     """

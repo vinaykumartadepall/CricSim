@@ -1,28 +1,43 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ChevronLeft, ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronLeft, ChevronDown, ChevronUp, Users } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
 import { ShareButton } from '@/components/ui/ShareButton'
 import { api } from '@/api/client'
 import type { Scorecard, Innings } from '@/types'
+import { captureViewportImage } from '@/lib/shareScreenshot'
 
 type Tab = 'result' | 'scorecard' | 'commentary'
 
-function matchShareText(params: {
+type MatchOutcomeParams = {
   homeTeam: string; awayTeam: string; userTeam: string | null
   userWon: boolean; userLost: boolean; winner: string | null; margin: string | null
   isTied: boolean; isNoResult: boolean; isDrawn: boolean
-}): string {
+}
+
+// Shared by the share-text and share-image builders below so the emoji/tone
+// of a result never drifts between the two.
+function matchOutcomeIcon(p: MatchOutcomeParams): string {
+  if (p.userWon) return '🏆'
+  if (p.userLost) return '😤'
+  if (p.isTied) return '⚖️'
+  if (p.isNoResult) return '🌧️'
+  if (p.isDrawn) return '🤝'
+  return p.winner ? '🏆' : '🏏'
+}
+
+function matchShareText(params: MatchOutcomeParams): string {
   const { homeTeam, awayTeam, userTeam, userWon, userLost, winner, margin, isTied, isNoResult, isDrawn } = params
+  const icon = matchOutcomeIcon(params)
   if (userWon) {
     const opponent = userTeam === homeTeam ? awayTeam : homeTeam
-    return `🏆 ${userTeam} beat ${opponent} on CricSim!${margin ? ` Won by ${margin}.` : ''}`
+    return `${icon} ${userTeam} beat ${opponent} on CricSim!${margin ? ` Won by ${margin}.` : ''}`
   }
-  if (userLost)   return `😤 Tough one — ${userTeam} lost to ${winner ?? 'the opposition'} on CricSim.`
-  if (isTied)     return `⚖️ ${homeTeam} vs ${awayTeam} ended in a tie on CricSim!`
-  if (isNoResult) return `🌧️ ${homeTeam} vs ${awayTeam} — no result on CricSim.`
-  if (isDrawn)    return `🤝 ${homeTeam} vs ${awayTeam} ended in a draw on CricSim.`
-  return winner ? `🏆 ${winner} won: ${homeTeam} vs ${awayTeam} on CricSim!` : `🏏 ${homeTeam} vs ${awayTeam} on CricSim!`
+  if (userLost)   return `${icon} Tough one - ${userTeam} lost to ${winner ?? 'the opposition'} on CricSim.`
+  if (isTied)     return `${icon} ${homeTeam} vs ${awayTeam} ended in a tie on CricSim!`
+  if (isNoResult) return `${icon} ${homeTeam} vs ${awayTeam} - no result on CricSim.`
+  if (isDrawn)    return `${icon} ${homeTeam} vs ${awayTeam} ended in a draw on CricSim.`
+  return winner ? `${icon} ${winner} won: ${homeTeam} vs ${awayTeam} on CricSim!` : `${icon} ${homeTeam} vs ${awayTeam} on CricSim!`
 }
 
 // Shared by ResultSummaryTab (personalized banner) and the page header
@@ -30,8 +45,10 @@ function matchShareText(params: {
 function parseMatchResult(desc: string | null) {
   const soMatch = desc?.match(/^Match tied · (.+) won Super Over$/)
   const soWinner = soMatch ? soMatch[1].trim() : null
+  const tieMatch = desc?.match(/^Match tied · Super Over tied · (.+) advanced due to better group stage finish$/)
+  const tieWinner = tieMatch ? tieMatch[1].trim() : null
   const winnerMatch = desc?.match(/^(.+?)\s+won\s+by\s+(.+)$/)
-  const winner = soWinner ?? (winnerMatch ? winnerMatch[1].trim() : null)
+  const winner = soWinner ?? tieWinner ?? (winnerMatch ? winnerMatch[1].trim() : null)
   const margin = winnerMatch ? winnerMatch[2].trim() : null
   return {
     soWinner, winner, margin,
@@ -64,7 +81,7 @@ interface Commentary {
   deliveries: DeliveryItem[]
 }
 
-// ── Player avatar (initials fallback — scorecard has no headshot_url) ────────
+// ── Player avatar (initials fallback - scorecard has no headshot_url) ────────
 
 function PlayerAvatar({ name, url, size = 40 }: { name: string; url?: string | null; size?: number }) {
   const [imgError, setImgError] = useState(false)
@@ -102,7 +119,7 @@ interface InningsCtx {
   leadTeamWhenNegative: string
   finalBanner: string | null
   isSuperOverInnings: boolean
-  isOnlyOneOver: boolean       // super over — skip "in Y balls"
+  isOnlyOneOver: boolean       // super over - skip "in Y balls"
   ovPerInnings: number | null  // effective overs (derived from format, not stored value)
   batTeam: string
 }
@@ -116,7 +133,21 @@ function ballSymbol(d: DeliveryItem): string {
     const total = d.runs_batter + d.runs_extras
     return total <= 1 ? 'Wd' : `${total}Wd`
   }
-  if (kind === 'noball') return 'Nb'
+  if (kind === 'noball') {
+    const total = d.runs_batter;
+    return `${total}Nb`;
+  }
+  // Byes/leg byes carry all their runs as extras (runs_batter stays 0), so
+  // without this they'd render as a plain run count - indistinguishable
+  // from a batted single/boundary.
+  if (kind === 'legbyes') {
+    const total = d.runs_batter + d.runs_extras
+    return `${total}lb`
+  }
+  if (kind === 'byes') {
+    const total = d.runs_batter + d.runs_extras
+    return `${total}b`
+  }
   if (d.runs_batter === 6) return '6'
   if (d.runs_batter === 4) return '4'
   const total = d.runs_batter + d.runs_extras
@@ -127,12 +158,13 @@ function ballColor(sym: string): string {
   if (sym === 'W')               return 'var(--loss)'
   if (sym === '6')               return 'var(--score)'
   if (sym === '4')               return 'var(--accent)'
-  if (sym.endsWith('Wd') || sym === 'Nb') return 'var(--text-dim)'
+  if (sym.endsWith('Wd') || sym === 'Nb') return 'var(--color-purple-400)'
+  if (sym.endsWith('lb') || sym.endsWith('b')) return 'var(--text)'
   if (sym === '•')               return 'var(--text-dim)'
-  return 'var(--text-muted)'
+  return 'var(--text)'
 }
 
-// Row-highlight backgrounds for the ball-by-ball commentary list — built
+// Row-highlight backgrounds for the ball-by-ball commentary list - built
 // from the app's own theme variables (color-mix against var(--loss) etc.,
 // same pattern as --accent-tint) so they adapt per-theme instead of being
 // fixed rgba literals that only happen to look right in one theme. Six gets
@@ -329,7 +361,7 @@ function InningsPanel({ inn, defaultOpen, isSuperOver }: { inn: Innings; default
                     <td className="pr-3 py-2" style={{ color: 'var(--text-muted)' }}>{b.overs}</td>
                     <td className="pr-3 py-2" style={{ color: 'var(--text-muted)' }}>{b.runs}</td>
                     <td className="pr-3 py-2 font-semibold" style={{ color: b.wickets > 0 ? 'var(--accent)' : 'var(--text-muted)' }}>{b.wickets}</td>
-                    <td className="pr-3 py-2" style={{ color: 'var(--text-muted)' }}>{b.economy != null ? b.economy.toFixed(2) : '—'}</td>
+                    <td className="pr-3 py-2" style={{ color: 'var(--text-muted)' }}>{b.economy != null ? b.economy.toFixed(2) : '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -450,7 +482,7 @@ interface PotmDisplay {
 }
 
 // Player of the Match is decided once, server-side, by the same scoring
-// rubric used for Player of the Tournament (simulator/tournament/awards.py) —
+// rubric used for Player of the Tournament (simulator/tournament/awards.py) -
 // this only gathers that already-identified player's innings lines for
 // display, it does not compute or compare any scores itself.
 function potmDisplayInfo(scorecard: Scorecard): PotmDisplay | null {
@@ -522,7 +554,7 @@ function computeWicketBatterStats(delivs: DeliveryItem[]): Map<DeliveryItem, { r
 
 // ── Worm chart ────────────────────────────────────────────────────────────────
 
-// Fixed colours — always distinct regardless of active theme
+// Fixed colours - always distinct regardless of active theme
 const WORM_C1 = '#0EA5E9'          // sky blue   (team batting 1st)
 const WORM_C2 = '#F97316'          // orange     (team batting 2nd)
 const WORM_C1_DIM = '#0EA5E970'    // sky blue 44%  (Test 2nd innings)
@@ -552,7 +584,7 @@ function WormChart({ deliveries, matchFormat, innings: inningsList }: {
     return [{ x: 0, y: 0 }, ...snaps.map(s => ({ x: s.overNum + 1, y: s.cumulativeScore.runs }))]
   }
 
-  // Wicket positions — fractional x within over, exact cumulative y
+  // Wicket positions - fractional x within over, exact cumulative y
   function getWicketPositions(innNum: number, startX = 0, startY = 0): { x: number; y: number }[] {
     const delivs = byInning[innNum]
     if (!delivs) return []
@@ -637,7 +669,7 @@ function WormChart({ deliveries, matchFormat, innings: inningsList }: {
           <polyline points={poly([pts2a[pts2a.length - 1], ...pts2b])} fill="none" stroke={WORM_C2_DIM} strokeWidth={2} strokeDasharray="5,3" strokeLinecap="round" />
         )}
 
-        {/* Wicket dots — hollow circles on the line */}
+        {/* Wicket dots - hollow circles on the line */}
         {wk1.map((pt, i) => (
           <circle key={`w1-${i}`} cx={sx(pt.x)} cy={sy(pt.y)} r={3.5} fill="var(--bg)" stroke={WORM_C1} strokeWidth={1.5} />
         ))}
@@ -682,7 +714,7 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
   const desc = scorecard.result_description ?? null
   const { soWinner, winner, margin, isTied, isNoResult, isDrawn } = parseMatchResult(desc)
 
-  // Only personalize the result if userTeam actually played in this match —
+  // Only personalize the result if userTeam actually played in this match -
   // otherwise a team that just isn't the winner (e.g. browsing some other
   // fixture in the same tournament) would wrongly read as "you lost".
   const isUserMatch = !!userTeam && (
@@ -704,7 +736,7 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
 
   return (
     <div className="fade-in flex flex-col gap-3">
-      {/* Result card — personalized if userTeam known, generic otherwise */}
+      {/* Result card - personalized if userTeam known, generic otherwise */}
       {desc && (
         <div
           className="rounded-xl px-4 py-4 flex flex-col gap-1 text-center"
@@ -839,7 +871,7 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
         )
       })()}
 
-      {/* Worm chart — after POTM */}
+      {/* Worm chart - after POTM */}
       {deliveries.length > 0 && (
         <WormChart deliveries={deliveries} matchFormat={scorecard.match_format ?? null} innings={scorecard.innings} />
       )}
@@ -924,15 +956,26 @@ export function MatchDetailPage() {
           <div className="text-base font-semibold" style={{ color: 'var(--text)' }}>
             {scorecard.home_team} vs {scorecard.away_team}
           </div>
-          {scorecard.result_description && (
-            <ShareButton
-              text={matchShareText({
-                homeTeam: scorecard.home_team, awayTeam: scorecard.away_team, userTeam,
-                userWon, userLost, winner, margin, isTied, isNoResult, isDrawn,
-              })}
-              url={window.location.href}
-            />
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {scorecard.room_id && (
+              <button
+                className="btn-outline flex items-center gap-1.5 text-xs"
+                onClick={() => navigate(`/multiplayer/draft/${scorecard.room_id}`)}
+              >
+                <Users size={12} /> Return to Lobby
+              </button>
+            )}
+            {scorecard.result_description && (
+              <ShareButton
+                text={matchShareText({
+                  homeTeam: scorecard.home_team, awayTeam: scorecard.away_team, userTeam,
+                  userWon, userLost, winner, margin, isTied, isNoResult, isDrawn,
+                })}
+                url={window.location.href}
+                buildImage={() => captureViewportImage(`${scorecard.home_team}-vs-${scorecard.away_team}.png`)}
+              />
+            )}
+          </div>
         </div>
         <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
           {scorecard.match_label}
@@ -993,7 +1036,7 @@ export function MatchDetailPage() {
               }
               const hasSO = !isTestFormat && [3, 4].some(n => byInning[n])
 
-              // Derive correct overs from format — stored value is corrupted to 1 for super over matches
+              // Derive correct overs from format - stored value is corrupted to 1 for super over matches
               const mainMatchOvPerInnings: number | null = (() => {
                 if (isTestFormat) return null
                 const fmt = (commentary.match_format ?? '').toUpperCase()
@@ -1003,7 +1046,7 @@ export function MatchDetailPage() {
                 return (commentary.overs_per_innings ?? 0) > 1 ? commentary.overs_per_innings : null
               })()
 
-              // Build innings context — no hardcoded numbers inside OverSummaryCard
+              // Build innings context - no hardcoded numbers inside OverSummaryCard
               const buildCtx = (innNum: number): InningsCtx => {
                 const i1 = inn(1), i2 = inn(2), i3 = inn(3), i4 = inn(4)
 
@@ -1032,7 +1075,7 @@ export function MatchDetailPage() {
                     return { ...base, isChase: false, target: null, finalBanner: banner, ovPerInnings: mainMatchOvPerInnings, batTeam: i1?.batting_team ?? '' }
                   }
                   if (innNum === 2) {
-                    const banner = hasSO ? 'Match tied — Super Over to follow' : (scorecard.result_description ?? null)
+                    const banner = hasSO ? 'Match tied - Super Over to follow' : (scorecard.result_description ?? null)
                     return { ...base, isChase: true, target: (i1?.total_runs ?? 0) + 1, finalBanner: banner, ovPerInnings: mainMatchOvPerInnings, batTeam: i2?.batting_team ?? '' }
                   }
                   if (innNum === 3 && hasSO) {
@@ -1059,7 +1102,7 @@ export function MatchDetailPage() {
                   const wicketStats = computeWicketBatterStats(delivs)
 
                   const innLabel = ctx.isSuperOverInnings
-                    ? `Super Over — ${innEntry?.batting_team ?? `Team ${innNum}`}`
+                    ? `Super Over - ${innEntry?.batting_team ?? `Team ${innNum}`}`
                     : (innEntry?.batting_team ?? `Innings ${innNum}`)
 
                   return (

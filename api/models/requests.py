@@ -16,7 +16,7 @@ class MatchSimRequest(BaseModel):
     simulation_type: Literal["match"]
     match_format: str = "T20"
     venue: Optional[str] = None
-    # None means "use the current admin-configured default" — see simulator.admin_settings
+    # None means "use the current admin-configured default" - see simulator.admin_settings
     bowling_strategy: Optional[str] = None
     ball_outcome_strategy: Optional[str] = None
     era_normalize_contexts: Optional[List[str]] = None
@@ -33,7 +33,7 @@ class TournamentVenueConfig(BaseModel):
 class TournamentTeamConfig(BaseModel):
     name: str
     short_name: Optional[str] = None
-    players: List[int]  # history.players IDs — no name strings in the API path
+    players: List[int]  # history.players IDs - no name strings in the API path
     home_venue: Optional[str] = None
     primary_color: str = "#1E88E5"
     secondary_color: str = "#FFFFFF"
@@ -65,7 +65,7 @@ class TournamentSimRequest(BaseModel):
     format: str = "T20"
     gender: str = "male"
     season: str = "2025"
-    # None means "use the current admin-configured default" — see simulator.admin_settings
+    # None means "use the current admin-configured default" - see simulator.admin_settings
     outcome_strategy: Optional[str] = None
     bowling_strategy: Optional[str] = None
     era_normalize_contexts: Optional[List[str]] = None

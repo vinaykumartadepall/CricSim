@@ -2,8 +2,8 @@
 Fixture schedule generation for a tournament.
 
 Supported schedule types:
-  round_robin        — every team plays every other team once
-  double_round_robin — every team plays every other team twice (home/away swapped)
+  round_robin        - every team plays every other team once
+  double_round_robin - every team plays every other team twice (home/away swapped)
 
 Venue assignment:
   - If neutral_venues=True (default): cycle through the venues list
@@ -26,7 +26,7 @@ def generate_fixtures(
     schedule = config.schedule
 
     if isinstance(schedule, list):
-        # Explicit fixture list provided in config — use as-is
+        # Explicit fixture list provided in config - use as-is
         for i, f in enumerate(schedule):
             if f.match_number == 0:
                 f.match_number = i + 1

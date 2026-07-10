@@ -1,7 +1,7 @@
-# Performance Analysis: Cricket Simulator — Simulation Loop
+# Performance Analysis: Cricket Simulator - Simulation Loop
 
 **Context:** 94-match IPL tournament, ~22,560 balls total (240 per T20 match × 2 innings × 94 matches).
-Simulation loop is the dominant cost at ~11s out of ~13s end-to-end. Analysis is purely observational — no code changes made.
+Simulation loop is the dominant cost at ~11s out of ~13s end-to-end. Analysis is purely observational - no code changes made.
 
 ---
 
@@ -26,7 +26,7 @@ logger.ball(text)                # logger.debug() call
 ### Bottlenecks
 
 **B1 – `MatchRules` static method calls on every ball (medium cost)**
-`_simulate_over` calls `MatchRules.supports_free_hit()` once per over (fine) but inside `_publish_ball_event` and the body, `MatchRules.is_legal_delivery()` is called per ball. More expensive: each `InningPlayer.on_event()` calls `MatchRules.is_death_over()`, `MatchRules.is_legal_delivery()` (×2), and `MatchRules.is_bowler_credited_wicket()` — four static method calls plus dict lookups inside each. With 22 observers per ball (11 players × 2 teams), that is up to 4 × 22 = 88 attribute-lookup + function-call overheads per ball. See `inning_player.py:58,68,88,90`.
+`_simulate_over` calls `MatchRules.supports_free_hit()` once per over (fine) but inside `_publish_ball_event` and the body, `MatchRules.is_legal_delivery()` is called per ball. More expensive: each `InningPlayer.on_event()` calls `MatchRules.is_death_over()`, `MatchRules.is_legal_delivery()` (×2), and `MatchRules.is_bowler_credited_wicket()` - four static method calls plus dict lookups inside each. With 22 observers per ball (11 players × 2 teams), that is up to 4 × 22 = 88 attribute-lookup + function-call overheads per ball. See `inning_player.py:58,68,88,90`.
 
 **Recommendation (medium impact):** Hoist the is_death flag and is_legal_delivery result into the `MatchEvent.data` dict once in `_publish_ball_event()` (already has `match` in there) so each observer reads a precomputed value instead of recomputing it:
 ```python
@@ -36,10 +36,10 @@ logger.ball(text)                # logger.debug() call
 ```
 
 **B2 – `_build_delivery` creates a new dataclass object per ball (low individual cost, adds up)**
-`simulator/engines/innings_simulator.py:183-197`. A `SimulationDelivery` dataclass is constructed per ball — 15 field assignments. In CPython, dataclass construction is roughly 2–3 µs. At 22,560 balls that is ~50ms. Minor but avoidable if delivery objects were pooled or replaced with a lighter tuple/namedtuple appended directly to a preallocated list.
+`simulator/engines/innings_simulator.py:183-197`. A `SimulationDelivery` dataclass is constructed per ball - 15 field assignments. In CPython, dataclass construction is roughly 2–3 µs. At 22,560 balls that is ~50ms. Minor but avoidable if delivery objects were pooled or replaced with a lighter tuple/namedtuple appended directly to a preallocated list.
 
 **B3 – `format_ball_commentary` string formatting per ball (low cost when SILENT)**
-`simulator/engines/innings_simulator.py:140-142` calls `format_ball_commentary(delivery, ...)` on every ball unconditionally, then passes the result to `logger.ball()` which calls `log.debug()`. Because the logger's root level is `DEBUG` (set at line 120 of `logger.py`), the logger does accept the call — it is only the console handler that is at level CONSOLE (25 > INFO 20). However with no file handler registered in tournament mode, `log.debug()` will still evaluate the `%s` format string after the handler-level check. The string is built *before* the log call, so `format_ball_commentary` runs unconditionally on every ball even when output is suppressed. Wrapping both the format and the log call in `if log.isEnabledFor(logging.DEBUG):` would eliminate ~22,560 function calls and string allocations.
+`simulator/engines/innings_simulator.py:140-142` calls `format_ball_commentary(delivery, ...)` on every ball unconditionally, then passes the result to `logger.ball()` which calls `log.debug()`. Because the logger's root level is `DEBUG` (set at line 120 of `logger.py`), the logger does accept the call - it is only the console handler that is at level CONSOLE (25 > INFO 20). However with no file handler registered in tournament mode, `log.debug()` will still evaluate the `%s` format string after the handler-level check. The string is built *before* the log call, so `format_ball_commentary` runs unconditionally on every ball even when output is suppressed. Wrapping both the format and the log call in `if log.isEnabledFor(logging.DEBUG):` would eliminate ~22,560 function calls and string allocations.
 
 ---
 
@@ -51,26 +51,26 @@ logger.ball(text)                # logger.debug() call
 
 `predict_next_ball()` is called once per ball and does the following work:
 
-1. **`_compute_effective_weights()`** — 3 dict lookups, 8 multiplications, a conditional T20 redistribution block, and a dict comprehension to normalise. Called once per ball. Cheap individually (~1 µs) but uncached.
+1. **`_compute_effective_weights()`** - 3 dict lookups, 8 multiplications, a conditional T20 redistribution block, and a dict comprehension to normalise. Called once per ball. Cheap individually (~1 µs) but uncached.
 
-2. **`_compute_phase_probs()`** — 3–4 dict lookups, a dict-union (`set(global_phase) | set(bp) | set(bd)`), and a dict comprehension over all outcome keys. Called once per ball (line 1040). The phase and batter are stable across an entire over (6 balls minimum); batter's phase and the bowler typically do not change mid-over.
+2. **`_compute_phase_probs()`** - 3–4 dict lookups, a dict-union (`set(global_phase) | set(bp) | set(bd)`), and a dict comprehension over all outcome keys. Called once per ball (line 1040). The phase and batter are stable across an entire over (6 balls minimum); batter's phase and the bowler typically do not change mid-over.
 
-3. **`_get_player_venue_probs()`** — 3 dict lookups, arithmetic (weight computation), a `set(general) | set(vp) | set(cp)` union, and a full dict comprehension over all keys. Called once per ball (line 1237). The batter ID changes only on a wicket; the venue never changes. This is recomputed every single delivery despite being stable until wicket fall.
+3. **`_get_player_venue_probs()`** - 3 dict lookups, arithmetic (weight computation), a `set(general) | set(vp) | set(cp)` union, and a full dict comprehension over all keys. Called once per ball (line 1237). The batter ID changes only on a wicket; the venue never changes. This is recomputed every single delivery despite being stable until wicket fall.
 
-4. **`_compute_distribution()` inner loop** — iterates over every key in `baseline_outcome_probs` (typically ~30–50 distinct outcome tuples for T20). Per key:
+4. **`_compute_distribution()` inner loop** - iterates over every key in `baseline_outcome_probs` (typically ~30–50 distinct outcome tuples for T20). Per key:
    - 8 dict `.get()` calls (batter, bowler, matchup, phase, milestone, innings, venue, tournament)
-   - `_apply_category_relevance(eff_w, outcome_key)` — creates a new 8-key dict, computes 8 multiplications, sums 8 values, creates a second normalised 8-key dict. This is called **once per outcome key per ball**, i.e. ~40 × 22,560 = ~900,000 invocations.
+   - `_apply_category_relevance(eff_w, outcome_key)` - creates a new 8-key dict, computes 8 multiplications, sums 8 values, creates a second normalised 8-key dict. This is called **once per outcome key per ball**, i.e. ~40 × 22,560 = ~900,000 invocations.
    - 8 `_clean_multiplier()` calls, each with a branch, a `max/min`, and a `**` (power) operation.
 
-5. **`ordered_keys = list(self.baseline_outcome_probs.keys())`** — creates a new list every call (line 1052). `list(d.keys())` is O(n) allocation on every ball.
+5. **`ordered_keys = list(self.baseline_outcome_probs.keys())`** - creates a new list every call (line 1052). `list(d.keys())` is O(n) allocation on every ball.
 
-6. After `_compute_distribution`, `predict_next_ball` extracts `list(distribution.keys())` and `list(distribution.values())` (lines 1281–1282) — two more O(n) list allocations from the newly-created dict.
+6. After `_compute_distribution`, `predict_next_ball` extracts `list(distribution.keys())` and `list(distribution.values())` (lines 1281–1282) - two more O(n) list allocations from the newly-created dict.
 
-7. **`_compute_pressure()`** — two O(k) reverse scans of `match.innings[-1].deliveries` (lines 891, 907): one to count consecutive dots, one to count balls since last wicket. At ball 240 of the second innings, each scan walks up to 240 delivery objects. Across 22,560 balls the average scan length is ~120, giving ~22,560 × 120 × 2 = ~5.4M delivery-object iterations just for pressure computation.
+7. **`_compute_pressure()`** - two O(k) reverse scans of `match.innings[-1].deliveries` (lines 891, 907): one to count consecutive dots, one to count balls since last wicket. At ball 240 of the second innings, each scan walks up to 240 delivery objects. Across 22,560 balls the average scan length is ~120, giving ~22,560 × 120 × 2 = ~5.4M delivery-object iterations just for pressure computation.
 
-8. **`_apply_pressure_modifier()`** — iterates over all `ordered_keys` again with per-key tuple unpacking and conditional arithmetic. A second O(n_outcomes) pass.
+8. **`_apply_pressure_modifier()`** - iterates over all `ordered_keys` again with per-key tuple unpacking and conditional arithmetic. A second O(n_outcomes) pass.
 
-9. **Per-ball `log.info()` call (line 1347)** — this is an unconditional INFO-level log call that builds 4 f-strings and a formatted pressure string on every single ball, regardless of whether any handler will consume it. At level INFO (20) < CONSOLE (25), the console handler will suppress it, but the logger still constructs and passes the args to the handler machinery (Python's `log.info()` does check the effective level first via `isEnabledFor`, so if the file handler is absent and the console is at level CONSOLE/WARNING, this call will be a no-op at the handler level — but the f-string arguments `pressure_s`, `result_desc` etc. are evaluated *before* the call because they are not lazy. Only `%`-style lazy formatting helps here).
+9. **Per-ball `log.info()` call (line 1347)** - this is an unconditional INFO-level log call that builds 4 f-strings and a formatted pressure string on every single ball, regardless of whether any handler will consume it. At level INFO (20) < CONSOLE (25), the console handler will suppress it, but the logger still constructs and passes the args to the handler machinery (Python's `log.info()` does check the effective level first via `isEnabledFor`, so if the file handler is absent and the console is at level CONSOLE/WARNING, this call will be a no-op at the handler level - but the f-string arguments `pressure_s`, `result_desc` etc. are evaluated *before* the call because they are not lazy. Only `%`-style lazy formatting helps here).
 
 ### Recommendations
 
@@ -127,18 +127,18 @@ Similarly, `phase` and `milestone` (lines 1312–1313) are computed outside any 
 
 `select_bowler()` is called once per over (20 times per T20 innings, 40 total per match, 3,760 total for 94 matches).
 
-1. **`_eligible()`** — two list comprehensions over `team.inning_players` (11 players). O(11) each, cheap.
+1. **`_eligible()`** - two list comprehensions over `team.inning_players` (11 players). O(11) each, cheap.
 
 2. **`_score_and_breakdown()`** per eligible bowler (~5–8 candidates):
-   - `_f_over_affinity()` — 4–5 dict lookups, a 3-level blend (3 multiplications + additions). Per candidate.
-   - `_f_match_form()` — 2 arithmetic ops. Cheap.
-   - `_f_matchup()` — 2 dict lookups + arithmetic for striker and non-striker.
-   - `_f_phase_pacing()` — a loop over `range(overs_per_innings)` (20 iterations for T20) with set membership checks (lines 447–455). Called per candidate bowler. With 8 candidates × 20 loop iterations = 160 iterations per over selection.
-   - `_f_death_reservation()` — O(1) arithmetic.
+   - `_f_over_affinity()` - 4–5 dict lookups, a 3-level blend (3 multiplications + additions). Per candidate.
+   - `_f_match_form()` - 2 arithmetic ops. Cheap.
+   - `_f_matchup()` - 2 dict lookups + arithmetic for striker and non-striker.
+   - `_f_phase_pacing()` - a loop over `range(overs_per_innings)` (20 iterations for T20) with set membership checks (lines 447–455). Called per candidate bowler. With 8 candidates × 20 loop iterations = 160 iterations per over selection.
+   - `_f_death_reservation()` - O(1) arithmetic.
 
-3. **`_last_spell_length()` and `_overs_since_bowled()`** — each does a full O(n_deliveries) scan of `match.innings[-1].deliveries` with a `d.bowler and d.bowler.id == player_id` filter. At over 15 of the second innings this is scanning ~90 deliveries per candidate bowler per factor. With 8 candidates × 2 scans each = 16 delivery-list scans per over selection. These are called only in the Test strategy (`_f_spell_breakdown`), not T20/ODI.
+3. **`_last_spell_length()` and `_overs_since_bowled()`** - each does a full O(n_deliveries) scan of `match.innings[-1].deliveries` with a `d.bowler and d.bowler.id == player_id` filter. At over 15 of the second innings this is scanning ~90 deliveries per candidate bowler per factor. With 8 candidates × 2 scans each = 16 delivery-list scans per over selection. These are called only in the Test strategy (`_f_spell_breakdown`), not T20/ODI.
 
-4. **`scored.sort()`** — sorting a list of ~5–8 elements; negligible.
+4. **`scored.sort()`** - sorting a list of ~5–8 elements; negligible.
 
 ### Recommendations
 
@@ -146,7 +146,7 @@ Similarly, `phase` and `milestone` (lines 1312–1313) are computed outside any 
 Maintain a `dict[player_id, list[int]]` of overs bowled per player (updated via the event bus `OVER_COMPLETED` event). This makes both lookups O(1) lookups into already-sorted per-player data instead of O(n_deliveries) scans of the full delivery list.
 
 **R8 – Memoize `_f_phase_pacing()` computation per (bowler_id, current_over) (LOW impact)**
-The `range(overs_per_innings)` inner loop recomputes the same frequency values for past overs on every `select_bowler()` call. Cache the result per `(ip.id, current_over)` — the current_over increments by 1 per call, so the cache is automatically invalidated.
+The `range(overs_per_innings)` inner loop recomputes the same frequency values for past overs on every `select_bowler()` call. Cache the result per `(ip.id, current_over)` - the current_over increments by 1 per call, so the cache is automatically invalidated.
 
 ---
 
@@ -156,10 +156,10 @@ The `range(overs_per_innings)` inner loop recomputes the same frequency values f
 
 ### Current cost
 
-`MatchEventBus.publish()` iterates over `self.observers` (22 total: 2 InningTeam + 20 InningPlayer) and calls `on_event()` on each. This happens **twice per ball** — once for `BALL_BOWLED` (line 200 of innings_simulator) and once for `OVER_COMPLETED` (line 68 of innings_simulator). So 22 × 1 + 22 × 1 = 44 Python method calls per ball.
+`MatchEventBus.publish()` iterates over `self.observers` (22 total: 2 InningTeam + 20 InningPlayer) and calls `on_event()` on each. This happens **twice per ball** - once for `BALL_BOWLED` (line 200 of innings_simulator) and once for `OVER_COMPLETED` (line 68 of innings_simulator). So 22 × 1 + 22 × 1 = 44 Python method calls per ball.
 
 ```python
-# events.py:36-37 — no fast-path:
+# events.py:36-37 - no fast-path:
 def publish(self, event: MatchEvent):
     for observer in self.observers:
         observer.on_event(event)
@@ -168,15 +168,15 @@ def publish(self, event: MatchEvent):
 Inside `InningPlayer.on_event()` (22 times per ball):
 - Creates a `data.get()` dict lookup 4 times (outcome, batter, bowler, match).
 - Calls `MatchRules.is_death_over()` once.
-- Checks `batter.id == self.id` and `bowler.id == self.id` — identity tests on all 22 players even though only 2 (striker + bowler) have relevant data.
+- Checks `batter.id == self.id` and `bowler.id == self.id` - identity tests on all 22 players even though only 2 (striker + bowler) have relevant data.
 
 ### Bottlenecks
 
 **B4 – All 22 observers process every `BALL_BOWLED` event with 4 dict-get calls each (medium)**
-`InningTeam.on_event()` checks `batting_team.id == self.id` — needed. But each `InningPlayer.on_event()` does `batter.id == self.id` and `bowler.id == self.id` on every ball regardless of whether that player has any role. 20 of 22 observer calls are mostly no-ops after the identity check, but each still performs 4 `data.get()` calls and a `MatchRules.is_death_over()` call before branching.
+`InningTeam.on_event()` checks `batting_team.id == self.id` - needed. But each `InningPlayer.on_event()` does `batter.id == self.id` and `bowler.id == self.id` on every ball regardless of whether that player has any role. 20 of 22 observer calls are mostly no-ops after the identity check, but each still performs 4 `data.get()` calls and a `MatchRules.is_death_over()` call before branching.
 
 **Recommendation (MEDIUM impact):**
-Split the event data pattern: instead of broadcasting to all 22 observers, pass the batter and bowler InningPlayer objects directly to their specific `on_event` methods. Or: maintain a `dict[player_id, InningPlayer]` on `InningTeam` so the ball handler calls `batter_ip.update_batting(outcome, is_death)` and `bowler_ip.update_bowling(outcome, is_death)` directly — eliminating 20 redundant observer dispatches per ball.
+Split the event data pattern: instead of broadcasting to all 22 observers, pass the batter and bowler InningPlayer objects directly to their specific `on_event` methods. Or: maintain a `dict[player_id, InningPlayer]` on `InningTeam` so the ball handler calls `batter_ip.update_batting(outcome, is_death)` and `bowler_ip.update_bowling(outcome, is_death)` directly - eliminating 20 redundant observer dispatches per ball.
 
 Alternatively, pre-extract the `data` dict values in `_publish_ball_event` and pass a typed event object instead of a raw dict, eliminating 4 × 22 = 88 `dict.get()` calls per ball.
 
@@ -194,7 +194,7 @@ self._outcome_category_map = {k: _outcome_category(k) for k in self.baseline_out
 
 ### 5b – `_blend_with_parttime()` creates a new dict on every `_compute_distribution()` call
 
-`_blend_with_parttime(self.parttime_bowler_probs, _raw_bowler, _pt_alpha)` (line 1035) is called per ball. For genuine bowlers (alpha = 0), it returns the player dict unchanged (fast path at line 186). But for part-timers or borderline bowlers, it creates a new merged dict on every ball even though alpha is constant for a given bowler throughout the match. Memoize by `(bowler_id, alpha_bucket)` — where alpha_bucket is `round(alpha, 2)`.
+`_blend_with_parttime(self.parttime_bowler_probs, _raw_bowler, _pt_alpha)` (line 1035) is called per ball. For genuine bowlers (alpha = 0), it returns the player dict unchanged (fast path at line 186). But for part-timers or borderline bowlers, it creates a new merged dict on every ball even though alpha is constant for a given bowler throughout the match. Memoize by `(bowler_id, alpha_bucket)` - where alpha_bucket is `round(alpha, 2)`.
 
 **Impact: LOW** (only affects bowlers with < threshold balls).
 
@@ -204,7 +204,7 @@ Line 1313 calls `_get_milestone(batter_runs)` and line 1020 also calls it indire
 
 ### 5d – `random.choices(ordered_keys, weights=normalised, k=1)[0]` creates a temporary list
 
-`random.choices(..., k=1)` allocates a 1-element list. Use `random.choices(..., k=1)[0]` — already correct. A very minor saving would be to use `_random_choice_with_weights` via numpy `np.random.choice` over a pre-built weights array, but this requires numpy and changes semantics slightly.
+`random.choices(..., k=1)` allocates a 1-element list. Use `random.choices(..., k=1)[0]` - already correct. A very minor saving would be to use `_random_choice_with_weights` via numpy `np.random.choice` over a pre-built weights array, but this requires numpy and changes semantics slightly.
 
 ### 5e – `PressureContext.is_significant` property evaluated after pressure is computed
 
@@ -220,7 +220,7 @@ No `isinstance` checks are found in the hot ball-by-ball path. Not a bottleneck.
 
 ### 6a – `InningTeam.wicket_keeper` is O(n) scan on every caught/stumped ball
 
-`inning_team.py:83`: `next((ip for ip in self.inning_players if ip.is_keeper), None)` — linear scan of 11 players. Called from `_assign_fielder()` in the strategy for every stumped dismissal. Rare in practice but structurally O(n). Cache at construction time:
+`inning_team.py:83`: `next((ip for ip in self.inning_players if ip.is_keeper), None)` - linear scan of 11 players. Called from `_assign_fielder()` in the strategy for every stumped dismissal. Rare in practice but structurally O(n). Cache at construction time:
 ```python
 # In from_match_team():
 self._wicket_keeper = next((ip for ip in self.inning_players if ip.is_keeper), None)
@@ -254,7 +254,7 @@ This is O(total deliveries) per over call. At over 20, it scans 120+ deliveries 
 2. Calls `psycopg2.extras.execute_batch(..., page_size=500)`. With ~480 rows per match this issues 1 batch per match per inning call.
 3. `save_deliveries` is called **per inning** (2 per match = 188 calls). Each call gets its own `execute_batch` invocation.
 
-The `commit()` timing is controlled by the caller. With `autocommit=False` (line 44), every `execute_batch` runs inside a transaction — but the transaction is committed in a batch at the caller's discretion.
+The `commit()` timing is controlled by the caller. With `autocommit=False` (line 44), every `execute_batch` runs inside a transaction - but the transaction is committed in a batch at the caller's discretion.
 
 ### Bottleneck
 
@@ -266,7 +266,7 @@ Each `execute_batch` call has round-trip overhead even with `page_size=500`. The
 
 **R9 – Accumulate all deliveries for a full match into a single `execute_batch` call (MEDIUM impact)**
 
-`save_all_deliveries()` (line 334) already iterates innings but calls `save_deliveries()` per inning — each issues its own `execute_batch`. Flatten this to a single call:
+`save_all_deliveries()` (line 334) already iterates innings but calls `save_deliveries()` per inning - each issues its own `execute_batch`. Flatten this to a single call:
 ```python
 def save_all_deliveries(self, match_id, sim_match, team_id_map):
     all_rows = []
@@ -320,14 +320,14 @@ If the tournament persist currently commits after each match (calling `Simulatio
 
 The following require only 1–3 line changes each:
 
-1. **Store `self._ordered_keys` at `init_model()` time** (`strategy.py:1052`) — eliminates one O(n) list allocation per ball.
+1. **Store `self._ordered_keys` at `init_model()` time** (`strategy.py:1052`) - eliminates one O(n) list allocation per ball.
 2. **Store `self._wicket_keeper` at `from_match_team()` time** (`inning_team.py:83`).
 3. **Precompute `self._outcome_category_map`** at init time and use it in the inner loop.
-4. **Pass `is_legal` and `is_death` in `MatchEvent.data`** from `_publish_ball_event()` — eliminates 4 static-method calls per observer per ball (88 calls/ball eliminated).
+4. **Pass `is_legal` and `is_death` in `MatchEvent.data`** from `_publish_ball_event()` - eliminates 4 static-method calls per observer per ball (88 calls/ball eliminated).
 5. **Guard `log.info` per-ball call** with `if log.isEnabledFor(logging.INFO):` and move string formatting inside.
 
 ### High-effort, highest-return changes
 
-- **Replace delivery scans in `_compute_pressure()` with O(1) counters on `InningTeam`** — eliminates two growing-list scans called on every single ball. At ball 120 of innings 2, each scan is ~120 iterations; the problem grows quadratically across the innings.
-- **Cache `_get_player_venue_probs()` and `_compute_phase_probs()` results per ball context** — the venue-prob blending (set unions + dict comprehensions) is currently O(n_keys) on every ball despite being stable for 6 consecutive balls (same batter, same over, same bowler).
-- **Precompute 5 `_apply_category_relevance` dicts once per ball** — eliminates 40 dict creations per ball.
+- **Replace delivery scans in `_compute_pressure()` with O(1) counters on `InningTeam`** - eliminates two growing-list scans called on every single ball. At ball 120 of innings 2, each scan is ~120 iterations; the problem grows quadratically across the innings.
+- **Cache `_get_player_venue_probs()` and `_compute_phase_probs()` results per ball context** - the venue-prob blending (set unions + dict comprehensions) is currently O(n_keys) on every ball despite being stable for 6 consecutive balls (same batter, same over, same bowler).
+- **Precompute 5 `_apply_category_relevance` dicts once per ball** - eliminates 40 dict creations per ball.

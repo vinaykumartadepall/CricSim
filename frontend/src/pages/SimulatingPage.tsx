@@ -12,7 +12,7 @@ import deliveriesIcon from '@/assets/icon-deliveries.png'
 const POLL_MS = 2500
 const LIVE_UPDATES_PREVIEW_COUNT = 3
 
-// Shared "glass" card treatment — translucent + backdrop-blurred rather than
+// Shared "glass" card treatment - translucent + backdrop-blurred rather than
 // a solid fill, so cards read as sitting *in* the (blurred) stadium scene
 // rather than pasted on top of a flat surface color.
 const GLASS: CSSProperties = {
@@ -43,7 +43,7 @@ type Progress = {
   results: ResultEntry[]
 }
 
-// Ring doubles as the page's loading indicator and its progress readout —
+// Ring doubles as the page's loading indicator and its progress readout -
 // one focal element instead of a spinner stacked on top of a separate bar.
 // Wrapped in the same pulse-glow beat the original loading badge used, so
 // the "alive, still working" cue survives even though the border is now a
@@ -95,20 +95,25 @@ function StatCard({ icon, label, value }: { icon: string; label: string; value: 
   )
 }
 
-// Result text is built as "{home} vs {away} — {description}", where a
+// Result text is built as "{home} vs {away} - {description}", where a
 // decisive description reads "{winner} won by {margin}" (or, for a Super
-// Over, "Match tied · {winner} won Super Over"). Tie/no-result/draw
-// descriptions contain no "won", so this returns null for those — correctly
-// falling through to the neutral style below rather than a false win/loss.
+// Over, "Match tied · {winner} won Super Over"; or, for a playoff match whose
+// super over also tied, "Match tied · Super Over tied · {team} advanced due
+// to better group stage finish"). Genuinely unresolved tie/no-result/draw
+// descriptions match none of these, so this returns null for those -
+// correctly falling through to the neutral style below rather than a false
+// win/loss.
 function parseWinner(text: string): string | null {
-  const desc = text.split(' — ')[1] ?? ''
+  const desc = text.split(' - ')[1] ?? ''
   const superOver = desc.match(/^Match tied · (.+) won Super Over$/)
   if (superOver) return superOver[1].trim()
+  const tieAdvance = desc.match(/^Match tied · Super Over tied · (.+) advanced due to better group stage finish$/)
+  if (tieAdvance) return tieAdvance[1].trim()
   const decisive = desc.match(/^(.+?)\s+won\s+by\s+/)
   return decisive ? decisive[1].trim() : null
 }
 
-// Timeline row — a dot + connecting line down to the next entry, matching
+// Timeline row - a dot + connecting line down to the next entry, matching
 // the provided reference styling. Dot/label read gold by default (matching
 // the reference) and only flip to red when it's specifically a loss for the
 // viewer's own team; a plain win stays the same gold as everything else.
@@ -195,7 +200,7 @@ function LiveUpdates({ results, userTeam }: { results: ResultEntry[]; userTeam?:
   )
 }
 
-// Dedicated route for "simulation in progress" — kept separate from ResultsPage
+// Dedicated route for "simulation in progress" - kept separate from ResultsPage
 // so ResultsPage only ever mounts once a simulation has actually completed.
 // This has no registered help content, so HelpModal's auto-open logic can
 // never race against a still-running simulation: there's nothing to open here.
@@ -253,15 +258,15 @@ export function SimulatingPage() {
 
   return (
     <>
-      {/* Full-page background — fixed so it always covers the viewport
+      {/* Full-page background - fixed so it always covers the viewport
           regardless of page scroll length. Non-negative z-index (rather than
           -z-10) is deliberate: App.tsx wraps every route in its own opaque
           `background: var(--bg)` div, which paints over a negative-z-index
           descendant since that wrapper never establishes its own stacking
-          context — so a negative z-index here would render below it, not
+          context - so a negative z-index here would render below it, not
           just below this page's content.
           Blurred + scaled up slightly (so the softened edges fall outside
-          the viewport) — real stadium detail competes with the cards
+          the viewport) - real stadium detail competes with the cards
           otherwise; blurred, it still reads as "a stadium" without pulling
           focus. The gradient scrim is heavier at top/bottom (title, buttons)
           and lighter through the middle (progress ring, stat cards), so the
@@ -283,7 +288,7 @@ export function SimulatingPage() {
           background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 50%, rgba(0,0,0,0.85) 100%)',
         }}
       />
-      {/* Dust motes, faintly lit as if by the floodlights — subtle enough that
+      {/* Dust motes, faintly lit as if by the floodlights - subtle enough that
           the screen feels alive even while progress is between polls. */}
       <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 0, pointerEvents: 'none' }}>
         {DUST_PARTICLES.map((p, i) => (
@@ -341,7 +346,7 @@ export function SimulatingPage() {
               {queuePosition != null && queuePosition >= 1 ? (
                 <>
                   <div className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
-                    Waiting in line — {queuePosition} simulation{queuePosition !== 1 ? 's' : ''} ahead of you
+                    Waiting in line - {queuePosition} simulation{queuePosition !== 1 ? 's' : ''} ahead of you
                   </div>
                   <div className="text-xs" style={{ color: 'var(--text-dim)' }}>Only one runs at a time, so results stay fast and predictable.</div>
                 </>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-// `100dvh`/`fixed inset-0` are unaware of the on-screen keyboard on mobile —
+// `100dvh`/`fixed inset-0` are unaware of the on-screen keyboard on mobile -
 // the layout viewport doesn't shrink when it opens, only the visual one, so
 // a bottom-sheet positioned via `justify-end` inside `fixed inset-0` ends up
 // rendered partly behind the keyboard instead of sitting above it. Tracking

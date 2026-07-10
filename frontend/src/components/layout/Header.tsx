@@ -9,7 +9,7 @@ import logoUrl from '@/assets/logo.png'
 const SERIF = "'DM Serif Display', Georgia, 'Times New Roman', serif"
 
 export function Header() {
-  const { displayName, isLoggedIn, signOut, openAuthModal } = useAuth()
+  const { displayName, isLoggedIn, signOut, openAuthModal, authReady } = useAuth()
   const { openHelp } = useHelp()
   const { openSidebar } = useSidebar()
   const navigate = useNavigate()
@@ -81,11 +81,11 @@ export function Header() {
           >
             <span style={{
               fontSize: 13, fontWeight: 'bold', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              color: isLoggedIn ? 'var(--accent)' : 'var(--text)',
+              color: authReady && isLoggedIn ? 'var(--accent)' : 'var(--text)',
             }}>
-              {displayName}
+              {authReady ? displayName : ''}
             </span>
-            <ChevronDown size={12} style={{ color: isLoggedIn ? 'var(--accent)' : 'var(--text)', fontWeight: 'bold', flexShrink: 0 }} />
+            <ChevronDown size={12} style={{ color: authReady && isLoggedIn ? 'var(--accent)' : 'var(--text)', fontWeight: 'bold', flexShrink: 0 }} />
           </button>
 
           {dropdownOpen && (

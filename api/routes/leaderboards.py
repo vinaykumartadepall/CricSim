@@ -24,7 +24,7 @@ router = APIRouter(prefix="/cricsimapi/simulations", tags=["leaderboards"])
 _ALL_LEADERBOARDS = list(_BATTING_SORT) + ['highest-score'] + list(_BOWLING_SORT) + ['best-bowling-figures', 'mvp']
 
 
-# ── GET /{sim_id}/leaderboards  (dashboard — tournament only) ─────────────────
+# ── GET /{sim_id}/leaderboards  (dashboard - tournament only) ─────────────────
 
 @router.get("/{sim_id}/leaderboards", response_model=LeaderboardsDashboard)
 def leaderboards_dashboard(sim_id: str):
@@ -43,7 +43,7 @@ def leaderboards_dashboard(sim_id: str):
             if cached is None:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Leaderboard cache not found — re-run the tournament simulation to generate it",
+                    detail=f"Leaderboard cache not found - re-run the tournament simulation to generate it",
                 )
             return cached
 

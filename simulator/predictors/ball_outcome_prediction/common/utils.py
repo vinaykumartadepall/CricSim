@@ -59,7 +59,7 @@ def load_venue_distribution(repo, match: SimulationMatch, match_format: str,
     if not cache and getattr(venue, 'country', None):
         cache = timed_fn("country_distribution", repo.get_country_distribution,
                          venue.country, match_format, gender)
-        log.info("[Model] Venue absent — using country distribution (%s)", venue.country)
+        log.info("[Model] Venue absent - using country distribution (%s)", venue.country)
     return cache
 
 

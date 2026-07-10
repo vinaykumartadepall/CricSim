@@ -17,7 +17,7 @@ CREATE SEQUENCE IF NOT EXISTS history.players_id_seq START WITH 100000;
 CREATE SEQUENCE IF NOT EXISTS history.matches_id_seq START WITH 1000000;
 -- Deliveries: 10,000,000,000+ (BigInt)
 CREATE SEQUENCE IF NOT EXISTS history.deliveries_id_seq START WITH 10000000000;
--- Simulation Sequences (venues and players removed — reference history schema)
+-- Simulation Sequences (venues and players removed - reference history schema)
 CREATE SEQUENCE IF NOT EXISTS simulation.tournaments_id_seq START WITH 1000;
 CREATE SEQUENCE IF NOT EXISTS simulation.teams_id_seq START WITH 10000;
 CREATE SEQUENCE IF NOT EXISTS simulation.matches_id_seq START WITH 1000000;
@@ -297,7 +297,7 @@ CREATE TABLE IF NOT EXISTS history.tournament_outcome_stats (
 
 -------------------------------------------------------------------------------
 -- SIMULATION SCHEMA
--- Players and venues are not duplicated here — they are always looked up from
+-- Players and venues are not duplicated here - they are always looked up from
 -- the history schema.  Teams and tournaments are simulation-specific (custom
 -- squads, custom tournament configs) so they live here.
 -------------------------------------------------------------------------------
@@ -340,7 +340,7 @@ CREATE TABLE IF NOT EXISTS simulation.game_sessions (
 
 -- One row per source tournament-season; complete TournamentConfig-compatible document.
 --
--- config (step 1: db/seed_sim_configs.py — metadata + schedule + empty players):
+-- config (step 1: db/seed_sim_configs.py - metadata + schedule + empty players):
 -- {
 --   "tournament_name": "Indian Premier League",
 --   "format": "T20",
@@ -380,7 +380,7 @@ CREATE TABLE IF NOT EXISTS simulation.tournament_seeded (
     config        JSONB
 );
 
--- Custom teams (simulation squads — not tied to history.teams).
+-- Custom teams (simulation squads - not tied to history.teams).
 -- No UNIQUE on name: the same team name can appear across multiple simulation runs.
 CREATE TABLE IF NOT EXISTS simulation.teams (
     team_id         INT PRIMARY KEY DEFAULT nextval('simulation.teams_id_seq'),

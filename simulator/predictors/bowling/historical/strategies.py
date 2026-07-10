@@ -1,16 +1,16 @@
 """
 Historical Bowling Strategies
 ==============================
-Three concrete strategies — one per format.
+Three concrete strategies - one per format.
 
 Factors by format
 ─────────────────
                      T20        ODI        Test
   F1 phase-venue     dominant   dominant   dominant (ball-age phases)
   F2 match form      medium     medium     low-medium
-  F3 spell mgmt      —          —          high (continuity/fatigue/workload)
+  F3 spell mgmt      -          -          high (continuity/fatigue/workload)
   F4 matchup         low        least      very low
-  F5 quota pacing    yes        yes        —
+  F5 quota pacing    yes        yes        -
 
 Eligibility:
   T20/ODI  hard quota (4/10 overs) enforced in _eligible; _hard_cap is a safety net
@@ -56,14 +56,14 @@ class T20HistoricalBowlingStrategy(HistoricalBowlingBase):
         ]
         if part_timers:
             log.warning(
-                "[BowlingFallback] Inn%d Ov%d %s — no dedicated bowlers left, using %d part-timer(s): %s",
+                "[BowlingFallback] Inn%d Ov%d %s - no dedicated bowlers left, using %d part-timer(s): %s",
                 match.current_inning, match.current_over + 1,
                 getattr(team, 'name', '?'), len(part_timers),
                 ", ".join(ip.name for ip in part_timers),
             )
             return part_timers
         log.warning(
-            "[BowlingFallback] Inn%d Ov%d %s — no bowling history for any player, using all %d under-quota",
+            "[BowlingFallback] Inn%d Ov%d %s - no bowling history for any player, using all %d under-quota",
             match.current_inning, match.current_over + 1,
             getattr(team, 'name', '?'), len(under_quota),
         )
@@ -113,14 +113,14 @@ class ODIHistoricalBowlingStrategy(HistoricalBowlingBase):
         ]
         if part_timers:
             log.warning(
-                "[BowlingFallback] Inn%d Ov%d %s — no dedicated bowlers left, using %d part-timer(s): %s",
+                "[BowlingFallback] Inn%d Ov%d %s - no dedicated bowlers left, using %d part-timer(s): %s",
                 match.current_inning, match.current_over + 1,
                 getattr(team, 'name', '?'), len(part_timers),
                 ", ".join(ip.name for ip in part_timers),
             )
             return part_timers
         log.warning(
-            "[BowlingFallback] Inn%d Ov%d %s — no bowling history for any player, using all %d under-quota",
+            "[BowlingFallback] Inn%d Ov%d %s - no bowling history for any player, using all %d under-quota",
             match.current_inning, match.current_over + 1,
             getattr(team, 'name', '?'), len(under_quota),
         )
@@ -157,7 +157,7 @@ class TestHistoricalBowlingStrategy(HistoricalBowlingBase):
     def _eligible(self, team, current_bowler, match: SimulationMatch):
         return [ip for ip in team.inning_players if ip != current_bowler]
 
-    # Penalty applied to players with very little bowling history — keeps them out
+    # Penalty applied to players with very little bowling history - keeps them out
     # of the attack in normal innings and only lets them through when every
     # genuine bowler is deeply fatigued (130+ over innings).
     _PARTTIME_PENALTY_NONE  = -12.0  # not in workload_cache (< 3 bowling innings ever)

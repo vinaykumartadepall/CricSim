@@ -10,7 +10,7 @@ class RotationBowlingStrategy(BowlingStrategy):
     Baseline bowling strategy: rotates through the bowling unit in fixed order,
     skipping only the bowler who just finished the previous over.
 
-    No quota enforcement, no phase awareness — pure round-robin.
+    No quota enforcement, no phase awareness - pure round-robin.
     Useful as a reference baseline or for unit tests.
     """
 

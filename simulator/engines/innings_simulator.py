@@ -221,5 +221,5 @@ class InningsSimulator:
             else:
                 self.logger.warn(
                     f"[InningsSimulator] No next batter available after wicket "
-                    f"in inning {self.match.current_inning} — innings may end prematurely."
+                    f"in inning {self.match.current_inning} - innings may end prematurely."
                 )

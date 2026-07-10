@@ -1,7 +1,7 @@
 """
 Tests for GET /simulations/{sim_id}/status (api/routes/simulations.py).
 
-No live DB connection required — SimulationRepository is monkeypatched with a
+No live DB connection required - SimulationRepository is monkeypatched with a
 fake in the module's own namespace (it's imported by name there), and
 get_tournament_progress is monkeypatched the same way to control the
 in-process progress store without touching api.worker's real dict.
@@ -43,7 +43,7 @@ class TestStatusRoute:
         )
         monkeypatch.setattr(sim_routes, "get_tournament_progress", lambda sim_id: {
             "completed": 4, "total": 10, "teams": 8, "total_deliveries": 4800,
-            "results": [{"label": "Match 1", "text": "India vs Australia — India won by 5 wickets"}],
+            "results": [{"label": "Match 1", "text": "India vs Australia - India won by 5 wickets"}],
         })
 
         resp = client.get("/cricsimapi/simulations/some-sim/status")
@@ -54,7 +54,7 @@ class TestStatusRoute:
         assert body["matches_total"] == 10
         assert body["teams"] == 8
         assert body["total_deliveries"] == 4800
-        assert body["results"] == [{"label": "Match 1", "text": "India vs Australia — India won by 5 wickets"}]
+        assert body["results"] == [{"label": "Match 1", "text": "India vs Australia - India won by 5 wickets"}]
 
     def test_omits_progress_fields_for_single_match_or_untracked_job(self, client, monkeypatch):
         monkeypatch.setattr(

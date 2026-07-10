@@ -223,7 +223,7 @@ def print_results(results, fmt):
     c1, t1 = results['top1']
     c3, t3 = results['top3']
     print(f'\n{"="*55}')
-    print(f'  Bowling Selection Validation — {fmt}')
+    print(f'  Bowling Selection Validation - {fmt}')
     print(f'{"="*55}')
     print(f'  Overs evaluated : {t1}')
     print(f'  Top-1 accuracy  : {c1}/{t1}  ({_pct(c1,t1)})')

@@ -19,10 +19,10 @@ function simTitle(sim: SimSummary): string {
 }
 
 // ── Color tokens ──────────────────────────────────────────────────────────────
-// Single source of truth for every badge/chip color in this file — no more raw
+// Single source of truth for every badge/chip color in this file - no more raw
 // hex/rgba scattered through each component. Backgrounds are derived from the
 // same value via tint() (CSS color-mix) rather than a separately hand-picked
-// rgba, so a badge's background always matches its text color exactly —
+// rgba, so a badge's background always matches its text color exactly -
 // including staying correct across all 4 themes for CSS-variable colors like
 // --accent, instead of a fixed rgba tint that never actually changed with theme.
 
@@ -44,7 +44,7 @@ function tint(color: string, percent: number): string {
   return `color-mix(in srgb, ${color} ${percent}%, transparent)`
 }
 
-// Mixes toward the app's own dark surface color instead of transparent —
+// Mixes toward the app's own dark surface color instead of transparent -
 // gives the deep, near-opaque pill look (dark amber/navy/plum, not a light
 // wash) used for the status chips specifically, per the provided reference
 // mockups. Kept separate from tint() so FormatBadge/ModeBadge (not covered by
@@ -105,7 +105,7 @@ function ModeBadge({ mode, simulationType }: {
 // ── Right-side chip: result OR spectator OR status ────────────────────────────
 
 // Full medal ladder: gold (winner) > silver (runner-up) > bronze (playoffs)
-// > muted gray (no notable result) — a warm-toned podium metaphor that fits
+// > muted gray (no notable result) - a warm-toned podium metaphor that fits
 // the app's own dark warm surfaces, rather than an unrelated purple that
 // doesn't tie into any theme color. All three medal tiers use the same dark,
 // near-opaque background treatment (color mixed into the app's own surface

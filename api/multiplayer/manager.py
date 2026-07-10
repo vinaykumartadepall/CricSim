@@ -4,6 +4,7 @@ import asyncio
 import json
 import random
 import string
+import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
@@ -18,7 +19,7 @@ HOST_RECONNECT_GRACE_S = 15  # host disconnect (e.g. a page reload) before host 
 
 def _place_in_first_gap(order: List[Optional[int]], player_id: int) -> None:
     """Mutates order in place, dropping player_id into its first None slot
-    (appending defensively if somehow already full — shouldn't happen since
+    (appending defensively if somehow already full - shouldn't happen since
     order is always kept at SQUAD_SIZE length)."""
     for i, v in enumerate(order):
         if v is None:
@@ -32,8 +33,8 @@ class Member:
     client_id: str
     display_name: str
     draft_order: int = 0
-    squad: List[int] = field(default_factory=list)      # player_ids in pick order — drives turn-tracking, never reordered
-    # Display/lineup order — SQUAD_SIZE slots, None where a pick hasn't landed
+    squad: List[int] = field(default_factory=list)      # player_ids in pick order - drives turn-tracking, never reordered
+    # Display/lineup order - SQUAD_SIZE slots, None where a pick hasn't landed
     # yet. Decoupled from `squad` specifically so reorder_squad can move a
     # drafted player past not-yet-picked slots to reserve a later batting
     # position, without disturbing turn order (which only ever reads
@@ -41,6 +42,11 @@ class Member:
     # here, not necessarily the end, so a reserved gap actually gets filled.
     batting_order: List[Optional[int]] = field(default_factory=lambda: [None] * SQUAD_SIZE)
     ws: Optional[WebSocket] = field(default=None, repr=False)
+    # Consecutive picks auto-made for this player while they were disconnected
+    # (ws is None at pick time) - resets to 0 on reconnect or a real pick of
+    # their own. Their first 2 disconnected picks still wait out the normal
+    # timer; from the 3rd, _start_pick_timer skips straight to auto-pick.
+    disconnected_auto_picks: int = 0
 
     def has_keeper(self, keeper_ids: Set[int]) -> bool:
         return any(pid in keeper_ids for pid in self.squad)
@@ -68,6 +74,10 @@ class RoomState:
     _timer_task: Optional[asyncio.Task] = field(default=None, repr=False)
     _reorder_task: Optional[asyncio.Task] = field(default=None, repr=False)
     sim_id: Optional[str] = None
+    # Bumped on room creation, join, reconnect, and reset-to-waiting-after-
+    # simulation - read by the idle-timeout reaper to find abandoned
+    # 'waiting' rooms. Not meaningful for/read during other statuses.
+    last_activity: float = field(default_factory=time.time)
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -154,13 +164,14 @@ class DraftManager:
             raise ValueError("Room is full")
         if client_id not in room.members:
             room.members[client_id] = Member(client_id=client_id, display_name=display_name)
+        room.last_activity = time.time()
         return room
 
     def remove_room(self, room_id: str) -> None:
         self._rooms.pop(room_id, None)
 
     def kick_member(self, room: RoomState, host_id: str, target_id: str) -> Member:
-        """Remove a player from the waiting room. Host-only, pre-draft only —
+        """Remove a player from the waiting room. Host-only, pre-draft only -
         once picks are underway a member's squad/pick order is already woven
         into room state, so removal isn't well-defined there."""
         if host_id != room.host_id:
@@ -175,11 +186,52 @@ class DraftManager:
         room.ready_members.discard(target_id)
         return member
 
+    def leave_room(self, room: RoomState, client_id: str) -> dict:
+        """Self-serve room exit - pre-draft only, same restriction as
+        kick_member and for the same reason (once picks are underway a
+        member's squad/pick order is already woven into room state, so
+        removal isn't well-defined there). Returns {"ended": bool} - True
+        when this was the last member and the room should be torn down
+        entirely rather than just broadcasting an updated member list."""
+        if room.status != 'waiting':
+            raise ValueError("Can only leave before the draft starts")
+        if client_id not in room.members:
+            raise ValueError("Not a member of this room")
+        was_host = client_id == room.host_id
+        del room.members[client_id]
+        room.ready_members.discard(client_id)
+        if not room.members:
+            return {"ended": True}
+        if was_host:
+            self.transfer_host(room, client_id)
+        return {"ended": False}
+
+    def reset_to_waiting(self, room: RoomState) -> None:
+        """Called when a simulation finishes - returns the room to a fresh
+        pre-draft lobby state instead of destroying it, so the same group can
+        draft and play another round without recreating the room and
+        re-sharing the invite code/link."""
+        room.status = 'waiting'
+        room.pick_sequence = []
+        room.current_pick_idx = 0
+        room.drafted_ids = set()
+        room.keeper_ids = set()
+        room.ready_members = set()
+        room.sim_id = None
+        room.last_activity = time.time()
+        for member in room.members.values():
+            member.draft_order = 0
+            member.squad = []
+            member.batting_order = [None] * SQUAD_SIZE
+            member.disconnected_auto_picks = 0
+
     # ── WebSocket connect/disconnect ───────────────────────────────────────────
 
     def connect(self, room: RoomState, client_id: str, ws: WebSocket) -> None:
         if client_id in room.members:
             room.members[client_id].ws = ws
+            room.members[client_id].disconnected_auto_picks = 0
+            room.last_activity = time.time()
 
     def disconnect(self, room: RoomState, client_id: str) -> None:
         if client_id in room.members:
@@ -243,11 +295,16 @@ class DraftManager:
         return {"picker": client_id, "player_id": player_id, "squad_size": len(member.squad)}
 
     def auto_pick(self, room: RoomState, all_player_ids: List[int]) -> Optional[dict]:
-        """Pick a random valid player for the current picker (called on timeout)."""
+        """Pick a random valid player for the current picker - called on
+        timeout, or immediately (no wait) once a disconnected picker has
+        already missed 2 turns in a row while offline, per
+        Member.disconnected_auto_picks."""
         if room.status != 'drafting' or not room.current_picker_id:
             return None
         client_id = room.current_picker_id
         member = room.members[client_id]
+        if member.ws is None:
+            member.disconnected_auto_picks += 1
         available = [pid for pid in all_player_ids if pid not in room.drafted_ids]
         if member.needs_keeper(room.keeper_ids):
             keepers = [pid for pid in available if pid in room.keeper_ids]
@@ -262,7 +319,7 @@ class DraftManager:
     def reorder_squad(self, room: RoomState, client_id: str, order: List[Optional[int]]) -> None:
         """
         order: SQUAD_SIZE slots, each a drafted player_id or None for an
-        open slot — lets a drafted player be moved past not-yet-picked
+        open slot - lets a drafted player be moved past not-yet-picked
         positions to reserve a later batting spot. squad (turn-tracking)
         is untouched; only the display/lineup order changes.
         """

@@ -99,7 +99,7 @@ def run(commit: bool) -> None:
     cur.execute("SELECT name, country_id FROM history.countries")
     name_to_id: dict[str, int] = {row[0]: row[1] for row in cur.fetchall()}
 
-    # ── 3. Load ALL venues — current country name via join ───────────────────
+    # ── 3. Load ALL venues - current country name via join ───────────────────
     cur.execute("""
         SELECT v.venue_id, v.name, v.city,
                c.name AS current_country
@@ -141,7 +141,7 @@ def run(commit: bool) -> None:
             if vid not in geocoded:
                 geocoded[vid] = city_to_country.get(city) if city else None
     else:
-        print("No NULL-country venues — skipping geocoding.\n")
+        print("No NULL-country venues - skipping geocoding.\n")
 
     # ── 5. Determine final country for every venue ───────────────────────────
     updates: list[tuple[str, int]] = []   # (resolved_country_name, venue_id)
@@ -190,7 +190,7 @@ def run(commit: bool) -> None:
             print("\nNothing to update.")
 
     if unresolved:
-        print("\nVenues still needing a country — add to venue_country_overrides.json by_name_city:")
+        print("\nVenues still needing a country - add to venue_country_overrides.json by_name_city:")
         for vid, name, city in unresolved:
             city_fragment = f', "city": "{city}"' if city else ""
             print(f'  {{"name": "{name}"{city_fragment}, "country": "..."}}  // venue_id={vid}')

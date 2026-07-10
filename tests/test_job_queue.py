@@ -1,11 +1,11 @@
 """
-Tests for api.job_queue.JobQueue — the in-process job queue that caps how
+Tests for api.job_queue.JobQueue - the in-process job queue that caps how
 many simulations run concurrently (default 2, see api/job_queue.py's module
 docstring for why concurrency needs a cap at all: unbounded concurrent
 simulations on a 1-vCPU box measured ~12% slower in aggregate than running
 them one after another).
 
-Pure in-process unit tests, no DB, no FastAPI — each test builds its own
+Pure in-process unit tests, no DB, no FastAPI - each test builds its own
 JobQueue() instance (not the module-level singleton) so tests can't leak
 state into each other. Tests that assert strict one-at-a-time / exact FIFO
 completion order pass max_concurrent=1 explicitly, since those invariants
@@ -94,7 +94,7 @@ class TestBoundedConcurrency:
         assert max(concurrent_count) == 2
 
     def test_two_jobs_actually_overlap_in_time(self):
-        """Not just "never more than 2" — confirm 2 really do run simultaneously
+        """Not just "never more than 2" - confirm 2 really do run simultaneously
         (i.e. the cap isn't accidentally behaving like max_concurrent=1)."""
         jq = JobQueue(max_concurrent=2)
         jq.start()
@@ -176,7 +176,7 @@ class TestPositionSingleWorker:
         started.wait(timeout=5)
         second = jq.submit("second", lambda: None)
 
-        # Still first's turn — dequeuing doesn't change anyone's position,
+        # Still first's turn - dequeuing doesn't change anyone's position,
         # only finishing does.
         assert jq.position("first") == 0
         assert jq.position("second") == 1
@@ -185,7 +185,7 @@ class TestPositionSingleWorker:
         first.result(timeout=5)
         second.result(timeout=5)
 
-        # Both finished — no longer tracked.
+        # Both finished - no longer tracked.
         assert jq.position("first") is None
         assert jq.position("second") is None
 

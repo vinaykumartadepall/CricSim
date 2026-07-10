@@ -145,7 +145,7 @@ export function AdminPage() {
           Admin Settings
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 28 }}>
-          Changes take effect immediately, for every simulation on this server. Not persisted — resets to defaults on the next restart/deploy.
+          Changes take effect immediately, for every simulation on this server. Not persisted - resets to defaults on the next restart/deploy.
         </div>
 
         {loading || !settings ? (
@@ -154,7 +154,7 @@ export function AdminPage() {
           <>
             <Section
               title="Log level"
-              description="Minimum level written to simulation.log. errors.log always stays at WARNING regardless of this setting. TRACE enables extremely high-volume per-ball/per-over strategy dumps — use only for a short, targeted window, not an extended test."
+              description="Minimum level written to simulation.log. errors.log always stays at WARNING regardless of this setting. TRACE enables extremely high-volume per-ball/per-over strategy dumps - use only for a short, targeted window, not an extended test."
               error={errors.log_level}
             >
               <OptionRow
@@ -180,7 +180,7 @@ export function AdminPage() {
 
             <Section
               title="Default ball outcome strategy"
-              description="Used whenever a simulation request doesn't specify its own — which is every simulation today, since the frontend never overrides this."
+              description="Used whenever a simulation request doesn't specify its own - which is every simulation today, since the frontend never overrides this."
               error={errors.outcome_strategy}
             >
               <OptionRow
@@ -193,7 +193,7 @@ export function AdminPage() {
 
             <Section
               title="Default bowling selection strategy"
-              description="Used whenever a simulation request doesn't specify its own — which is every simulation today, since the frontend never overrides this."
+              description="Used whenever a simulation request doesn't specify its own - which is every simulation today, since the frontend never overrides this."
               error={errors.bowling_strategy}
             >
               <OptionRow

@@ -3,20 +3,20 @@ In-process simulation job queue with a bounded number of concurrent workers.
 
 Every simulation (single-player match/tournament, multiplayer match/
 tournament) used to get dispatched via one of two ad hoc "fire and forget
-onto a thread" mechanisms — FastAPI's BackgroundTasks for single-player, a
+onto a thread" mechanisms - FastAPI's BackgroundTasks for single-player, a
 direct loop.run_in_executor(...) call for multiplayer. Both ultimately run
 on OS threads pulled from a thread pool, with no cap on how many could run
-at once — so several simulations triggered around the same time genuinely
+at once - so several simulations triggered around the same time genuinely
 execute concurrently, competing for the GIL and CPU.
 
 Measured directly on the production droplet (1 vCPU): running 4 simulations
 concurrently was ~12% *slower* in aggregate than running them one after
-another — concurrency there was pure lock/GIL contention, not real
+another - concurrency there was pure lock/GIL contention, not real
 parallelism, since there's no second core to actually use. JobQueue caps
 concurrency explicitly (default 2, tunable via SIM_QUEUE_MAX_CONCURRENT)
 instead of leaving it unbounded, so at most that many simulations ever run
 at once, with the rest queued in FIFO order. Everything else (the API,
-websockets) stays fully async/responsive — only the CPU-bound simulation
+websockets) stays fully async/responsive - only the CPU-bound simulation
 work itself is capped.
 """
 
@@ -42,8 +42,8 @@ class JobQueue:
         # ones are currently running, in FIFO order. Removal happens only
         # when a job finishes (not when a worker dequeues it to start), so
         # a running job keeps reporting its position for its whole
-        # execution, and everyone behind it shifts down by one — via plain
-        # list-removal semantics, nothing renumbered by hand — only once it
+        # execution, and everyone behind it shifts down by one - via plain
+        # list-removal semantics, nothing renumbered by hand - only once it
         # actually completes.
         self._order: list[str] = []
         self._threads: list[threading.Thread] = []
@@ -58,7 +58,7 @@ class JobQueue:
     def submit(self, job_id: str, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> "Future[Any]":
         """Enqueue fn(*args, **kwargs) to run on the next free worker slot.
 
-        job_id is an explicit tracking key for position() — not introspected
+        job_id is an explicit tracking key for position() - not introspected
         from args, since some callers (multiplayer) don't have their real
         sim_id yet at submit time and use a different key (e.g. room_id).
         """
@@ -71,7 +71,7 @@ class JobQueue:
 
     def position(self, job_id: str) -> int | None:
         """0 if there's a free worker slot for this job (queued-to-start or
-        already running — up to max_concurrent jobs can share position 0),
+        already running - up to max_concurrent jobs can share position 0),
         1 if one job is queued ahead of it beyond the active slots, etc.
         None if not tracked (finished, or unknown id)."""
         with self._lock:
@@ -91,7 +91,7 @@ class JobQueue:
             except Exception as exc:
                 # run_match_job/run_tournament_job already swallow their own
                 # exceptions internally (log + mark the DB row failed), so
-                # this rarely fires for them — but multiplayer's
+                # this rarely fires for them - but multiplayer's
                 # _run_simulation can raise before either of those even gets
                 # called, and its caller's except block depends on that
                 # exception actually propagating through the Future. Either
@@ -115,7 +115,7 @@ class _Job:
         self.future = future
 
 
-# Process-level singleton — matching the pattern of _memory_monitor /
+# Process-level singleton - matching the pattern of _memory_monitor /
 # _PRECOMPUTED_CACHE (api/main.py, db/stats_repository.py): fine because
 # this deploys as a single uvicorn process (explicitly no --workers, see
 # CLAUDE.md). max_concurrent defaults to 2 (env: SIM_QUEUE_MAX_CONCURRENT).

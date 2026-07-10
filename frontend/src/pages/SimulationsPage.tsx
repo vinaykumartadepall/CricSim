@@ -39,7 +39,7 @@ export function SimulationsPage() {
   async function handleRefresh() {
     setRefreshing(true)
     try {
-      // Force a minimum visible duration — the fetch usually resolves fast
+      // Force a minimum visible duration - the fetch usually resolves fast
       // enough that the spin/color change never actually gets a chance to paint.
       await Promise.all([fetchFirstPage(), new Promise(r => setTimeout(r, 400))])
     } finally {
@@ -55,7 +55,7 @@ export function SimulationsPage() {
       offsetRef.current += data.length
       setHasMore(data.length === PAGE_SIZE)
     } catch {
-      // silently fail — existing items stay
+      // silently fail - existing items stay
     } finally {
       setLoadingMore(false)
     }

@@ -40,7 +40,7 @@ def put_log_level(body: LogLevelRequest):
     errors.log is always fixed at WARNING and is unaffected.
 
     Valid levels: TRACE | DEBUG | INFO | WARNING | ERROR
-    TRACE enables extremely high-volume per-ball/per-over strategy dumps —
+    TRACE enables extremely high-volume per-ball/per-over strategy dumps -
     only use it for a short, targeted debugging window, not a load test.
     """
     level = body.level.upper()
@@ -71,7 +71,7 @@ def get_cache_strategy():
 @router.put("/cache-strategy", response_model=CacheStrategyResponse)
 def put_cache_strategy(body: CacheStrategyRequest):
     """
-    Hot-swap the cache retention strategy at runtime — no restart required.
+    Hot-swap the cache retention strategy at runtime - no restart required.
     Switching always starts the new strategy empty (existing entries are dropped).
 
     - persistent: entries live for the process lifetime (default).

@@ -142,7 +142,7 @@ function TournamentStatsPanel({ sims, showByMode, hideSeasons, navigate }: {
       <div className="grid grid-cols-4 gap-3 mb-5">
         <StatCard label="Seasons"   value={s.total} />
         <StatCard label="Titles"    value={s.titles} accent={s.titles > 0} />
-        <StatCard label="Win Rate"  value={s.withPlacement > 0 ? `${s.winRate}%` : '—'} />
+        <StatCard label="Win Rate"  value={s.withPlacement > 0 ? `${s.winRate}%` : '-'} />
         <StatCard label="Runner-up" value={s.runnerUp} />
       </div>
 
@@ -212,7 +212,7 @@ function OneVOnePanel({ sims, navigate }: { sims: SimSummary[]; navigate: (path:
       <div className="grid grid-cols-4 gap-3 mb-5">
         <StatCard label="Matches"  value={completed.length} />
         <StatCard label="Wins"     value={wins}   accent={wins > 0} />
-        <StatCard label="Win Rate" value={withResult.length > 0 ? `${winRate}%` : '—'} />
+        <StatCard label="Win Rate" value={withResult.length > 0 ? `${winRate}%` : '-'} />
         <StatCard label="Losses"   value={losses} />
       </div>
 

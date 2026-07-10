@@ -3,19 +3,19 @@ Application-level logger for the cricket simulator.
 
 Log levels:
   TRACE    5  per-ball/per-over probability tables (outcome distribution dumps,
-              bowling-selection scoring breakdowns) — extremely high volume,
+              bowling-selection scoring breakdowns) - extremely high volume,
               meant for a developer debugging one match closely, not for
               leaving on during a multi-simulation run or load test
   DEBUG   10  moderate per-ball detail, cache timing, SQL queries (see
               db/database.py's make_query_logging_cursor and
-              db/stats_repository.py's _run_query) — kept out of TRACE so
+              db/stats_repository.py's _run_query) - kept out of TRACE so
               query visibility doesn't require wading through its noise
   INFO    20  match headlines, scorecard summaries, lifecycle events
   WARNING 30  data issues: player not in cache, venue not found, fallback activated
   ERROR   40  unexpected failures that may affect simulation correctness
 
 Every log line carries [sim_id/m{match_id}] context injected automatically from
-ContextVars — safe for concurrent runs in the same process.
+ContextVars - safe for concurrent runs in the same process.
 
 Usage:
   from simulator.logger import get_logger, log_context
@@ -63,7 +63,7 @@ def _console(self: logging.Logger, message, *args, **kwargs):
 
 logging.Logger.console = _console  # type: ignore[attr-defined]
 
-# Thread-safe context — set per simulation job via log_context()
+# Thread-safe context - set per simulation job via log_context()
 _sim_id_var:   ContextVar[str] = ContextVar('sim_id',   default='')
 _match_id_var: ContextVar[int] = ContextVar('match_id', default=0)
 
@@ -91,7 +91,7 @@ class _ContextFilter(logging.Filter):
 def log_context(sim_id: Optional[str] = None, match_id: Optional[int] = None) -> Generator[None, None, None]:
     """
     Set per-thread sim/match context for all log lines within this block.
-    Only the vars explicitly passed are changed — others inherit the outer context.
+    Only the vars explicitly passed are changed - others inherit the outer context.
     Safe to nest: outer values are restored on exit.
     """
     tokens = []
@@ -133,7 +133,7 @@ def is_level_active(level: int) -> bool:
     """
     Whether ANY attached handler would actually persist a record at this level.
 
-    Use this — not logger.isEnabledFor() — to guard expensive log-line construction
+    Use this - not logger.isEnabledFor() - to guard expensive log-line construction
     (e.g. building a per-ball probability table before calling log.trace(...)).
     isEnabledFor() only reflects the logger's own floor, which is deliberately kept
     at the lowest possible level (TRACE) so each handler can be switched
@@ -151,7 +151,7 @@ def get_logger() -> logging.Logger:
         return _logger
 
     _logger = logging.getLogger("cricket_sim")
-    # Floor is kept at the lowest level (TRACE) deliberately — every handler
+    # Floor is kept at the lowest level (TRACE) deliberately - every handler
     # (console, simulation.log, errors.log) sets its OWN level independently
     # and switches at runtime via set_log_level(); if the logger itself were
     # capped at DEBUG, TRACE-level records would never even reach a handler

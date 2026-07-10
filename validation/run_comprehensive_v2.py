@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive Model Validation v2  —  T20 / ODI / Test
+Comprehensive Model Validation v2  -  T20 / ODI / Test
 =======================================================
 Improvements over v1:
   • 30 venues, 30 batters, 30 bowlers per format (vs 10/15/5)
@@ -125,7 +125,7 @@ def _wsample(items, weights, k, rng):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Target selection — venues (international-biased, region-diverse)
+# Target selection - venues (international-biased, region-diverse)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def select_venues(repo, match_format, gender, n, rng,
@@ -216,7 +216,7 @@ def select_venues(repo, match_format, gender, n, rng,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Target selection — batters (position-stratified, international-biased)
+# Target selection - batters (position-stratified, international-biased)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def select_batters(repo, match_format, gender, n, rng,
@@ -323,7 +323,7 @@ def select_batters(repo, match_format, gender, n, rng,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Target selection — bowlers (type/phase-stratified, international-biased)
+# Target selection - bowlers (type/phase-stratified, international-biased)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def select_bowlers(repo, match_format, gender, n, rng,
@@ -565,7 +565,7 @@ def batch_build_matches(repo, all_match_ids, match_format, _w=print):
             venue=venue, match_format=fmt, balls_per_over=6, **fs,
         )
 
-    _w(f"  [Batch] Done — {len(resolved)} matches ready.")
+    _w(f"  [Batch] Done - {len(resolved)} matches ready.")
     return match_configs, bowling_plans, resolved
 
 
@@ -772,7 +772,7 @@ def _report_hist_only(
     _w, fmt_fh,
 ):
     _w(f"\n\n{'━'*90}")
-    _w(f"  HISTORICAL GROUND TRUTH  ({match_format}) — from simulated match pools only")
+    _w(f"  HISTORICAL GROUND TRUTH  ({match_format}) - from simulated match pools only")
     _w(f"{'━'*90}")
 
     all_mid_list = list(all_match_ids)
@@ -894,7 +894,7 @@ def _report_hist_only(
 
     # ── Print: format-level ────────────────────────────────────────────────────
     def _ph(acc: ProfileStats):
-        if acc.n == 0: return '—'
+        if acc.n == 0: return '-'
         return (f"n={acc.n:>7,}  eco={acc.economy:.2f}"
                 f"  bnd={acc.boundary_rate:.3f}  wkt={acc.wicket_rate:.3f}"
                 f"  dot={acc.dot_rate:.3f}")
@@ -975,7 +975,7 @@ def _report_hist_only(
 
     # ── Print: matchups ────────────────────────────────────────────────────────
     _w(f"\n\n  {'─'*88}")
-    _w(f"  BATTER-BOWLER MATCHUPS  ({match_format}) — top 50 by balls")
+    _w(f"  BATTER-BOWLER MATCHUPS  ({match_format}) - top 50 by balls")
     _w(f"  {'─'*88}")
     _w(f"  {'Batter':<25}  {'Bowler':<25}  {'balls':>6}"
        f"  {'economy':>8}  {'bnd%':>7}  {'wkt%':>7}  {'dot%':>7}")
@@ -1070,7 +1070,7 @@ def run_format(match_format, cfg, run_dir, seed, gender, hist_only=False):
 
     _w(f"\n  {len(all_match_ids)} unique historical matches"
        + (f" to simulate ({R} times each = {len(all_match_ids) * R} total simulations)"
-          if not hist_only else " (hist-only — no simulations)"))
+          if not hist_only else " (hist-only - no simulations)"))
 
     # ── Hist-only: compute and print historical ground truth, then return ──────
     if hist_only:
@@ -1087,7 +1087,7 @@ def run_format(match_format, cfg, run_dir, seed, gender, hist_only=False):
     match_configs, bowling_plans, resolved = batch_build_matches(
         repo, all_match_ids, match_format, _w)
     if not resolved:
-        _w("  ERROR: no matches resolved — skipping format")
+        _w("  ERROR: no matches resolved - skipping format")
         fmt_fh.close()
         return [], {}, fmt_path
 
@@ -1172,7 +1172,7 @@ def run_format(match_format, cfg, run_dir, seed, gender, hist_only=False):
         if rb >= 4: iacc.n_boundary += 1
         if wkt:     iacc.n_wicket   += 1
         if dot:     iacc.n_dot      += 1
-        # venue phase — only for matches in that venue's own pool
+        # venue phase - only for matches in that venue's own pool
         vid = mid_to_vid.get(mid)
         if vid and vid in _hist_venue_phases and mid in venue_pool_sets.get(vid, set()):
             vacc = _hist_venue_phases[vid][phase]
@@ -1190,7 +1190,7 @@ def run_format(match_format, cfg, run_dir, seed, gender, hist_only=False):
         if vid and mid in venue_pool_sets.get(vid, set()):
             hist_venue_scores[vid].append(runs)
 
-    # Batter stats — one bulk query, distribute by player pool
+    # Batter stats - one bulk query, distribute by player pool
     _w("    Loading batter stats …")
     all_player_mids = set()
     for mids in player_match_pool.values(): all_player_mids.update(mids)
@@ -1223,7 +1223,7 @@ def run_format(match_format, cfg, run_dir, seed, gender, hist_only=False):
         pid: (ov, dict(ph)) for pid, (ov, ph) in _bat_acc.items()
     }
 
-    # Bowler stats — one bulk query, distribute by player pool
+    # Bowler stats - one bulk query, distribute by player pool
     _w("    Loading bowler stats …")
     bow_del_rows = repo._run_query("""
         SELECT d.bowler_id, d.match_id, d.over_number,
@@ -1614,7 +1614,7 @@ def main(seed=42, outdir='validation_results', gender='male', hist_only=False):
     _progress(f"  Generated : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}   Seed: {seed}   Gender: {gender}")
     _progress(f"  Output dir: {run_dir}")
     _progress(f"  Formats: {', '.join(FORMAT_SETTINGS)}"
-              + ("  — HIST-ONLY (no simulations)" if hist_only else "  — running all in parallel"))
+              + ("  - HIST-ONLY (no simulations)" if hist_only else "  - running all in parallel"))
     _progress(f"{'═'*90}")
 
     all_trackers:   List[AccTracker] = []

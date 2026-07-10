@@ -6,7 +6,7 @@ The canonical groups are defined in venue_country_overrides.json under
 canonical_names.  For each group the script:
 
   1. Finds all venue_ids whose name matches any alias or the canonical name.
-  2. Picks the winner — the row whose name IS already the canonical name;
+  2. Picks the winner - the row whose name IS already the canonical name;
      if none exists, the one with the most history.matches references.
   3. Renames the winner to the canonical name / city if needed.
   4. Re-points all history.matches and simulation.matches to the winner.

@@ -1,5 +1,5 @@
 """
-Tests for MatchAwards / TournamentAwards (simulator/awards/match_awards.py) —
+Tests for MatchAwards / TournamentAwards (simulator/awards/match_awards.py) -
 strategy-agnostic orchestration. These deliberately use a tiny fake
 MvpStrategy rather than StatisticalAwardsStrategy for most cases, to prove
 orchestration (picking POTM, ranking, accumulating across matches) doesn't
@@ -79,7 +79,7 @@ class TestTournamentAwardsAccumulation:
         assert ta._totals[2].total == pytest.approx(60.0)
 
     def test_merges_breakdown_keys_generically_for_any_strategy_shape(self):
-        # No hardcoded 'batting_pts'/'bowling_pts' assumption — whatever keys
+        # No hardcoded 'batting_pts'/'bowling_pts' assumption - whatever keys
         # a strategy's breakdown uses get summed the same way.
         ta = TournamentAwards()
         a1 = PlayerAward(1, "Alice", team="A", total=10.0, breakdown={"win_probability_added": 0.10})
@@ -146,7 +146,7 @@ def test_match_awards_uses_statistical_awards_by_default():
     match.innings = [inning]
     match.match_format = "T20"
 
-    awards = MatchAwards()  # default strategy — no explicit injection
+    awards = MatchAwards()  # default strategy - no explicit injection
     awards.record_from_match(match)
 
     assert awards.potm().player_id == 1

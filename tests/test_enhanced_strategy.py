@@ -47,7 +47,7 @@ class _TestStrategy(EnhancedBaseHistoricalStatsStrategy):
         }
 
     def __init__(self):
-        # Bypass __init__ entirely — set attributes manually
+        # Bypass __init__ entirely - set attributes manually
         self._match_format = 'T20'
         self.baseline_outcome_probs = {(0, 0, 'Dot', None): 0.40, (4, 0, 'Runs', None): 0.12,
                                         (0, 0, 'Wicket', 'bowled'): 0.06, (1, 0, 'Runs', None): 0.42}
@@ -145,7 +145,7 @@ class TestBatterPhaseCache:
     def test_career_dist_used_when_insufficient_balls(self):
         dist = self._compute(phase_balls=10)  # Below T20 threshold of 30
         boundary_prob = sum(v for (rb, rx, ot, ok), v in dist.items() if rb >= 4)
-        # Career distribution has 0.10 boundary rate — should be closer to that
+        # Career distribution has 0.10 boundary rate - should be closer to that
         assert boundary_prob < 0.20, f"Expected career distribution, boundary_prob={boundary_prob}"
 
     def test_career_dist_used_when_no_phase_data(self):
@@ -274,12 +274,12 @@ def _venue(vid, name, country="India"):
 class TestVenueContextRefresh:
     """Regression coverage for the bug where venue_cache/player_venue_cache/
     player_country_cache were only ever populated from whichever match's venue
-    init_model happened to see FIRST — permanently, for the rest of the
+    init_model happened to see FIRST - permanently, for the rest of the
     tournament. In production this was always the prewarm step's venueless
     synthetic match, so these caches were empty for every real match, every
     tournament, always.
 
-    No live DB connection required — StatsRepository is bypassed via
+    No live DB connection required - StatsRepository is bypassed via
     conn=None (safe default returns everywhere) with get_venue_distribution
     specifically monkeypatched so we can tell which venue's data a call
     actually returned.
@@ -316,7 +316,7 @@ class TestVenueContextRefresh:
 
     def test_real_match_venue_is_picked_up_after_venueless_prewarm(self):
         """The exact production sequence: prewarm with no venue, then a real
-        match with a real venue — venue_cache must reflect the real match."""
+        match with a real venue - venue_cache must reflect the real match."""
         strategy = self._strategy({42: VENUE_A_DIST})
         strategy.init_model(_make_match(venue=None))          # prewarm
         strategy.init_model(_make_match(venue=_venue(42, "Wankhede Stadium")))  # real match

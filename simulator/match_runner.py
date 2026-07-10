@@ -1,5 +1,5 @@
 """
-MatchRunner — orchestrates a single cricket match simulation.
+MatchRunner - orchestrates a single cricket match simulation.
 
 Parallels TournamentEngine for single-match use.
 

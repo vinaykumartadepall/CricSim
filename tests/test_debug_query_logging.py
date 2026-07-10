@@ -1,13 +1,13 @@
 """
-Tests for SQL query logging (DEBUG level — see db/database.py's
+Tests for SQL query logging (DEBUG level - see db/database.py's
 make_query_logging_cursor docstring for why not INFO/TRACE):
-  - db.database.make_query_logging_cursor — the reusable cursor-wrapping factory
+  - db.database.make_query_logging_cursor - the reusable cursor-wrapping factory
   - StatsRepository._run_query logs the rendered SQL before executing
   - SimulationRepository wires both its cursors through the logging factory
 
 sim_id/match_id context is injected into every log line automatically by
 simulator.logger's existing ContextFilter (set via log_context() in
-api/worker.py) — nothing here needs to pass sim_id explicitly, which is
+api/worker.py) - nothing here needs to pass sim_id explicitly, which is
 exactly the point of building on that existing mechanism.
 
 No live DB connection required anywhere in this file.
@@ -20,7 +20,7 @@ from db.stats_repository import StatsRepository
 
 
 class _FakeBaseCursor:
-    """Stand-in for a psycopg2 cursor — just enough surface for the wrapper."""
+    """Stand-in for a psycopg2 cursor - just enough surface for the wrapper."""
 
     def __init__(self):
         self.executed = []
@@ -85,7 +85,7 @@ class TestMakeQueryLoggingCursor:
 
     def test_insert_statements_are_never_logged(self):
         """Bulk INSERTs (e.g. save_deliveries) render every row's literal
-        values via mogrify — one such statement measured at 2000+ log lines
+        values via mogrify - one such statement measured at 2000+ log lines
         by itself in production. Must be skipped regardless of log level."""
         LoggingCursor = make_query_logging_cursor(_FakeBaseCursor)
         cur = LoggingCursor()
@@ -114,7 +114,7 @@ class TestMakeQueryLoggingCursor:
         """Regression guard: psycopg2.extras.execute_batch (used by
         save_deliveries) mogrifies rows itself and calls execute() with the
         already-rendered batch as BYTES, not str, with vars=None. This is the
-        actual path that leaked a 2000+ line log entry into production —
+        actual path that leaked a 2000+ line log entry into production -
         str(some_bytes) gives "b'...'" and silently never matched "INSERT"."""
         LoggingCursor = make_query_logging_cursor(_FakeBaseCursor)
         cur = LoggingCursor()

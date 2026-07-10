@@ -186,7 +186,7 @@ def test_best_economy_filters_min_balls():
 def test_batting_average_excludes_all_not_outs():
     lb = TournamentLeaderboards()
     p = _make_player(1, "Alice")
-    # 3 innings, all not out — average is ∞
+    # 3 innings, all not out - average is ∞
     for _ in range(3):
         ip = _make_inning_player(1, "Alice", runs=50, balls=40, is_out=False)
         m = _make_match([p], [], [_make_inning([ip], [])])

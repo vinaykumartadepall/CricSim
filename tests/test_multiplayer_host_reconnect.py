@@ -1,10 +1,10 @@
 """
-Tests for _transfer_host_after_grace_period (api/routes/multiplayer.py) — a
+Tests for _transfer_host_after_grace_period (api/routes/multiplayer.py) - a
 host disconnect (most commonly just a page reload) no longer transfers host
 instantly; it waits HOST_RECONNECT_GRACE_S seconds and only transfers if the
 host is still disconnected by then.
 
-No live WebSocket/DB required — RoomState/Member are plain dataclasses, and
+No live WebSocket/DB required - RoomState/Member are plain dataclasses, and
 asyncio.sleep is monkeypatched to be instant so the grace period doesn't
 actually slow the test down.
 """
@@ -37,7 +37,7 @@ class TestHostReconnectGracePeriod:
     def test_does_not_transfer_if_reconnected_within_grace_period(self, monkeypatch):
         monkeypatch.setattr(asyncio, "sleep", AsyncMock())
         room = _room()
-        room.members["host"].ws = object()  # reconnected — has a live websocket again
+        room.members["host"].ws = object()  # reconnected - has a live websocket again
 
         asyncio.run(mp._transfer_host_after_grace_period(room, "host"))
 

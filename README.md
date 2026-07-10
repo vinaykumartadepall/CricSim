@@ -6,16 +6,16 @@ A ball-by-ball cricket match and tournament simulator backed by historical Crics
 
 ## Features
 
-- **Ball-by-ball simulation** — each delivery sampled from blended historical distributions (batter, bowler, matchup, phase, milestone, venue, innings, tournament)
-- **Three match formats** — T20, ODI, Test (including follow-on, draw/tie detection, four innings)
-- **Super over** — triggered automatically on ties in limited-overs matches
-- **Tournament engine** — round-robin or double round-robin group stage + pluggable playoff brackets (IPL, semis-final, quarters-semis-final)
-- **Live points table** — with NRR tracking
-- **Leaderboards** — batting (runs, average, strike rate, sixes, fours) and bowling (wickets, economy, average)
-- **Player-of-the-Match / Player-of-the-Tournament** — fantasy-points scoring
-- **Web UI** — Fun Mode, Challenge Mode, Custom Mode drafting, live multiplayer draft rooms, match/tournament results with worm charts and scorecards
-- **Supabase auth** — optional sign-in to save a profile and link anonymous history to an account; simulate/tournament endpoints stay open without login
-- **Pluggable strategy architecture** — swap outcome prediction or bowling selection independently; extend via abstract factory
+- **Ball-by-ball simulation** - each delivery sampled from blended historical distributions (batter, bowler, matchup, phase, milestone, venue, innings, tournament)
+- **Three match formats** - T20, ODI, Test (including follow-on, draw/tie detection, four innings)
+- **Super over** - triggered automatically on ties in limited-overs matches
+- **Tournament engine** - round-robin or double round-robin group stage + pluggable playoff brackets (IPL, semis-final, quarters-semis-final)
+- **Live points table** - with NRR tracking
+- **Leaderboards** - batting (runs, average, strike rate, sixes, fours) and bowling (wickets, economy, average)
+- **Player-of-the-Match / Player-of-the-Tournament** - fantasy-points scoring
+- **Web UI** - Fun Mode, Challenge Mode, Custom Mode drafting, live multiplayer draft rooms, match/tournament results with worm charts and scorecards
+- **Supabase auth** - optional sign-in to save a profile and link anonymous history to an account; simulate/tournament endpoints stay open without login
+- **Pluggable strategy architecture** - swap outcome prediction or bowling selection independently; extend via abstract factory
 
 ---
 
@@ -58,18 +58,18 @@ cricket-simulator/
 │   ├── deps.py                # Supabase JWT verification dependency
 │   ├── worker.py              # Background job runners (match + tournament, via BackgroundTasks)
 │   └── routes/
-│       ├── simulations.py     # /cricsimapi/simulations/* — create/poll jobs, scorecards, commentary
+│       ├── simulations.py     # /cricsimapi/simulations/* - create/poll jobs, scorecards, commentary
 │       ├── leaderboards.py    # /cricsimapi/simulations/{id}/leaderboards/*
-│       ├── lov.py              # /cricsimapi/lov/* — tournaments, squads, underdogs (list-of-values)
-│       ├── sim_history.py     # /cricsimapi/sim-history/* — aggregate stats across past sims
-│       ├── multiplayer.py     # /cricsimapi/multiplayer/* — WebSocket draft rooms
-│       ├── auth.py            # /cricsimapi/auth/* — Supabase profile + anonymous-account linking
-│       ├── admin.py           # /admin/log-level — runtime log level control
-│       └── admin_squads.py    # /admin/squads/* — squad editing tools
+│       ├── lov.py              # /cricsimapi/lov/* - tournaments, squads, underdogs (list-of-values)
+│       ├── sim_history.py     # /cricsimapi/sim-history/* - aggregate stats across past sims
+│       ├── multiplayer.py     # /cricsimapi/multiplayer/* - WebSocket draft rooms
+│       ├── auth.py            # /cricsimapi/auth/* - Supabase profile + anonymous-account linking
+│       ├── admin.py           # /admin/log-level - runtime log level control
+│       └── admin_squads.py    # /admin/squads/* - squad editing tools
 ├── db/
 │   ├── stats_repository.py  # All simulation-runtime queries; singleton connection; lazy _PRECOMPUTED_CACHE
 │   ├── simulation_repository.py  # Writes to simulation.* tables
-│   ├── precompute.py        # Offline precomputation — the only place allowed to query history.deliveries
+│   ├── precompute.py        # Offline precomputation - the only place allowed to query history.deliveries
 │   ├── database.py          # Connection helpers (DATABASE_URL / DB_* env vars)
 │   └── schema.sql
 ├── frontend/
@@ -241,7 +241,7 @@ python run_tournament.py --config ipl_config.json --seed 42 --silent
 uvicorn api.main:app --reload --port 8000
 ```
 
-The stats cache (`StatsRepository._PRECOMPUTED_CACHE`) is populated **lazily**, per stat type, on first use — not eagerly at startup — to keep steady-state memory lower. The first request touching a given stat type pays a one-time DB-load cost; everything after that is a dict lookup. Interactive API docs at `http://localhost:8000/docs`.
+The stats cache (`StatsRepository._PRECOMPUTED_CACHE`) is populated **lazily**, per stat type, on first use - not eagerly at startup - to keep steady-state memory lower. The first request touching a given stat type pays a one-time DB-load cost; everything after that is a dict lookup. Interactive API docs at `http://localhost:8000/docs`.
 
 In a separate terminal:
 ```bash
@@ -276,7 +276,7 @@ Log files are written to `logs/` (created automatically):
 | `logs/simulation.log` | INFO (configurable) | 20 MB × 10 files = 200 MB |
 | `logs/errors.log` | WARNING and above | 5 MB × 5 files = 25 MB |
 
-Every line includes `[sim_id/m{match_id}]` context — concurrent simulations are identifiable. No per-match files are written.
+Every line includes `[sim_id/m{match_id}]` context - concurrent simulations are identifiable. No per-match files are written.
 
 Switch level at runtime without restarting:
 ```bash

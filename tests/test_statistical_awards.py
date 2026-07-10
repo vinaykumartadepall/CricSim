@@ -1,22 +1,22 @@
 """
-Tests for StatisticalAwardsStrategy — the default MvpStrategy, scoring every
+Tests for StatisticalAwardsStrategy - the default MvpStrategy, scoring every
 ball against a fixed, per-format point table.
 
 Point values are format-specific and come from StatisticalAwardsStrategy's
-own _RULES — most tests here read expected values off that table directly
+own _RULES - most tests here read expected values off that table directly
 (via the module-level T20/ODI/TEST constants below) rather than repeating
 the numbers, to stay correct automatically if the rubric's numbers ever
 change, while still catching format-selection bugs, milestone-stacking
 bugs, and innings-scoping bugs the table alone can't verify.
 
 _PlayerTally (the internal per-ball accumulator) is imported directly for
-granular rule-level tests — it's private to statistical_awards.py, but
+granular rule-level tests - it's private to statistical_awards.py, but
 testing it in isolation is far more targeted than building a full mock
 match for every single-rule check. Integration-level tests (does compute()
 correctly wire deliveries -> tallies -> PlayerAward) build real mock
 matches and go through the public compute() entry point.
 
-Uses lightweight delivery mocks — no DB or real match engine required.
+Uses lightweight delivery mocks - no DB or real match engine required.
 """
 
 import pytest
@@ -221,7 +221,7 @@ def test_maiden_over_points_vary_by_format():
 
 def test_maiden_not_awarded_if_runs_conceded():
     t = _PlayerTally(1, "Bob", rules=T20)
-    t.on_bowling_ball(1, 4, 0, None, False, "")  # boundary conceded — not a dot, breaks the maiden
+    t.on_bowling_ball(1, 4, 0, None, False, "")  # boundary conceded - not a dot, breaks the maiden
     for _ in range(5):
         t.on_bowling_ball(1, 0, 0, None, False, "")
     t.on_over_end_bowler()
@@ -314,7 +314,7 @@ def test_compute_returns_player_award_with_breakdown():
 
 
 def test_compute_picks_highest_scorer_first_via_matchawards_potm():
-    # MatchAwards.potm() picks the max by .total — verify compute()'s output
+    # MatchAwards.potm() picks the max by .total - verify compute()'s output
     # ranks the way MatchAwards relies on.
     bat = _player(1, "Batter")
     bow = _player(2, "Bowler")

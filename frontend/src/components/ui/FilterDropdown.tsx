@@ -31,13 +31,13 @@ function CheckableItem({ label, checked, onClick }: { label: string; checked: bo
   )
 }
 
-// Custom themed multi-select dropdown standing in for a native <select> —
+// Custom themed multi-select dropdown standing in for a native <select> -
 // a native select's closed state can be styled, but its open option list is
 // rendered by the OS/browser and can't be themed at all, so it always looks
 // like a jarring, unstyled popup dropped on top of the app's own dark
 // surfaces. This renders the whole thing (trigger + list) with the app's own
-// surface/border/accent tokens instead, and — since these filters should be
-// combinable, not one-at-a-time — supports selecting more than one value,
+// surface/border/accent tokens instead, and - since these filters should be
+// combinable, not one-at-a-time - supports selecting more than one value,
 // staying open between picks so multiple items can be checked in one go.
 export function FilterDropdown({
   placeholder, values, options, onChange, searchable = false, disabled = false,

@@ -1,10 +1,10 @@
 """
-Tests for api.main._resume_or_fail_interrupted_sims() — the startup sweep
+Tests for api.main._resume_or_fail_interrupted_sims() - the startup sweep
 that handles sims left mid-flight by a previous process lifetime (crash or
 restart), since this deploys as a single uvicorn process with no external
 job broker (see api/job_queue.py).
 
-No live DB connection required — get_db_connection is monkeypatched with a
+No live DB connection required - get_db_connection is monkeypatched with a
 fake connection/cursor (same pattern as tests/test_api_multiplayer_players.py),
 and job_queue.submit is monkeypatched to record calls instead of actually
 running anything.

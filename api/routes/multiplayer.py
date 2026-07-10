@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import time
 from typing import Callable, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -16,6 +18,10 @@ from simulator.logger import get_logger
 router = APIRouter(prefix="/cricsimapi/multiplayer", tags=["multiplayer"])
 
 _KEEPER_ROLE = "Keeper"
+# How long a 'waiting' room can sit with no activity (creation, join,
+# reconnect, or a reset-to-waiting after a simulation) before the idle
+# reaper cleans it up - see _reap_idle_rooms_forever.
+ROOM_IDLE_TIMEOUT_S = int(os.getenv("ROOM_IDLE_TIMEOUT_S", str(30 * 60)))
 
 
 # ── player search ──────────────────────────────────────────────────────────────
@@ -31,7 +37,7 @@ def search_players(
 ):
     conn = get_db_connection(); cur = conn.cursor()
     try:
-        # Each filter is multi-select (repeated query params) — ANY(%s) against
+        # Each filter is multi-select (repeated query params) - ANY(%s) against
         # a list matches "role IN (...)" without building a dynamic IN clause.
         filters: list[str] = []
         params: list = []
@@ -89,7 +95,7 @@ def search_players(
 
 @router.get("/player-filters")
 def player_filter_options():
-    """Distinct values to populate the search filter dropdowns — kept as a
+    """Distinct values to populate the search filter dropdowns - kept as a
     live query (not hardcoded) so it always matches the actual player data."""
     conn = get_db_connection(); cur = conn.cursor()
     try:
@@ -231,7 +237,7 @@ async def room_ws(ws: WebSocket, room_id: str, client_id: str = Query(...)):
         if room.status == "waiting":
             await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
         # Host leaving is very often just a page reload (same client_id
-        # reconnects within a couple seconds) — wait out a grace period
+        # reconnects within a couple seconds) - wait out a grace period
         # before actually handing host to someone else, instead of
         # transferring instantly on every disconnect.
         if room.status == "waiting" and client_id == room.host_id:
@@ -244,7 +250,7 @@ async def _transfer_host_after_grace_period(room: RoomState, client_id: str) -> 
         return  # already resolved (transferred some other way, draft started, etc.)
     member = room.members.get(client_id)
     if member is not None and member.ws is not None:
-        return  # reconnected within the grace period — nothing to do
+        return  # reconnected within the grace period - nothing to do
     if draft_manager.transfer_host(room, client_id):
         await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
 
@@ -282,6 +288,7 @@ async def _handle_message(room: RoomState, client_id: str, ws: WebSocket, msg: d
         except ValueError as e:
             await draft_manager.send(ws, {"type": "error", "data": {"message": str(e)}})
             return
+        room.members[client_id].disconnected_auto_picks = 0
         _persist_squad(room.room_id, client_id, room.members[client_id].squad)
 
         draft_manager.cancel_timer(room)
@@ -317,7 +324,7 @@ async def _handle_message(room: RoomState, client_id: str, ws: WebSocket, msg: d
             "type": "ready_update",
             "data": {"ready_members": list(room.ready_members), "total": len(room.members)},
         })
-        # Waiting-room ready is informational only — lets players signal they've
+        # Waiting-room ready is informational only - lets players signal they've
         # read the rules, but the host always has to click Start Draft manually,
         # even once everyone's ready. Only the post-draft reorder phase auto-proceeds.
         if room.status == "reordering" and len(room.ready_members) >= len(room.members):
@@ -340,16 +347,53 @@ async def _handle_message(room: RoomState, client_id: str, ws: WebSocket, msg: d
                 pass
         await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
 
+    elif t == "leave_room":
+        try:
+            result = draft_manager.leave_room(room, client_id)
+        except ValueError as e:
+            await draft_manager.send(ws, {"type": "error", "data": {"message": str(e)}})
+            return
+        try:
+            _persist_leave_room(room.room_id, client_id)
+        except Exception:
+            get_logger().exception("Failed to persist leave for room %s, client %s", room.room_id, client_id)
+        await draft_manager.send(ws, {"type": "left_room", "data": {}})
+        if result["ended"]:
+            try:
+                _cleanup_room_db(room.room_id)
+            except Exception:
+                pass
+            draft_manager.remove_room(room.room_id)
+        else:
+            await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
+
     elif t == "ping":
         await draft_manager.send(ws, {"type": "pong"})
 
 
 # ── auto-pick on timeout ───────────────────────────────────────────────────────
 
+# A disconnected picker's first 2 turns still wait out the full timer (real
+# chances to reconnect); from the 3rd consecutive disconnected turn,
+# _start_pick_timer skips the wait entirely - see DraftManager.auto_pick,
+# which is what actually increments Member.disconnected_auto_picks.
+_INSTANT_PICK_THRESHOLD = 2
+
 async def _on_timeout(room: RoomState, all_player_ids: list):
+    """Auto-picks the current turn - called either after the normal 60s
+    timer lapses, or immediately (via _start_pick_timer) for a picker who's
+    already missed _INSTANT_PICK_THRESHOLD turns in a row while disconnected."""
     result = draft_manager.auto_pick(room, all_player_ids)
     if not result:
         return
+    picker = room.members.get(result["picker"])
+    if picker is not None and picker.ws is None and picker.disconnected_auto_picks == _INSTANT_PICK_THRESHOLD + 1:
+        # Threshold just crossed for the first time - one-time notification,
+        # not a repeated one on every subsequent instant pick.
+        await draft_manager.broadcast(room, {
+            "type": "player_auto_drafting",
+            "data": {"client_id": picker.client_id, "display_name": picker.display_name},
+        })
     _persist_squad(room.room_id, result["picker"], room.members[result["picker"]].squad)
     player_info = _player_info(result["player_id"])
     await draft_manager.broadcast(room, {
@@ -364,13 +408,21 @@ async def _on_timeout(room: RoomState, all_player_ids: list):
 
 def _start_pick_timer(room: RoomState, all_pids: list):
     loop = asyncio.get_event_loop()
+    picker = room.members.get(room.current_picker_id) if room.current_picker_id else None
+    if picker is not None and picker.ws is None and picker.disconnected_auto_picks >= _INSTANT_PICK_THRESHOLD:
+        # Already missed 2 turns in a row while disconnected - stop waiting
+        # out the timer for them and auto-pick instantly until they
+        # reconnect. Scheduled as a task (not awaited inline) since this
+        # function is sync, matching how the timer path itself is scheduled.
+        loop.create_task(_on_timeout(room, all_pids))
+        return
     draft_manager.start_timer(room, loop, _on_timeout, all_pids)
 
 
 # ── reorder phase ──────────────────────────────────────────────────────────────
 
 async def _finish_draft(room: RoomState):
-    """Called when all picks are done — enters the 60-second reorder phase."""
+    """Called when all picks are done - enters the 60-second reorder phase."""
     room.status = "reordering"
     room.ready_members = set()
     await draft_manager.broadcast(room, {"type": "reorder_phase", "data": room.to_dict()})
@@ -400,7 +452,7 @@ async def _start_simulation(room: RoomState):
     loop = asyncio.get_event_loop()
 
     def on_sim_created(sim_id: str) -> None:
-        # _run_simulation runs in a worker thread — hop back onto the event
+        # _run_simulation runs in a worker thread - hop back onto the event
         # loop to broadcast, so clients can hand off to the shared
         # "simulating" page immediately instead of waiting the full 10-30s
         # for the simulation itself to finish.
@@ -409,7 +461,7 @@ async def _start_simulation(room: RoomState):
             loop,
         )
         # run_coroutine_threadsafe's Future silently drops exceptions unless
-        # something retrieves them — log any broadcast failure instead of
+        # something retrieves them - log any broadcast failure instead of
         # losing it, consistent with every other except-block in this file.
         def _log_if_failed(f) -> None:
             exc = f.exception()
@@ -420,27 +472,40 @@ async def _start_simulation(room: RoomState):
     try:
         # Goes through the shared single-worker job_queue (not a bare
         # executor call) so this never runs concurrently with another
-        # simulation — see api/job_queue.py. room_id is the tracking key
+        # simulation - see api/job_queue.py. room_id is the tracking key
         # here since the real sim_id doesn't exist yet (on_sim_created is
         # what creates it, once the job actually starts).
         future = job_queue.submit(f"room:{room.room_id}", _run_simulation, room, on_sim_created)
         sim_id, match_id = await asyncio.wrap_future(future)
         room.sim_id = sim_id
-        room.status = "completed"
         await draft_manager.broadcast(room, {
             "type": "sim_result",
             "data": {"sim_id": sim_id, "mode": room.mode, "match_id": match_id},
         })
+        # Reset to a fresh lobby instead of destroying the room - lets the
+        # same group draft and play another round without recreating the
+        # room and re-sharing the invite code/link. Nobody is actually
+        # watching the room page at this point (everyone already navigated
+        # to /simulating/:simId off the earlier sim_created broadcast), so
+        # there's no "completed" status anyone would ever observe - going
+        # straight from simulating to waiting is enough.
+        draft_manager.reset_to_waiting(room)
+        try:
+            _persist_reset_to_waiting(room.room_id)
+        except Exception:
+            get_logger().exception("Failed to persist waiting-reset for room %s", room.room_id)
+        await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
     except Exception as e:
+        # Deliberately not deleting the room here (previously this whole
+        # function unconditionally deleted it in a finally block, including
+        # on this exact failure path - despite resetting status to
+        # "reordering" a line above, clearly intending to let the room
+        # recover so players could retry starting the simulation). The room
+        # now only ever gets removed via an explicit leave-until-empty or the
+        # idle-timeout reaper, not as a side effect of a failed sim start.
         get_logger().exception("Simulation failed to start for room %s", room.room_id)
         room.status = "reordering"
         await draft_manager.broadcast(room, {"type": "error", "data": {"message": f"Simulation failed: {e}"}})
-    finally:
-        try:
-            _cleanup_room_db(room.room_id)
-        except Exception:
-            pass  # DB already gone or connection issue — proceed to evict in-memory state
-        draft_manager.remove_room(room.room_id)
 
 
 _INTERNATIONAL_VENUES: dict[str, list[str]] = {
@@ -515,7 +580,7 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
 
     def _team_cfg(member) -> dict:
         # batting_order reflects any reordering the player did (including
-        # moving a pick past an already-filled gap) — squad is pick order
+        # moving a pick past an already-filled gap) - squad is pick order
         # only and never touched by reorder_squad. Defensive fallback to
         # squad if batting_order is somehow short/still has gaps (shouldn't
         # happen once the draft is actually complete).
@@ -555,7 +620,7 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
             run_match_job(sim_id, config)
 
             # Create one game_session per participant now that simulation.teams rows exist
-            _save_multiplayer_game_sessions(repo, sim_id, team_name_by_client)
+            _save_multiplayer_game_sessions(repo, sim_id, team_name_by_client, room.room_id)
 
             # Fetch the match_id for direct navigation
             repo.cur.execute(
@@ -571,7 +636,7 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
                 "simulation_type": "tournament",
                 "tournament_name": room.tournament_name,
                 # No real historical season backs a multiplayer tournament
-                # (teams are freely drafted, not seeded from one) — leaving
+                # (teams are freely drafted, not seeded from one) - leaving
                 # this out would default to '2025' (TournamentConfig.from_dict),
                 # which then got displayed appended to a name that already
                 # has the creation year baked in via MultiplayerLobbyPage's
@@ -583,7 +648,7 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
                 "venues": venues,
                 "schedule": {"type": "double_round_robin", "matches_per_pair": 2},
                 "playoffs": {"format": playoffs_fmt, "top_n": 4},
-                # outcome_strategy/bowling_strategy intentionally omitted — worker.py's
+                # outcome_strategy/bowling_strategy intentionally omitted - worker.py's
                 # _build_tournament_config falls back to the current admin-configured
                 # default (simulator.admin_settings) when these are absent.
             }
@@ -594,7 +659,7 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
             run_tournament_job(sim_id, config, user_team_name=None)
 
             # Create one game_session per participant now that simulation.teams rows exist
-            _save_multiplayer_game_sessions(repo, sim_id, team_name_by_client)
+            _save_multiplayer_game_sessions(repo, sim_id, team_name_by_client, room.room_id)
 
             return sim_id, None
     finally:
@@ -605,6 +670,7 @@ def _save_multiplayer_game_sessions(
     repo,
     sim_id: str,
     team_name_by_client: dict,
+    room_id: str,
 ) -> None:
     """After a multiplayer simulation completes, create one game_sessions row per participant.
 
@@ -635,6 +701,7 @@ def _save_multiplayer_game_sessions(
             source_tournament_id=None,
             user_team_id=user_team_id,
             swaps=[],
+            room_id=room_id,
         )
     repo.commit()
 
@@ -642,14 +709,42 @@ def _save_multiplayer_game_sessions(
 # ── DB helpers ─────────────────────────────────────────────────────────────────
 
 def _persist_draft_start(room: RoomState) -> None:
-    """Persist room status=drafting and each member's draft_order to DB."""
+    """Persist room status=drafting and each member's draft_order to DB.
+
+    Also clears room_id off any past sim's game_sessions row that pointed at
+    this room: once a new draft starts, the room has moved on from the round
+    those old results belonged to, so a "Return to Lobby" button on an old
+    result would no longer land somewhere meaningful for that result - it'd
+    either barge into a new round already in progress or, later, a fresh one
+    entirely. Nulling it here removes the button from those old results
+    rather than leaving it to dead-end.
+    """
     conn = get_db_connection(autocommit=True); cur = conn.cursor()
     cur.execute("UPDATE simulation.rooms SET status='drafting' WHERE room_id=%s", (room.room_id,))
+    cur.execute("UPDATE simulation.game_sessions SET room_id=NULL WHERE room_id=%s", (room.room_id,))
     for m in room.members.values():
         cur.execute(
             "UPDATE simulation.room_members SET draft_order=%s WHERE room_id=%s AND client_id=%s",
             (m.draft_order, room.room_id, m.client_id),
         )
+    cur.close(); conn.close()
+
+
+def _persist_reset_to_waiting(room_id: str) -> None:
+    """Mirror DraftManager.reset_to_waiting in the DB - status back to
+    'waiting' and every member's squad cleared, ready for a fresh draft."""
+    conn = get_db_connection(autocommit=True); cur = conn.cursor()
+    cur.execute("UPDATE simulation.rooms SET status='waiting' WHERE room_id=%s", (room_id,))
+    cur.execute(
+        "UPDATE simulation.room_members SET squad='[]'::jsonb, draft_order=NULL WHERE room_id=%s",
+        (room_id,),
+    )
+    cur.close(); conn.close()
+
+
+def _persist_leave_room(room_id: str, client_id: str) -> None:
+    conn = get_db_connection(autocommit=True); cur = conn.cursor()
+    cur.execute("DELETE FROM simulation.room_members WHERE room_id=%s AND client_id=%s", (room_id, client_id))
     cur.close(); conn.close()
 
 
@@ -726,7 +821,7 @@ def _restore_room_from_db(room_id: str) -> "RoomState | None":
         )
         for cid, dname, draft_order, squad_raw in members_rows:
             squad = squad_raw if isinstance(squad_raw, list) else (_json.loads(squad_raw) if squad_raw else [])
-            # batting_order isn't persisted (only squad is) — any manual
+            # batting_order isn't persisted (only squad is) - any manual
             # reorder is lost across a server restart mid-draft, but the
             # already-drafted picks themselves must still show up, so seed
             # it from squad rather than leaving it all-None.
@@ -777,6 +872,32 @@ def _cleanup_room_db(room_id: str) -> None:
     conn = get_db_connection(autocommit=True); cur = conn.cursor()
     cur.execute("DELETE FROM simulation.rooms WHERE room_id = %s", (room_id,))
     cur.close(); conn.close()
+
+
+# ── idle-room reaper ───────────────────────────────────────────────────────────
+
+async def _reap_idle_rooms_forever() -> None:
+    """Background task (started once from api/main.py's lifespan): cleans up
+    'waiting' rooms nobody's touched in ROOM_IDLE_TIMEOUT_S - both rooms that
+    were created and never played, and rooms reset to waiting after a
+    simulation that nobody returned to. Only 'waiting' rooms are ever
+    considered; a room mid-draft/reordering/simulating is never reaped
+    regardless of how long that takes."""
+    log = get_logger()
+    while True:
+        await asyncio.sleep(60)
+        now = time.time()
+        stale_room_ids = [
+            room_id for room_id, room in list(draft_manager._rooms.items())
+            if room.status == "waiting" and now - room.last_activity > ROOM_IDLE_TIMEOUT_S
+        ]
+        for room_id in stale_room_ids:
+            try:
+                _cleanup_room_db(room_id)
+            except Exception:
+                log.exception("Failed to delete idle room %s from DB", room_id)
+            draft_manager.remove_room(room_id)
+            log.info("Reaped idle waiting room %s (no activity for over %ds)", room_id, ROOM_IDLE_TIMEOUT_S)
 
 
 def _load_keeper_ids() -> set:

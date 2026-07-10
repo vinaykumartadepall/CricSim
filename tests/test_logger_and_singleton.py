@@ -98,7 +98,7 @@ class TestStatsRepositorySingleton:
 
 
 # ---------------------------------------------------------------------------
-# get_batter_death_stats — from precomputed cache, no DB
+# get_batter_death_stats - from precomputed cache, no DB
 # ---------------------------------------------------------------------------
 
 class TestBatterDeathStats:
@@ -180,7 +180,7 @@ class TestBatterDeathStats:
 
 
 # ---------------------------------------------------------------------------
-# get_bowler_phase_stats — from precomputed cache, no DB
+# get_bowler_phase_stats - from precomputed cache, no DB
 # ---------------------------------------------------------------------------
 
 class TestBowlerPhaseStats:
@@ -216,7 +216,7 @@ class TestBowlerPhaseStats:
         assert repo.get_bowler_phase_stats([999], 'T20') == {}
 
     def test_economy_computed_correctly(self):
-        # All dot balls — economy should be 0
+        # All dot balls - economy should be 0
         probs = {(0, 0, 'Dot', None): 1.0}
         self._seed('T20', 'phase_pp1', {5: (probs, None, 10)})
         # ensure other phase keys don't interfere

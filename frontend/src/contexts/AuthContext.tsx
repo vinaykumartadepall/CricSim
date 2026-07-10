@@ -94,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const profile = await api.getAuthProfile()
       setDisplayName(profile.display_name)
     } catch {
-      // New user — create profile from Google name or existing anon name
+      // New user - create profile from Google name or existing anon name
       const googleName = (u.user_metadata?.full_name as string | undefined)
         || (u.user_metadata?.name as string | undefined)
       const nameToUse  = googleName || localStorage.getItem(ANON_NAME_KEY) || generateAnonName()
@@ -117,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     getOrCreateAnonId()
     getOrCreateAnonName()
 
-    if (!supabase) return  // Supabase not configured — stay anonymous
+    if (!supabase) return  // Supabase not configured - stay anonymous
 
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       await applySession(session)
@@ -146,11 +146,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateDisplayName = async (name: string) => {
     if (user) {
-      // Logged in — persisted server-side, keyed by the Supabase user id.
+      // Logged in - persisted server-side, keyed by the Supabase user id.
       const { api } = await import('@/api/client')
       await api.upsertAuthProfile(name)
     } else {
-      // Guest — no auth session to attach, so /auth/profile would 401.
+      // Guest - no auth session to attach, so /auth/profile would 401.
       // Persisted the same way the anon UUID is: localStorage only.
       localStorage.setItem(ANON_NAME_KEY, name)
     }

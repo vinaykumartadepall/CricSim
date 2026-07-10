@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Help content configuration — edit here to update in-app help text.
+// Help content configuration - edit here to update in-app help text.
 //
 // Each key is matched against the current URL path (prefix matching, most
 // specific wins). Each slide has a header, a list of instructions, and an
@@ -34,7 +34,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
         instructions: [
           'Create a room and invite friends using a code or link',
           'Each player drafts their own XI from the player pool',
-          'The best team wins — 1v1 match or a full tournament',
+          'The best team wins - 1v1 match or a full tournament',
         ]
       },
       {
@@ -55,20 +55,20 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
         header: 'Fun Mode',
         instructions: [
           'Pick any team from any season',
-          'Make up to 3 trades with other team in the tournament',
+          'Make unlimited trades with other teams in the tournament',
           'Reorder your batting lineup',
           'Try to win the title by losing no matches',
         ],
-        tip: 'A trade can weaken an opposition along with strengthening your team — choose wisely',
+        tip: 'A trade can weaken an opposition along with strengthening your team - choose wisely',
       },
       {
         header: 'Challenge Mode',
         instructions: [
           'Take over one of the underdog teams in the history',
-          'Trade in better players to strengthen the squad',
+          'Make up to 3 trades with other teams in the tournament',
           'Aim for the title with minimum trades',
         ],
-        tip: 'A trade can weaken an opposition along with strengthening your team — choose wisely',
+        tip: 'A trade can weaken an opposition along with strengthening your team - choose wisely',
       },
       {
         header: 'Custom Mode',
@@ -92,7 +92,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
           'Each tournament shows how many seasons are available',
           'Selecting a tournament shows all seasons available for that tournament',
         ],
-        tip: 'Number of different challenges played are shown for each tournament/season — try to finish all of them!',
+        tip: 'Number of different challenges played are shown for each tournament/season - try to finish all of them!',
       },
       {
         header: 'Pick a Team',
@@ -108,8 +108,8 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
           'Your selected team\'s players are listed',
           'Click TRADE on a player to replace them with someone from another team',
           'Trade out weak players and bring in stronger ones from other teams',
-          'You can trade up to 3 players, limited to 1 player from each opposing team - choose wisely',
-          'You cannot trade a batter for a bowler or vice versa — roles must match',
+          'No limit on number of trades, but you can only trade 1 player from each team',
+          'You cannot trade a batter for a bowler or vice versa - roles must match',
           'Click reorder lineup to change the batting order of your team',
         ],
         tip: 'Try to make it a perfect season with no losses!',
@@ -126,7 +126,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
           'Search or scroll to find the tournament you want',
           'Each tournament shows how many seasons are available',
         ],
-        tip: 'Number of different challenges played are shown for each tournament/season — try to finish all of them!',
+        tip: 'Number of different challenges played are shown for each tournament/season - try to finish all of them!',
       },
       {
         header: 'Pick an Underdog',
@@ -142,8 +142,8 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
           'Your selected team\'s players are listed',
           'Click TRADE on a player to replace them with someone from another team',
           'Trade out weak players and bring in stronger ones from other teams',
-          'No limit on number of trades, but you can only trade 1 player from each team',
-          'You cannot trade a batter for a bowler or vice versa — roles must match',
+          'You can trade up to 3 players, limited to 1 player from each opposing team - choose wisely',
+          'You cannot trade a batter for a bowler or vice versa - roles must match',
           'Click reorder lineup to change the batting order of your team'
         ],
         tip: 'Try to win the title with minimum trades!',
@@ -167,7 +167,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
         instructions: [
           'Draft 11 players from available player pool',
           'Players already in opposition teams are not available',
-          'Tap a player to add them — tap × to remove',
+          'Tap a player to add them - tap × to remove',
           'Click reorder lineup to change the batting order of your team',
         ]
       }
@@ -212,7 +212,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
           'Picks go in snake order: P1, P2, … then back in reverse',
           'You have 60 seconds per pick before a random player is auto-selected',
         ],
-        tip: 'Watch the notification banner — it shows every pick as it happens',
+        tip: 'Watch the notification banner - it shows every pick as it happens',
       },
       {
         header: 'Picking a Player',
@@ -290,7 +290,7 @@ export const HELP_CONTENT: Record<string, HelpContent> = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Path matching helper — exported for use in HelpModal
+// Path matching helper - exported for use in HelpModal
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface MatchedHelp {
@@ -299,7 +299,7 @@ export interface MatchedHelp {
 }
 
 // Returns both the resolved content AND the canonical key it matched under
-// (e.g. '/results', not the raw '/results/<simId>') — callers that track
+// (e.g. '/results', not the raw '/results/<simId>') - callers that track
 // "has this been seen before" (HelpModal) must key off this canonical form,
 // since the raw pathname is different for every simulation/match id and would
 // never repeat, defeating the "first visit only" check entirely.
@@ -325,10 +325,10 @@ export function findMatchedHelp(pathname: string): MatchedHelp | null {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// "Seen" tracking — shared by HelpModal's generic auto-open AND the step-based
+// "Seen" tracking - shared by HelpModal's generic auto-open AND the step-based
 // pages (Fun/Challenge/Custom mode) that call openHelp() directly per step.
 // Always key off a stable identifier (canonical content key, or `${path}#${step}`
-// for step-based pages) — never the raw pathname when it can contain a dynamic
+// for step-based pages) - never the raw pathname when it can contain a dynamic
 // id, or "first time only" silently turns into "every time".
 // ─────────────────────────────────────────────────────────────────────────────
 

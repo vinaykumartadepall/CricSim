@@ -60,7 +60,7 @@ export function HomePage() {
     setRefreshing(true)
     try {
       // listSimulations usually resolves fast enough that React batches the
-      // true/false state changes together and the spin never actually paints —
+      // true/false state changes together and the spin never actually paints -
       // force a minimum visible duration so the "it's reloading" feedback
       // reliably shows up regardless of how quick the fetch is.
       await Promise.all([fetchSims(), new Promise(r => setTimeout(r, 400))])
@@ -93,7 +93,7 @@ export function HomePage() {
         }
       `}</style>
 
-      {/* ── Hero — edge-to-edge, image bleeds 28px below container ── */}
+      {/* ── Hero - edge-to-edge, image bleeds 28px below container ── */}
       <div className="cricsim-hero" style={{ position: 'relative', minHeight: 300 }}>
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, bottom: -28,
@@ -138,7 +138,7 @@ export function HomePage() {
       {/* ── Rest of content ── */}
       <div className="cricsim-main" style={{ maxWidth: 680, margin: '0 auto', padding: '0 24px' }}>
 
-        {/* ── Counter — pulled up to overlap the hero's bottom ── */}
+        {/* ── Counter - pulled up to overlap the hero's bottom ── */}
         {total !== null && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 24,

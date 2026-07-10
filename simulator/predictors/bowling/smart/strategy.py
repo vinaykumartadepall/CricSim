@@ -3,11 +3,11 @@ Smart Bowling Strategy
 ======================
 Mimics real-world captaincy decisions over-by-over:
 
-  Quota    — T20: 4 overs max, ODI: 10 overs max, Test: unlimited
-  No repeats — the same bowler can never bowl consecutive overs
-  Spell mgmt — Test only: after 7+ consecutive overs a bowler must rest
+  Quota    - T20: 4 overs max, ODI: 10 overs max, Test: unlimited
+  No repeats - the same bowler can never bowl consecutive overs
+  Spell mgmt - Test only: after 7+ consecutive overs a bowler must rest
                for at least 4 overs before returning
-  Scoring  — every eligible bowler gets a score; highest wins:
+  Scoring  - every eligible bowler gets a score; highest wins:
                • Wickets:  +8 per wicket (reward on-fire bowlers)
                • Economy:  +max(0, 10 - eco) (reward tight bowlers)
                • Workload: -0.5 per over bowled (spread the load)
@@ -120,7 +120,7 @@ class SmartBowlingStrategy(BowlingStrategy):
             economy = ip.runs_conceded / (ip.balls_bowled / 6)
             score += max(0.0, 10.0 - economy)
         else:
-            score += 5.0  # untested this innings — neutral benefit of the doubt
+            score += 5.0  # untested this innings - neutral benefit of the doubt
 
         score += ip.wickets_taken * 8.0
         score -= (ip.balls_bowled // 6) * 0.5

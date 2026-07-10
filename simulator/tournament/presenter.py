@@ -182,7 +182,7 @@ class Presenter:
         print(section_hdr("  PLAYER OF THE TOURNAMENT  "))
         pott = lb[0]
         pcolor, scolor = self._team_colors(pott.team)
-        winner_row = f"  ★  {pott.player_name}  —  {pott.total:.1f} points  ★"
+        winner_row = f"  ★  {pott.player_name}  -  {pott.total:.1f} points  ★"
         print()
         print(bg(winner_row, pcolor, scolor, bold=True))
         print()

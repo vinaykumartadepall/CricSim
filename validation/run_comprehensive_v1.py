@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive model validation — T20 / ODI / Test.
+Comprehensive model validation - T20 / ODI / Test.
 
 Architecture
 ------------
@@ -467,7 +467,7 @@ def batch_build_matches(repo, all_match_ids, match_format, _w=print):
             **fs,
         )
 
-    _w(f"  [Batch] Done — {len(resolved)} matches ready.")
+    _w(f"  [Batch] Done - {len(resolved)} matches ready.")
     return match_configs, bowling_plans, resolved
 
 
@@ -746,12 +746,12 @@ def main(seed=42, outdir='validation_results', gender='male'):
         )
 
         if not match_configs:
-            _w("  ERROR: no valid match configs — skipping format")
+            _w("  ERROR: no valid match configs - skipping format")
             fmt_fh.close()
             continue
 
         if not resolved:
-            _w("  ERROR: no matches resolved — skipping format")
+            _w("  ERROR: no matches resolved - skipping format")
             fmt_fh.close()
             continue
 

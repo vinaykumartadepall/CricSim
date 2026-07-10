@@ -1,5 +1,5 @@
 """
-TournamentEngine — orchestrates a complete cricket tournament simulation.
+TournamentEngine - orchestrates a complete cricket tournament simulation.
 
 Flow:
   1. Load config → build fixture list
@@ -71,7 +71,7 @@ class TournamentEngine:
         self._silent    = silent
         self._presenter = Presenter(config)
 
-        # Suppress sim engine console output — presenter owns all console rendering.
+        # Suppress sim engine console output - presenter owns all console rendering.
         MatchLogger.SILENT = True
         set_console_level(logging.CRITICAL if silent else logging.WARNING)
 
@@ -146,7 +146,7 @@ class TournamentEngine:
         home_cfg = cfg.team_by_name.get(fixture.home)
         away_cfg = cfg.team_by_name.get(fixture.away)
         if home_cfg is None or away_cfg is None:
-            return None   # TBD placeholder — playoff slot not yet filled
+            return None   # TBD placeholder - playoff slot not yet filled
 
         home_players = [
             self._player_cache.get(p) or (
@@ -204,6 +204,9 @@ class TournamentEngine:
 
             winner, pt_result = self._read_result(match, fixture.home, fixture.away)
 
+            if stage == "playoff" and match.result and match.result.description == "Super Over Tied":
+                winner = self._resolve_playoff_tie(match, fixture)
+
             summary = match.result.team_innings_summary if match.result else {}
             home_runs,  home_balls = summary.get(fixture.home, (0, 0))
             away_runs,  away_balls = summary.get(fixture.away, (0, 0))
@@ -246,7 +249,7 @@ class TournamentEngine:
 
     def _on_fixture_complete(self, match: SimulationMatch, fixture: Fixture, stage: str, potm=None) -> None:
         """Hook called after each fixture completes. Override to add persistence or side effects.
-        potm: PlayerAward | None — this match's Player of the Match, already computed."""
+        potm: PlayerAward | None - this match's Player of the Match, already computed."""
         pass
 
     def get_mvp_leaderboard(self, top_n: int = 9999):
@@ -254,7 +257,7 @@ class TournamentEngine:
         return self._tourn_awards.leaderboard(top_n)
 
     def get_final_standings(self):
-        """Group-stage standings (points, NRR) after run() completes — List[TeamRecord]."""
+        """Group-stage standings (points, NRR) after run() completes - List[TeamRecord]."""
         return self._points_table.standings()
 
     # ── Playoffs ──────────────────────────────────────────────────────────────
@@ -277,12 +280,25 @@ class TournamentEngine:
         team = self._config.team_by_name.get(team_name)
         return (team.home_venue or None) if team else None
 
+    def _group_stage_rank(self, team_name: str) -> int:
+        """Team's index in final group-stage standings (0 = best). 999 if unranked."""
+        standings = [r.name for r in self._points_table.standings()]
+        return standings.index(team_name) if team_name in standings else 999
+
     def _higher_placed_venue(self, team_a: str, team_b: str) -> Optional[str]:
         """Return home venue of whichever team finished higher in the group stage."""
-        standings = [r.name for r in self._points_table.standings()]
-        rank_a = standings.index(team_a) if team_a in standings else 999
-        rank_b = standings.index(team_b) if team_b in standings else 999
+        rank_a = self._group_stage_rank(team_a)
+        rank_b = self._group_stage_rank(team_b)
         return self._home_venue(team_a if rank_a <= rank_b else team_b)
+
+    def _resolve_playoff_tie(self, match: SimulationMatch, fixture: Fixture) -> str:
+        """Only reached when a playoff match's super over also ties - real knockouts
+        need a winner, so the better-placed group-stage team advances."""
+        advancing = (fixture.home if self._group_stage_rank(fixture.home) <= self._group_stage_rank(fixture.away)
+                     else fixture.away)
+        match.result.winner = advancing
+        match.result.description = f"Match tied · Super Over tied · {advancing} advanced due to better group stage finish"
+        return advancing
 
     def _resolve_playoff_slot(
         self,
@@ -367,7 +383,7 @@ class TournamentEngine:
         carries. Priming here with the synthetic warm_match's venue swapped
         to each real venue in turn populates StatsRepository's per-venue
         cache for all of them before any real match runs, so every real
-        match's own init_model call — which sees its own real venue — is a
+        match's own init_model call - which sees its own real venue - is a
         cache hit rather than a fresh query.
         """
         all_players = [p for p in self._player_cache.values() if p is not None]

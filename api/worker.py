@@ -29,15 +29,15 @@ logger = logging.getLogger(__name__)
 
 # Process-level progress tracker for in-flight tournament jobs, keyed by sim_id.
 # In-memory only (see api/main.py's _memory_monitor / _PRECOMPUTED_CACHE for the
-# same pattern) — fine because this deploys as a single uvicorn process; a
+# same pattern) - fine because this deploys as a single uvicorn process; a
 # multi-worker deployment would need this moved to shared storage instead.
 # Populated at job start (everything below is fully known before any match
-# runs — see _PLAYOFF_MATCH_COUNTS and _estimate_total_deliveries), updated
+# runs - see _PLAYOFF_MATCH_COUNTS and _estimate_total_deliveries), updated
 # per match, popped on job end.
 _TOURNAMENT_PROGRESS: Dict[str, Dict[str, Any]] = {}
 
 # Playoff match count is deterministic from format alone (scheduler.py's
-# generate_playoffs) — doesn't depend on standings, so the total is knowable
+# generate_playoffs) - doesn't depend on standings, so the total is knowable
 # before the group stage even starts. Must stay in sync with every branch of
 # generate_playoffs; an unrecognized format falls back to 0 there too.
 _PLAYOFF_MATCH_COUNTS = {
@@ -49,7 +49,7 @@ _PLAYOFF_MATCH_COUNTS = {
 }
 
 # Test matches have no fixed overs_per_innings (FORMAT_SETTINGS["Test"] is
-# days-based, not over-based) — there's no exact delivery count to compute.
+# days-based, not over-based) - there's no exact delivery count to compute.
 # This is a flavor stat, not a simulation guarantee, so a labeled rough
 # estimate (5 days x 90 overs/day, spanning all innings) is good enough.
 _TEST_OVERS_ESTIMATE = 5 * 90
@@ -181,7 +181,7 @@ def run_tournament_job(
 
             repo.commit()
 
-            # Run tournament — intercept each completed match for persistence
+            # Run tournament - intercept each completed match for persistence
             engine = _PersistingTournamentEngine(
                 config        = tc,
                 repo          = stats_repo,
@@ -341,7 +341,7 @@ class _PersistingTournamentEngine(TournamentEngine):
             if match.result:
                 progress["results"].append({
                     "label": match_label,
-                    "text": f"{home_name} vs {away_name} — {match.result.description}",
+                    "text": f"{home_name} vs {away_name} - {match.result.description}",
                     "home": home_name,
                     "away": away_name,
                 })
@@ -350,7 +350,7 @@ class _PersistingTournamentEngine(TournamentEngine):
         away_sim_id = self._team_id_map.get(away_name)
 
         if home_sim_id is None or away_sim_id is None:
-            return  # TBD playoff slot — teams not yet known
+            return  # TBD playoff slot - teams not yet known
 
         venue_id = match.venue.id if match.venue else None
 

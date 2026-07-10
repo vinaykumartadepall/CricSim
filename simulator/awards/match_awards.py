@@ -1,11 +1,11 @@
 """
-Match/tournament awards orchestration — strategy-agnostic.
+Match/tournament awards orchestration - strategy-agnostic.
 
 MatchAwards delegates all actual scoring to an injected MvpStrategy (see
 mvp_strategy.py); it just runs the strategy once per match and exposes the
 result (who's POTM, everyone ranked). TournamentAwards accumulates those
 results across a tournament's matches for POTT, by summing .total and
-merging .breakdown dicts generically — it never assumes any particular set
+merging .breakdown dicts generically - it never assumes any particular set
 of category names, so it works unchanged for any MvpStrategy.
 """
 

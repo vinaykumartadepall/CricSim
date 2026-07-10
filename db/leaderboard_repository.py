@@ -152,10 +152,16 @@ class LeaderboardRepository:
         self, sim_id: str, leaderboard: str, limit: int, offset: int
     ) -> Tuple[List[dict], int]:
         sort_col, sort_dir = _BATTING_SORT[leaderboard]
+        # Rate stats (average, strike rate) are meaningless off a handful of
+        # runs - a single big hit can otherwise top the board. Qualification
+        # thresholds only apply to these two; counting stats (most runs/sixes/
+        # fours) have no such distortion and are left unfiltered.
+        qualify = "WHERE runs >= 50" if leaderboard in ('best-batting-average', 'best-strike-rate') else ""
         sql = f"""
         WITH {_INNING_BATTING_CTE}, {_BATTING_AGG_CTE}
         SELECT *, COUNT(*) OVER () AS total_count
         FROM batting_agg
+        {qualify}
         ORDER BY {sort_col} {sort_dir} NULLS LAST
         LIMIT %(limit)s OFFSET %(offset)s
         """
@@ -205,6 +211,9 @@ class LeaderboardRepository:
         self, sim_id: str, leaderboard: str, limit: int, offset: int
     ) -> Tuple[List[dict], int]:
         sort_col, sort_dir = _BOWLING_SORT[leaderboard]
+        # Same reasoning as batting_aggregate's qualify: economy/average off a
+        # handful of balls is noise, so only these two rate stats get a floor.
+        qualify = "WHERE total_balls >= 30" if leaderboard in ('best-bowling-average', 'best-economy') else ""
         sql = f"""
         WITH {_INNING_BOWLING_CTE}
         SELECT
@@ -213,6 +222,7 @@ class LeaderboardRepository:
             four_wicket_hauls, five_wicket_hauls,
             COUNT(*) OVER () AS total_count
         FROM bowling_agg
+        {qualify}
         ORDER BY {sort_col} {sort_dir} NULLS LAST
         LIMIT %(limit)s OFFSET %(offset)s
         """

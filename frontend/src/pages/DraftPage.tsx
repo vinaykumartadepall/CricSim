@@ -14,7 +14,7 @@ const DRAFT_HELP_KEY = '/multiplayer/draft'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-// Derived from the current origin, same as api/client.ts's relative '/cricsimapi' —
+// Derived from the current origin, same as api/client.ts's relative '/cricsimapi' -
 // a hardcoded 'ws://localhost:8000' here meant every production browser tried to
 // open a websocket to its OWN localhost:8000 instead of the real server.
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -25,7 +25,7 @@ const PICK_TIMER_TOTAL   = 60
 const PING_INTERVAL_MS   = 30_000
 
 // Same palette as FunModePage/ChallengeModePage/CustomModePage/SimCard's
-// FormatBadge — match format was only ever shown as plain text here, with
+// FormatBadge - match format was only ever shown as plain text here, with
 // no color at all to distinguish T20/ODI/Test.
 const FORMAT_BADGE_STYLES: Record<string, { bg: string; color: string }> = {
   T20:  { bg: 'rgba(59,130,246,0.1)', color: 'var(--accent)' },
@@ -219,7 +219,7 @@ function PickNotification({ notif, onDone }: { notif: PickNotif; onDone: () => v
         onTouchMove={e => { e.preventDefault(); moveDrag(e.touches[0].clientX) }}
         onTouchEnd={endDrag}
       >
-        {/* SVG timer border — drains over NOTIF_DURATION */}
+        {/* SVG timer border - drains over NOTIF_DURATION */}
         <svg width={NW} height={NH} style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}>
           {/* dim base border */}
           <rect x={0.5} y={0.5} width={NW - 1} height={NH - 1} rx={NR} ry={NR}
@@ -378,14 +378,14 @@ function PickPanel({
   const hasQuery  = query.trim().length > 0
   const hasFilter = roles.length > 0 || countryIds.length > 0 || battingStyles.length > 0 || bowlingStyles.length > 0
 
-  // Last pick with no keeper yet forces the role filter to Keeper — same
+  // Last pick with no keeper yet forces the role filter to Keeper - same
   // enforcement as before, just expressed through the general role filter
   // instead of a dedicated "keepers only" toggle.
   useEffect(() => { if (needsKeeper && isMyTurn) setRoles(['Keeper']) }, [needsKeeper, isMyTurn])
   useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 100) }, [open])
 
   // This component never unmounts (the parent always renders it, gated by
-  // `open`) — so search/filter state naturally survives opening and closing
+  // `open`) - so search/filter state naturally survives opening and closing
   // the panel, which is exactly what we want while just browsing during
   // someone else's turn. Only reset it on an actual draft pick, not on close
   // in general.
@@ -451,7 +451,7 @@ function PickPanel({
             {needsKeeper && isMyTurn && (
               <div className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg"
                 style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
-                <AlertTriangle size={11} />Last pick — need WK!
+                <AlertTriangle size={11} />Last pick - need WK!
               </div>
             )}
           </div>
@@ -549,9 +549,10 @@ function PickPanel({
 
 // ── Waiting room ──────────────────────────────────────────────────────────────
 
-function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady, onReady, onKick }: {
+function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady, onReady, onKick, onLeave }: {
   room: FullRoomState; clientId: string; onStart: () => void; starting: boolean
   readyMembers: string[]; myReady: boolean; onReady: () => void; onKick: (targetId: string) => void
+  onLeave: () => void
 }) {
   const shareUrl    = `${window.location.origin}/join/${room.room_id}`
   const isHost      = clientId === room.host_id
@@ -639,7 +640,7 @@ function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady,
           className="w-full py-2.5 rounded-xl font-medium text-sm mb-2 flex items-center justify-center gap-2 transition-all"
           style={{
             // Was mixing a gold-tinted (--accent-tint) background with green
-            // (--win) text/border — read as a muddy olive/brown. Use a green
+            // (--win) text/border - read as a muddy olive/brown. Use a green
             // tint to match, same as the reorder-phase ready state below.
             background: myReady ? 'rgba(34,197,94,0.12)' : 'var(--surface-2)',
             color: myReady ? 'var(--win)' : 'var(--text)',
@@ -689,6 +690,16 @@ function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady,
             Waiting for host to start the draft…
           </div>
         )}
+
+        <button
+          onClick={onLeave}
+          className="w-full py-2 rounded-xl text-xs font-medium mt-3 transition-colors"
+          style={{ background: 'transparent', color: 'var(--text-dim)', border: '1px solid var(--border)' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--loss)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--loss)' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--text-dim)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
+        >
+          Leave Room
+        </button>
       </div>
     </div>
   )
@@ -723,7 +734,7 @@ export function DraftPage() {
 
   // Draft state
   const [playerMap, setPlayerMap]     = useState<Map<number, PickedPlayer>>(new Map())
-  // Display/lineup order — SQUAD_SIZE slots, null where a pick hasn't landed
+  // Display/lineup order - SQUAD_SIZE slots, null where a pick hasn't landed
   // yet. Distinct from each member's `squad` (pick order, turn-tracking only,
   // read straight off `room` where needed) so a drafted player can be moved
   // past not-yet-picked slots to reserve a later batting position.
@@ -852,14 +863,23 @@ export function DraftPage() {
         break
       }
       case 'sim_created': {
-        // Hand off to the shared SimulatingPage as soon as the sim_id exists —
+        // Hand off to the shared SimulatingPage as soon as the sim_id exists -
         // don't wait for the whole simulation (which can take 10-30s) to finish
         // just to show a bare spinner here in the meantime.
         const { sim_id } = msg.data as { sim_id: string }
         // teamName is read by SimulatingPage; userTeam/backPath are read by
         // MatchDetailPage once SimulatingPage hands off to it on completion
-        // (only relevant for 1v1 — tournament results ignore these).
+        // (only relevant for 1v1 - tournament results ignore these).
         navigate(`/simulating/${sim_id}`, { state: { teamName: displayName, userTeam: displayName, backPath: '/' } })
+        break
+      }
+      case 'left_room': {
+        navigate('/multiplayer')
+        break
+      }
+      case 'player_auto_drafting': {
+        const { display_name } = msg.data as { client_id: string; display_name: string }
+        setToast(`${display_name} is disconnected - auto-picking for them until they return`)
         break
       }
       case 'error': {
@@ -881,7 +901,7 @@ export function DraftPage() {
     }
   }, [room?.current_picker, room?.picks_made, room?.status, clientId])
 
-  // Show the draft help once, only while still in the waiting room — never
+  // Show the draft help once, only while still in the waiting room - never
   // once drafting has actually started (that's the whole point of excluding
   // this path from HelpModal's generic pathname-based auto-open: a browser's
   // first-ever visit here could otherwise land mid-draft, e.g. joining via a
@@ -961,7 +981,7 @@ export function DraftPage() {
 
   function handleStartDraft() { setStarting(true); sendWs({ type: 'start_draft' }); setTimeout(() => setStarting(false), 5000) }
   function handlePick(id: number) { sendWs({ type: 'pick_player', player_id: id }) }
-  // order is always SQUAD_SIZE slots (with nulls for open ones) — moving a
+  // order is always SQUAD_SIZE slots (with nulls for open ones) - moving a
   // drafted player past an open slot reserves that position for whichever
   // pick lands in it next, instead of only being able to reorder among
   // players already drafted.
@@ -970,6 +990,10 @@ export function DraftPage() {
   function moveDown(idx: number) { if (idx >= myBattingOrder.length-1) return; const n = [...myBattingOrder]; [n[idx],n[idx+1]]=[n[idx+1],n[idx]]; handleReorder(n) }
   function handleReady() { setMyReady(true); sendWs({ type: 'player_ready' }) }
   function handleKick(targetId: string) { sendWs({ type: 'kick_player', client_id: targetId }) }
+  function handleLeaveRoom() {
+    if (!window.confirm('Leave this room?')) return
+    sendWs({ type: 'leave_room' })
+  }
 
   // Derived
   const isMyTurn   = !!room && room.current_picker === clientId && room.status === 'drafting'
@@ -995,7 +1019,7 @@ export function DraftPage() {
   const isViewingMyTeam = viewingId === clientId
 
   // ── Dead state ────────────────────────────────────────────────────────────────
-  // 'kicked' shows this screen even with a (now stale) room already loaded —
+  // 'kicked' shows this screen even with a (now stale) room already loaded -
   // every other dead reason means the client never had a room to show.
   if (connStatus === 'dead' && (!room || deadReason === 'kicked')) {
     const isNotFound = deadReason === 'not_found'
@@ -1044,6 +1068,7 @@ export function DraftPage() {
         <WaitingRoom
           room={room} clientId={clientId} onStart={handleStartDraft} starting={starting}
           readyMembers={readyMembers} myReady={myReady} onReady={handleReady} onKick={handleKick}
+          onLeave={handleLeaveRoom}
         />
       </>
     )
@@ -1090,7 +1115,7 @@ export function DraftPage() {
             </div>
           </div>
 
-          {/* Team chips — ready state shown via CheckCircle2 in each chip */}
+          {/* Team chips - ready state shown via CheckCircle2 in each chip */}
           <TeamChips room={room} clientId={clientId} viewingId={viewingId} onSelect={setViewingId} readyMembers={readyMembers} />
 
           {/* Squad view */}
@@ -1120,7 +1145,7 @@ export function DraftPage() {
             <div className="flex-shrink-0 p-4" style={{ borderTop: '1px solid var(--border)' }}>
               <div className="w-full py-3 rounded-xl text-center font-semibold text-base"
                 style={{ background: 'rgba(34,197,94,0.12)', color: 'var(--win)', border: '1px solid rgba(34,197,94,0.3)' }}>
-                ✓ Ready — waiting for others ({readyMembers.length}/{room.members.length})
+                ✓ Ready - waiting for others ({readyMembers.length}/{room.members.length})
               </div>
             </div>
           )}
@@ -1139,7 +1164,7 @@ export function DraftPage() {
 
       <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--bg)' }}>
 
-        {/* Reconnecting banner — inside the height-constrained flex column
+        {/* Reconnecting banner - inside the height-constrained flex column
             (not a sibling above it) so it shrinks the scrollable area
             instead of pushing the bottom pick button off-screen. */}
         {connStatus === 'reconnecting' && (
@@ -1181,14 +1206,14 @@ export function DraftPage() {
         {/* Team chips */}
         <TeamChips room={room} clientId={clientId} viewingId={viewingId} onSelect={setViewingId} />
 
-        {/* Keeper warning (my team only) — from the 6th pick onwards, not just once overdue */}
+        {/* Keeper warning (my team only) - from the 6th pick onwards, not just once overdue */}
         {isViewingMyTeam && !hasKeeper && mySquad.length >= 5 && (
           <div className="flex-shrink-0 mx-3 mt-2 px-3 py-2 rounded-lg text-xs flex items-center gap-2"
             style={{ background: 'rgba(245,158,11,0.08)', color: 'var(--score)', border: '1px solid rgba(245,158,11,0.2)' }}>
             <AlertTriangle size={12} />
             {11 - mySquad.length === 1 && isMyTurn
-              ? 'Last pick — must choose a keeper!'
-              : "No keeper yet — don't forget one"}
+              ? 'Last pick - must choose a keeper!'
+              : "No keeper yet - don't forget one"}
           </div>
         )}
 

@@ -4,7 +4,7 @@ Tests for DraftManager (api/multiplayer/manager.py):
   - start_draft: resets ready_members (waiting-room ready no longer means
     anything once drafting actually starts)
 
-No live DB / WebSocket connection required — RoomState/Member are plain
+No live DB / WebSocket connection required - RoomState/Member are plain
 dataclasses, no FastAPI machinery needed to exercise this logic.
 """
 import pytest
@@ -105,7 +105,7 @@ class TestBattingOrderReservedGaps:
     """
     squad (pick order, drives turn-tracking) and batting_order (display/
     lineup order, SQUAD_SIZE slots with None gaps) are deliberately separate
-    fields — reordering must never disturb whose turn it is, and a drafted
+    fields - reordering must never disturb whose turn it is, and a drafted
     player must be movable past not-yet-picked slots to reserve a later
     batting position.
     """

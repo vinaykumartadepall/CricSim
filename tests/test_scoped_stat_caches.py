@@ -1,5 +1,5 @@
 """
-Tests for the per-player-scoped cache loaders fixed this session — each of
+Tests for the per-player-scoped cache loaders fixed this session - each of
 these used to bulk-load the ENTIRE table (all players who've ever played,
 not just the ones actually needed) into _PRECOMPUTED_CACHE:
 
@@ -8,18 +8,18 @@ not just the ones actually needed) into _PRECOMPUTED_CACHE:
   - _ensure_in_bowler_order_cache     (was _load_bowler_order_cache)
   - _ensure_in_country_stats_cache    (was _load_player_country_stats_cache,
                                         measured at 854MB / 8,592 players for
-                                        a single format — the dominant
+                                        a single format - the dominant
                                         contributor to production swap
                                         thrashing)
   - get_batter_death_stats / get_bowler_phase_stats (measured at 1.24GB via
-    the unscoped _load_player_stat_cache — the single largest contributor
+    the unscoped _load_player_stat_cache - the single largest contributor
     found)
 
 Each test class verifies two things per method:
   1. The DB query is actually scoped to the requested player_ids (not the
-     whole table) — the actual bug being fixed.
+     whole table) - the actual bug being fixed.
   2. Calling it twice with different, non-overlapping player sets merges
-     into the same cache rather than losing the first batch — the
+     into the same cache rather than losing the first batch - the
      regression this incremental-loading pattern must not introduce.
 
 All tests run without a live DB connection.
@@ -181,7 +181,7 @@ class TestEnsureInCountryStatsCache:
 
 class TestDeathAndPhaseStatsUseScopedSource:
     """get_batter_death_stats / get_bowler_phase_stats derive from
-    player_outcome_stats — verify they now go through the already-scoped
+    player_outcome_stats - verify they now go through the already-scoped
     _ensure_in_stat_cache instead of the unscoped bulk _load_player_stat_cache."""
 
     def setup_method(self):
@@ -199,7 +199,7 @@ class TestDeathAndPhaseStatsUseScopedSource:
     def test_batter_death_stats_queries_only_requested_players(self):
         repo = _make_repo()
         # raw row format: probs_raw is JSON with 'rb|re|ot|ok' string keys, as
-        # returned by the real DB — _ensure_in_stat_cache decodes it internally.
+        # returned by the real DB - _ensure_in_stat_cache decodes it internally.
         raw_json = {'4|0|Runs|': 1.0}
         with patch.object(repo, '_run_query', return_value=[(1, raw_json, None, 10)]) as mock_q:
             repo.get_batter_death_stats([1], 'T20')

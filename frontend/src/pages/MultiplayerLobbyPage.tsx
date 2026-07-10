@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Dice5, Users, Swords, Link, X, ChevronLeft } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { SimulationTypeToggle } from '@/components/ui/SimulationTypeToggle'
 
 // ── Name randomizer ───────────────────────────────────────────────────────────
 
@@ -88,7 +89,7 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
         player_count: mode === '1v1' ? 2 : playerCount,
         match_format: matchFormat,
       })
-      // Straight into the Waiting Room — the room code/link are shown there
+      // Straight into the Waiting Room - the room code/link are shown there
       // too, so the old "Room Created" confirmation step was just an extra
       // click with nothing on it the Waiting Room doesn't already have.
       navigate(`/multiplayer/draft/${room.room_id}`)
@@ -190,6 +191,8 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
+      <SimulationTypeToggle />
+
       {error && (
         <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: 'var(--loss)', border: '1px solid rgba(239,68,68,0.2)' }}>
           {error}
@@ -272,7 +275,7 @@ function JoinRoomModal({ initialCode, onClose }: { initialCode?: string; onClose
     </button>
   )
 
-  // Path A: opened via share link — join immediately
+  // Path A: opened via share link - join immediately
   if (hasCode) {
     return (
       <Modal title="Join Room" onClose={onClose}>

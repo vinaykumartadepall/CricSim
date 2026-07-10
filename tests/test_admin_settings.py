@@ -66,7 +66,7 @@ class TestAdminSettings:
 
 class TestAdminSettingsEnvDefaults:
     """AdminSettings() reads DEFAULT_OUTCOME_STRATEGY / DEFAULT_BOWLING_STRATEGY
-    at construction time — this is only the *startup* default (the module-level
+    at construction time - this is only the *startup* default (the module-level
     singleton is built once at import), not a live runtime read. Constructing a
     fresh instance here is how we test the field(default_factory=...) behavior
     in isolation from the process-wide singleton."""
@@ -114,7 +114,7 @@ class TestMatchRunnerUsesAdminDefault:
         set_default_outcome_strategy('historical')
         set_default_bowling_strategy('smart')
         runner = self._make_runner({"match_format": "T20"})
-        # Strategy factories return concrete strategy instances — check the
+        # Strategy factories return concrete strategy instances - check the
         # class name matches what 'historical'/'smart' resolve to, since the
         # runner only stores the built strategy object, not the name string.
         from simulator.predictors.factory import OutcomeStrategyFactory, BowlingStrategyFactory

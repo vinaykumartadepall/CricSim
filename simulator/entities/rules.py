@@ -77,7 +77,7 @@ class MatchRules:
             if current_over_0indexed >= cap - 10:
                 return 'death'
             return 'middle'
-        return 'none'  # Test — no distinct phases
+        return 'none'  # Test - no distinct phases
 
     @staticmethod
     def get_fine_grained_phase(over_1indexed: int, match_format: str) -> str:
@@ -114,10 +114,10 @@ class MatchRules:
         ICC all-out rule: a side dismissed inside its full overs quota is credited
         the full quota for NRR purposes, not just the balls it actually faced.
         No-op (returns legal_balls unchanged) when there's no fixed quota to credit
-        against — e.g. Test cricket, where max_balls is None and NRR/all-out-rule
+        against - e.g. Test cricket, where max_balls is None and NRR/all-out-rule
         don't apply in the first place.
 
-        Single source of truth for this adjustment — every NRR computation (live
+        Single source of truth for this adjustment - every NRR computation (live
         tournament engine, results-page display) must go through this, not
         reimplement the CASE WHEN wickets >= 10 ... check independently.
         """

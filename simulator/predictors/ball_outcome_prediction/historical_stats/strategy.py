@@ -65,7 +65,7 @@ def compute_context_multiplier(context_probability: float, baseline_probability:
       override all others. The exponent squashes the ratio towards 1.0 so that every
       context contributes proportionally rather than multiplicatively exploding.
 
-    A multiplier of 1.0 means "this context matches the baseline — no effect".
+    A multiplier of 1.0 means "this context matches the baseline - no effect".
     A multiplier > 1.0 means the outcome is more likely in this context.
     A multiplier < 1.0 means the outcome is less likely in this context.
     """
@@ -118,7 +118,7 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
 
         match_format = MatchRules.get_unified_format(getattr(match, 'match_format', 'T20'))
         gender = getattr(match, 'gender', 'male').lower()
-        log.info(f"[Strategy] Initializing probability matrices — format: {match_format} ({gender})")
+        log.info(f"[Strategy] Initializing probability matrices - format: {match_format} ({gender})")
 
         all_player_ids = collect_player_ids(match)
 
@@ -200,7 +200,7 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         innings_outcome_probs = self.innings_cache.get(current_inning, self.baseline_outcome_probs)
         over_outcome_probs    = self.overs_cache.get(current_over, self.baseline_outcome_probs)
 
-        # TRACE only — these were previously plain f-strings passed to log.debug(),
+        # TRACE only - these were previously plain f-strings passed to log.debug(),
         # which (unlike %s-style lazy formatting) get fully evaluated regardless of
         # whether the level is enabled. Gating explicitly avoids that cost on every
         # single delivery when trace-level detail isn't being requested.
@@ -211,10 +211,10 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
                 f"  BALL  {ball_label}  |  Batter: {batter_name}  vs  Bowler: {bowler_name}\n"
                 f"{'─'*70}"
             )
-            log.trace(f"  [Batter cache hit?  {'YES' if batter and batter.id in self.batter_cache else 'NO — using baseline'}]")
-            log.trace(f"  [Bowler cache hit?  {'YES' if bowler and bowler.id in self.bowler_cache else 'NO — using baseline'}]")
-            log.trace(f"  [Venue cache hit?   {'YES' if self.venue_cache else 'NO — using baseline'}]")
-            log.trace(f"  [Over  cache hit?   {'YES' if current_over in self.overs_cache else 'NO — using baseline'}]")
+            log.trace(f"  [Batter cache hit?  {'YES' if batter and batter.id in self.batter_cache else 'NO - using baseline'}]")
+            log.trace(f"  [Bowler cache hit?  {'YES' if bowler and bowler.id in self.bowler_cache else 'NO - using baseline'}]")
+            log.trace(f"  [Venue cache hit?   {'YES' if self.venue_cache else 'NO - using baseline'}]")
+            log.trace(f"  [Over  cache hit?   {'YES' if current_over in self.overs_cache else 'NO - using baseline'}]")
 
         all_outcome_keys = set(self.baseline_outcome_probs.keys())
         all_outcome_keys.update(

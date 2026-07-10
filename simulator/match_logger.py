@@ -1,7 +1,7 @@
 """
 Match commentary logger for the cricket simulator.
 
-Routes all match output to the shared application logger — no per-match files written.
+Routes all match output to the shared application logger - no per-match files written.
 The [sim_id/m{match_id}] context on every line is injected automatically from
 ContextVars set by log_context() in the worker before the simulation starts.
 
@@ -25,18 +25,18 @@ _log = get_logger()
 class MatchLogger:
     """
     Single output surface for match commentary.
-    All output is routed to the shared application logger — no files created.
+    All output is routed to the shared application logger - no files created.
     """
 
     SILENT: bool = False
 
     def __init__(self, match_id: int, log_dir: str = "match_logs"):
-        # log_dir kept for backwards-compatible call sites — not used
+        # log_dir kept for backwards-compatible call sites - not used
         self._match_id = match_id
         self.file_path = None
         _log.info("Match %d started", match_id)
 
-    # ── DEBUG — high-volume ────────────────────────────────────────────────────
+    # ── DEBUG - high-volume ────────────────────────────────────────────────────
 
     def ball(self, text: str) -> None:
         _log.debug("%s", text)

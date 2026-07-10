@@ -5,8 +5,8 @@ Tracks matches played, wins, losses, ties, no-results, points, and NRR.
 Updated after every match.
 
 NRR formula lives in MatchRules.net_run_rate/nrr_adjusted_balls (the ICC
-all-out rule — a dismissed side is credited its full overs quota, not just
-balls actually faced) — record_result() callers must pass in balls that
+all-out rule - a dismissed side is credited its full overs quota, not just
+balls actually faced) - record_result() callers must pass in balls that
 have already had that adjustment applied.
 """
 

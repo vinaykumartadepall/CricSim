@@ -1,14 +1,14 @@
 """
-Strategy factories — separate abstract factory for each model dimension.
+Strategy factories - separate abstract factory for each model dimension.
 
 Architecture:
   OutcomeStrategyFactory (ABC)
-    ├─ HistoricalOutcomeFactory   — historical RMS ball-outcome model
-    └─ EnhancedOutcomeFactory     — enhanced RMS ball-outcome model (v2)
+    ├─ HistoricalOutcomeFactory   - historical RMS ball-outcome model
+    └─ EnhancedOutcomeFactory     - enhanced RMS ball-outcome model (v2)
 
   BowlingStrategyFactory (ABC)
-    ├─ HistoricalBowlingFactory   — history-based bowling order
-    └─ SmartBowlingFactory        — heuristic bowling selection
+    ├─ HistoricalBowlingFactory   - history-based bowling order
+    └─ SmartBowlingFactory        - heuristic bowling selection
 
 To add a new strategy:
   1. Subclass the relevant ABC and implement create(fmt).
@@ -180,16 +180,16 @@ def resolve_player(repo: StatsRepository, name: str) -> Player:
     result = repo.get_player_by_name(name)
     if result:
         return Player(id=result[0], name=result[1])
-    log.warning("Player '%s' not found in DB — using hash-based fallback ID", name)
+    log.warning("Player '%s' not found in DB - using hash-based fallback ID", name)
     return Player(id=abs(hash(name)) % 10_000, name=name)
 
 
 def resolve_player_by_id(repo: StatsRepository, player_id: int) -> Player:
-    """Look up a player by their history.players ID. ID is authoritative — no fallback."""
+    """Look up a player by their history.players ID. ID is authoritative - no fallback."""
     result = repo.get_player_by_id(player_id)
     if result:
         return Player(id=result[0], name=result[1])
-    log.warning("Player id=%d not found in DB — creating nameless placeholder", player_id)
+    log.warning("Player id=%d not found in DB - creating nameless placeholder", player_id)
     return Player(id=player_id, name=f"Player#{player_id}")
 
 
@@ -201,5 +201,5 @@ def resolve_venue(repo: StatsRepository, name: str | None) -> Optional[Venue]:
     if result:
         venue_id, venue_name, country = result
         return Venue.builder().with_id(venue_id).with_name(venue_name).with_country(country).build()
-    log.warning("Venue '%s' not found in DB — proceeding without venue context", name)
+    log.warning("Venue '%s' not found in DB - proceeding without venue context", name)
     return None

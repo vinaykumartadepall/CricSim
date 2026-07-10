@@ -71,7 +71,7 @@ function MatchCard({
                   fontSize: 11, fontFamily: 'monospace', fontWeight: win ? 600 : 400,
                   color: win ? 'var(--score)' : 'var(--text-dim)', marginLeft: 4, flexShrink: 0,
                 }}>
-                  {score != null ? `${score}/${wkts ?? 0}` : '—'}
+                  {score != null ? `${score}/${wkts ?? 0}` : '-'}
                 </span>
               </div>
             )

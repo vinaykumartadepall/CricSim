@@ -1,9 +1,9 @@
 """
 Tests for GET /multiplayer/players and GET /multiplayer/player-filters
-(api/routes/multiplayer.py) — the player search filters (role, country,
+(api/routes/multiplayer.py) - the player search filters (role, country,
 batting/bowling style) that replaced the old keeper_only-only toggle.
 
-No live DB connection required — get_db_connection is monkeypatched with a
+No live DB connection required - get_db_connection is monkeypatched with a
 fake connection/cursor that records executed SQL/params and returns canned
 rows.
 """

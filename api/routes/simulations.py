@@ -64,7 +64,7 @@ def create_simulation(
     return SimCreatedResponse(sim_id=sim_id)
 
 
-# ── POST /tournament  (UI shorthand — builds config from tournament_id) ───────
+# ── POST /tournament  (UI shorthand - builds config from tournament_id) ───────
 
 class TournamentFromIdRequest(BaseModel):
     tournament_id: int
@@ -197,7 +197,7 @@ def get_total_simulations():
     return {"total": count}
 
 
-# ── GET  (no trailing slash — avoids 307 CORS redirect) ──────────────────────
+# ── GET  (no trailing slash - avoids 307 CORS redirect) ──────────────────────
 
 @router.get("", response_model=List[SimSummaryItem])
 def list_simulations(limit: int = 5, offset: int = 0, client_id: Optional[str] = None):
@@ -223,14 +223,14 @@ def get_status(sim_id: str):
             "sim_id": sim_id, "status": sim["status"], "error": sim.get("error_message"),
             "simulation_type": sim.get("simulation_type"),
         }
-        # Only a completed match sim has a match_id — used by callers (e.g. the
+        # Only a completed match sim has a match_id - used by callers (e.g. the
         # multiplayer 1v1 flow) to know to route to the match detail page
         # instead of the tournament results page once the sim finishes.
         if sim["status"] == "completed" and sim.get("simulation_type") == "match":
             matches = repo.get_matches_for_sim(sim_id)
             if matches:
                 result["match_id"] = matches[0]["match_id"]
-        # Only meaningful before the job has actually started — job_queue
+        # Only meaningful before the job has actually started - job_queue
         # reports position 0 for a running job, but "status" already tells
         # the client that; only surface a queue count while still pending.
         if sim["status"] == "pending":
@@ -460,6 +460,8 @@ def match_scorecard(sim_id: str):
             raise HTTPException(status_code=404, detail="No match data")
         match_id = matches[0]['match_id']
         data = get_scorecard(repo.dict_cursor, match_id)
+        session = repo.get_game_session(sim_id)
+        data["room_id"] = session.get("room_id") if session else None
     finally:
         repo.close()
     return ScorecardResponse(**data)

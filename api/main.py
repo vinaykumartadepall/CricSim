@@ -12,6 +12,7 @@ from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()  # loads .env from project root before anything else reads os.getenv()
 
+import asyncio
 import logging
 import os
 import threading
@@ -30,6 +31,7 @@ from api.routes.auth import router as auth_router
 from api.routes.leaderboards import router as lb_router
 from api.routes.lov import router as lov_router
 from api.routes.multiplayer import router as multiplayer_router
+from api.routes.multiplayer import _reap_idle_rooms_forever
 from api.routes.sim_history import router as sim_history_router
 from api.routes.simulations import router as sim_router
 from api.worker import run_match_job, run_tournament_job
@@ -39,12 +41,12 @@ from simulator.logger import configure_logger, get_logger
 
 # Clear the stats cache when available RAM drops below this threshold.
 _LOW_RAM_THRESHOLD_MB = int(os.getenv("LOW_RAM_THRESHOLD_MB", "250"))
-# 10s, not 30s — most simulations finish in well under 30s, so a 30s interval
+# 10s, not 30s - most simulations finish in well under 30s, so a 30s interval
 # would often take zero samples during a run's own lifetime. The check itself
 # is two cheap syscalls plus a dict len(), negligible even at this frequency.
 _RAM_CHECK_INTERVAL_S = 10
 
-# Startup default for simulation.log's level — same knob as PUT /admin/log-level,
+# Startup default for simulation.log's level - same knob as PUT /admin/log-level,
 # just what it starts at before anyone changes it at runtime. Distinct from the
 # pre-existing LOG_LEVEL env var, which controls the console handler only.
 _SIM_LOG_LEVEL = getattr(logging, os.getenv("SIM_LOG_LEVEL", "INFO").upper(), logging.INFO)
@@ -54,7 +56,7 @@ def _memory_monitor() -> None:
     """Daemon thread: evicts the stats cache under memory pressure.
 
     Logs available system RAM, this process's own RSS, and the cache's
-    top-level key count on EVERY check (not just when evicting) at INFO —
+    top-level key count on EVERY check (not just when evicting) at INFO -
     one short line every 10s, not high-volume enough to warrant gating behind
     DEBUG. A below-threshold-only log only shows the moment the threshold was
     crossed, not the shape of the decline leading up to it, which is what's
@@ -75,24 +77,24 @@ def _memory_monitor() -> None:
         if available_mb < _LOW_RAM_THRESHOLD_MB:
             cleared = StatsRepository.clear_cache()
             log.warning(
-                "[MemMonitor] Low RAM (%.0f MB free, rss=%.0f MB) — evicted %d cache entries",
+                "[MemMonitor] Low RAM (%.0f MB free, rss=%.0f MB) - evicted %d cache entries",
                 available_mb, rss_mb, cleared,
             )
 
 
 def _resume_or_fail_interrupted_sims() -> None:
     """On startup, sweep sims left mid-flight by a previous process lifetime
-    (crash/restart) — this deploys as a single uvicorn process with no
+    (crash/restart) - this deploys as a single uvicorn process with no
     external job broker (see [[job_queue]]), so anything queued or running
     when the process died is otherwise stuck forever with a stale status
     the frontend would poll against indefinitely.
 
-    - status='pending' (never actually started — nothing persisted yet) is
+    - status='pending' (never actually started - nothing persisted yet) is
       safe and cheap to just re-submit to the fresh job_queue.
     - status='running' is NOT auto-resumed: a partially-completed sim may
       already have rows written across matches/deliveries/teams/etc (none
       of which cascade-delete), so safely retrying would mean deleting all
-      of that first. Out of scope for now — marked failed instead, so a
+      of that first. Out of scope for now - marked failed instead, so a
       client polling it gets a clean failure rather than hanging forever.
     """
     log = get_logger()
@@ -119,7 +121,7 @@ def _resume_or_fail_interrupted_sims() -> None:
             job_queue.submit(sim_id, run_match_job, sim_id, config)
         else:
             # user_team_name isn't persisted anywhere (it only ever existed
-            # as a local variable in the original request handler) — the
+            # as a local variable in the original request handler) - the
             # resumed job still runs and completes correctly, it just can't
             # back-fill this one session's personalized team name/placement
             # the way a normal run does. Narrow, rare-edge-case-of-a-rare-
@@ -134,6 +136,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=_memory_monitor, daemon=True, name="mem-monitor").start()
     job_queue.start()
     _resume_or_fail_interrupted_sims()
+    asyncio.create_task(_reap_idle_rooms_forever())
     yield
 
 
@@ -161,7 +164,7 @@ app.add_middleware(
 )
 
 app.include_router(admin_router)
-# Also mount under /cricsimapi — every other route the frontend calls goes through
+# Also mount under /cricsimapi - every other route the frontend calls goes through
 # this prefix (nginx proxies it in production), whereas bare /admin/* is only used
 # for direct ops access (curl/SSH). Registering both keeps the new Admin page
 # reachable from the browser without touching how /admin/* has always been used.

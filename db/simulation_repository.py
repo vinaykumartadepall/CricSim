@@ -260,7 +260,7 @@ class SimulationRepository:
 
         match_label: 'Match 1', 'Semi-final 1', 'Final', etc.
         Returns the new match_id.
-        winner_id references simulation.teams — pass sim team IDs, not history IDs.
+        winner_id references simulation.teams - pass sim team IDs, not history IDs.
         """
         result      = sim_match.result
         winner_name = result.winner if result else None
@@ -326,7 +326,7 @@ class SimulationRepository:
 
     def save_match_potm(self, match_id: int, potm) -> None:
         """
-        Persist the Player of the Match for a completed match — potm is a
+        Persist the Player of the Match for a completed match - potm is a
         PlayerAward (simulator/awards/mvp_strategy.py), produced by whichever
         MvpStrategy MatchAwards was constructed with. Called once per match,
         both for standalone matches (run_match_job) and tournament matches
@@ -351,7 +351,7 @@ class SimulationRepository:
     def save_final_standings(self, sim_id: str, standings: list) -> None:
         """
         Persist the live tournament engine's final group-stage standings
-        (already NRR-all-out-rule-correct — see PointsTable.standings()) as
+        (already NRR-all-out-rule-correct - see PointsTable.standings()) as
         JSONB. standings: [{team, played, won, lost, tied, no_result, points, nrr}, ...].
         Read back by simulator.serializers.match.get_tournament_result instead
         of re-deriving standings from simulation.deliveries per request.
@@ -467,7 +467,7 @@ class SimulationRepository:
         """
         Persist tournament MVP point totals for every player.
 
-        awards: List[PlayerAward] (simulator/awards/mvp_strategy.py) — batting/
+        awards: List[PlayerAward] (simulator/awards/mvp_strategy.py) - batting/
         bowling/fielding are read out of .breakdown by convention (that's what
         StatisticalAwardsStrategy, the only strategy today, reports), not a
         required part of the PlayerAward contract. A future MvpStrategy that
@@ -607,20 +607,28 @@ class SimulationRepository:
         source_tournament_id: int | None,
         user_team_id: int | None,
         swaps: list,
+        room_id: str | None = None,
     ) -> None:
-        """Persist game session metadata (UI context) for one participant of a simulation."""
+        """Persist game session metadata (UI context) for one participant of a simulation.
+
+        room_id: the originating multiplayer room, if any (None for
+        single-player sessions) - lets a "Return to Lobby" feature recover
+        the room from sim_id alone, regardless of navigation state, reloads,
+        or viewing the result long after the fact from history.
+        """
         self.cur.execute(
             """
             INSERT INTO simulation.game_sessions
-                (sim_id, client_id, mode, source_tournament_id, user_team_id, swaps)
-            VALUES (%s, %s, %s, %s, %s, %s)
+                (sim_id, client_id, mode, source_tournament_id, user_team_id, swaps, room_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (sim_id, client_id) DO UPDATE
                 SET mode = EXCLUDED.mode,
                     source_tournament_id = EXCLUDED.source_tournament_id,
                     user_team_id = EXCLUDED.user_team_id,
-                    swaps = EXCLUDED.swaps
+                    swaps = EXCLUDED.swaps,
+                    room_id = EXCLUDED.room_id
             """,
-            (sim_id, client_id, mode, source_tournament_id, user_team_id, json.dumps(swaps)),
+            (sim_id, client_id, mode, source_tournament_id, user_team_id, json.dumps(swaps), room_id),
         )
 
     def get_game_session(self, sim_id: str, client_id: str | None = None) -> dict | None:
@@ -638,6 +646,7 @@ class SimulationRepository:
                     SELECT gs.mode,
                            gs.source_tournament_id,
                            gs.user_team_id,
+                           gs.room_id,
                            t.name AS user_team_name
                     FROM simulation.game_sessions gs
                     LEFT JOIN simulation.teams t ON t.team_id = gs.user_team_id
@@ -651,6 +660,7 @@ class SimulationRepository:
                     SELECT gs.mode,
                            gs.source_tournament_id,
                            gs.user_team_id,
+                           gs.room_id,
                            t.name AS user_team_name
                     FROM simulation.game_sessions gs
                     LEFT JOIN simulation.teams t ON t.team_id = gs.user_team_id

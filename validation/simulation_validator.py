@@ -1,8 +1,8 @@
 """
 Simulation-Based Validator
 ===========================
-Tests the full pipeline — ball outcome prediction + bowling selection +
-batting order — by running N simulations of real match configurations and
+Tests the full pipeline - ball outcome prediction + bowling selection +
+batting order - by running N simulations of real match configurations and
 comparing aggregate phase statistics against actual historical delivery data
 at the same venue + format.
 
@@ -372,7 +372,7 @@ class SimulationValidator:
             )
             n_historical = sum(s.n for s in historical.values())
 
-        # Create and initialise strategies once — all N simulations share the same caches.
+        # Create and initialise strategies once - all N simulations share the same caches.
         outcome_strat = OutcomeStrategyFactory.for_name(outcome_strategy_type, match_fmt)
         bowling_strat = BowlingStrategyFactory.for_name(bowling_strategy_type, match_fmt)
         outcome_strat.init_model(template_match)
@@ -388,7 +388,7 @@ class SimulationValidator:
             'innings_per_match': template_match.innings_per_match,
         }
 
-        # Simulate N times — no DB calls, no re-initialisation.
+        # Simulate N times - no DB calls, no re-initialisation.
         simulated:            Dict[str, PhaseStats]                  = defaultdict(PhaseStats)
         simulated_by_inning:  Dict[int, Dict[str, PhaseStats]]       = defaultdict(lambda: defaultdict(PhaseStats))
         simulated_scores:     List[int]                              = []
@@ -631,8 +631,8 @@ class PlayerProfileValidator:
     granularity: overall, by phase, by milestone state, by bowler type.
 
     Two modes:
-      config_path  — use a supplied JSON config (player must be in the lineup)
-      auto         — query DB for recent real matches featuring the player,
+      config_path  - use a supplied JSON config (player must be in the lineup)
+      auto         - query DB for recent real matches featuring the player,
                      reconstruct rosters, and run on those configs
 
     Usage:
@@ -689,7 +689,7 @@ class PlayerProfileValidator:
         from simulator.entities.team import MatchTeam
         from simulator.entities.match import SimulationMatch
 
-        # Pre-resolve all configs once — no repeated DB calls per simulation.
+        # Pre-resolve all configs once - no repeated DB calls per simulation.
         resolved_matches = [MatchRunner.build_match(cfg, self.repo) for cfg in configs]
 
         # Collect all unique player IDs from all configs in one pass.

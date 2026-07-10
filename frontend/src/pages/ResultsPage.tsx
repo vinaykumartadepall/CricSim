@@ -1,19 +1,52 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { createPortal } from 'react-dom'
-import { Trophy, TrendingUp, Swords, Star, RotateCcw, ChevronRight, X, Search } from 'lucide-react'
+import { Trophy, TrendingUp, Swords, Star, RotateCcw, ChevronRight, ChevronLeft, X, Search, Users } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
 import { ShareButton } from '@/components/ui/ShareButton'
 import { PlayoffBracket } from '@/components/PlayoffBracket'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
+import { captureViewportImage } from '@/lib/shareScreenshot'
 import type {
   TournamentResult, LeaderboardsDashboard,
   MatchItem,
 } from '@/types'
 
 type Tab = 'standings' | 'leaderboards' | 'matches'
+
+// ── Result banner background ────────────────────────────────────────────────────
+
+// Resolves a hex color or `var(--token)` reference against the live theme.
+function resolveHex(color: string): { r: number; g: number; b: number } | null {
+  const varMatch = color.match(/^var\((--[\w-]+)\)$/)
+  const resolved = varMatch
+    ? getComputedStyle(document.documentElement).getPropertyValue(varMatch[1]).trim()
+    : color
+  const hex = resolved.match(/^#([0-9a-f]{6})$/i)
+  if (!hex) return null
+  const n = parseInt(hex[1], 16)
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
+}
+
+// The banner background used to be a translucent color-mix()/rgba() tint -
+// intentionally, so the page's own dark background shows through rather than
+// a flat, muddy fill (see comment at the theme definition below). But that
+// translucency turned out to render incorrectly (near-opaque white) when
+// captured via html2canvas for the share-screenshot feature, in a way that
+// survived multiple targeted capture-time fixes. Pre-computing the same
+// visual result as a literal opaque color - blended once here in JS against
+// the actual --bg, instead of left for the browser (or any other renderer)
+// to alpha-composite at paint time - produces the identical on-screen look
+// while removing the translucency that any renderer could mishandle.
+function opaqueTint(color: string, percent: number): string {
+  const fg = resolveHex(color) ?? { r: 255, g: 255, b: 255 }
+  const bg = resolveHex('var(--bg)') ?? { r: 8, g: 8, b: 8 }
+  const a = percent / 100
+  const mix = (u: number, o: number) => Math.round(u * (1 - a) + o * a)
+  return `rgb(${mix(bg.r, fg.r)}, ${mix(bg.g, fg.g)}, ${mix(bg.b, fg.b)})`
+}
 
 // ── Share text ────────────────────────────────────────────────────────────────
 
@@ -47,8 +80,8 @@ const BATTING_BASE: Col[] = [
   { label: 'NO',     get: r => r.not_outs as number },
   { label: 'HS',     get: r => r.highest_score as number },
   { label: 'Runs',   get: r => r.runs as number },
-  { label: 'Avg',    get: r => r.average     != null ? Number(r.average).toFixed(1)     : '—' },
-  { label: 'SR',     get: r => r.strike_rate != null ? Number(r.strike_rate).toFixed(1) : '—' },
+  { label: 'Avg',    get: r => r.average     != null ? Number(r.average).toFixed(1)     : '-' },
+  { label: 'SR',     get: r => r.strike_rate != null ? Number(r.strike_rate).toFixed(1) : '-' },
   { label: '100s',   get: r => r.hundreds as number },
   { label: '50s',    get: r => r.fifties as number },
   { label: '4s',     get: r => r.fours as number },
@@ -64,9 +97,9 @@ const BOWLING_BASE: Col[] = [
   { label: 'Runs',   get: r => r.runs as number },
   { label: 'Wkts',   get: r => r.wickets as number },
   { label: 'Best',   get: r => r.best_bowling as string },
-  { label: 'Avg',    get: r => r.average     != null ? Number(r.average).toFixed(1)     : '—' },
-  { label: 'Econ',   get: r => r.economy     != null ? Number(r.economy).toFixed(2)     : '—' },
-  { label: 'SR',     get: r => r.strike_rate != null ? Number(r.strike_rate).toFixed(1) : '—' },
+  { label: 'Avg',    get: r => r.average     != null ? Number(r.average).toFixed(1)     : '-' },
+  { label: 'Econ',   get: r => r.economy     != null ? Number(r.economy).toFixed(2)     : '-' },
+  { label: 'SR',     get: r => r.strike_rate != null ? Number(r.strike_rate).toFixed(1) : '-' },
   { label: '5w',     get: r => r.five_wicket_hauls as number },
   { label: '4w',     get: r => r.four_wicket_hauls as number },
   { label: 'Dots',   get: r => r.dots as number },
@@ -119,11 +152,11 @@ const LB_DEFS: LbMeta[] = [
       { label: 'Team',   get: r => r.team as string },
       { label: 'Runs',   get: r => `${r.runs as number}${r.not_out ? '*' : ''}`, accent: true },
       { label: 'Balls',  get: r => r.balls as number },
-      { label: 'SR',     get: r => r.strike_rate != null ? Number(r.strike_rate).toFixed(1) : '—' },
+      { label: 'SR',     get: r => r.strike_rate != null ? Number(r.strike_rate).toFixed(1) : '-' },
       { label: '4s',     get: r => r.fours as number },
       { label: '6s',     get: r => r.sixes as number },
       { label: 'vs',     get: r => r.opponent as string },
-      { label: 'Venue',  get: r => (r.venue as string) ?? '—' },
+      { label: 'Venue',  get: r => (r.venue as string) ?? '-' },
     ],
   },
   {
@@ -134,14 +167,24 @@ const LB_DEFS: LbMeta[] = [
       { label: 'Figures',  get: r => r.best_figures as string, accent: true },
       { label: 'Wkts',    get: r => r.wickets as number },
       { label: 'Runs',     get: r => r.runs as number },
-      { label: 'Econ',     get: r => r.economy != null ? Number(r.economy).toFixed(2) : '—' },
+      { label: 'Econ',     get: r => r.economy != null ? Number(r.economy).toFixed(2) : '-' },
       { label: 'vs',       get: r => r.opponent as string },
-      { label: 'Venue',    get: r => (r.venue as string) ?? '—' },
+      { label: 'Venue',    get: r => (r.venue as string) ?? '-' },
     ],
   },
   { key: 'best_batting_average',title: 'Best Batting Avg',   columns: battingCols('Avg')  },
   { key: 'best_bowling_average',title: 'Best Bowling Avg',   columns: bowlingCols('Avg')  },
 ]
+
+// Rate stats only - must mirror db/leaderboard_repository.py's qualify
+// thresholds (best-batting-average/best-strike-rate: runs >= 50;
+// best-bowling-average/best-economy: total_balls >= 30).
+const LB_QUALIFIER: Partial<Record<string, string>> = {
+  best_strike_rate:     'min. 50 runs',
+  best_batting_average: 'min. 50 runs',
+  best_economy:         'min. 30 balls bowled',
+  best_bowling_average: 'min. 30 balls bowled',
+}
 
 const LB_KEY_TO_API: Record<string, string> = {
   most_runs:            'most-runs',
@@ -392,7 +435,14 @@ function LeaderboardModal({
       >
         <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0"
           style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
-          <div className="text-sm font-semibold shrink-0" style={{ color: 'var(--text)' }}>{meta.title}</div>
+          <div className="shrink-0">
+            <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{meta.title}</div>
+            {LB_QUALIFIER[lbKey] && (
+              <div className="text-xs" style={{ color: 'var(--text-dim)', opacity: 0.7 }}>
+                {LB_QUALIFIER[lbKey]}
+              </div>
+            )}
+          </div>
           <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg"
             style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
             <Search size={13} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />
@@ -505,7 +555,8 @@ function StatCard({
   const top5 = rows.slice(0, 5)
 
   const fmt = (v: unknown) => {
-    if (v == null) return '—'
+    if (v == null) return '-'
+    if (typeof v === 'string') return v // e.g. best_bowling_figures' "5/12"
     const n = Number(v)
     return decimals > 0 ? n.toFixed(decimals) : String(Math.round(n))
   }
@@ -558,7 +609,7 @@ export function ResultsPage() {
   const scrollToMatchId = useRef<number | undefined>((locState.scrollTo as number) || undefined)
   const hasScrolled = useRef(false)
 
-  // Simulation lifecycle (pending/running/failed) is owned by SimulatingPage —
+  // Simulation lifecycle (pending/running/failed) is owned by SimulatingPage -
   // by the time ResultsPage mounts normally, the sim is already completed.
   // This local status only guards against direct navigation/bookmarks/refresh
   // hitting /results/:simId before it's actually done, in which case we just
@@ -594,7 +645,7 @@ export function ResultsPage() {
         if (cancelled) return
         if (s.status !== 'completed') {
           // Not actually done (direct nav/bookmark/refresh hit this too early,
-          // or the job failed) — SimulatingPage owns that UI, hand off to it.
+          // or the job failed) - SimulatingPage owns that UI, hand off to it.
           navigate(`/simulating/${simId}`, { replace: true, state: location.state })
           return
         }
@@ -611,7 +662,7 @@ export function ResultsPage() {
         setMatches(m)
         // Pre-fetch lineups for team preview on points-table click
         api.getLineups(simId!).then(l => { if (!cancelled) setLineupTeams(l.teams) }).catch(() => {/* non-critical */})
-      } catch { /* transient error — user can refresh */ }
+      } catch { /* transient error - user can refresh */ }
     }
     checkAndLoad()
     return () => { cancelled = true }
@@ -693,7 +744,7 @@ export function ResultsPage() {
         style={{ color: 'var(--text-muted)' }}
         onClick={() => navigate('/')}
       >
-        <ChevronRight size={14} style={{ transform: 'rotate(180deg)' }} /> Home
+        <ChevronLeft size={14} /> Home
       </button>
 
       {/* Result banner */}
@@ -701,20 +752,25 @@ export function ResultsPage() {
         const placement = result.user_team_placement
         const userTeam = result.user_team_name
 
-        type BannerTheme = { icon: string; headline: string; sub: string; border: string; bg: string; color: string }
+        type BannerTheme = { icon: string; headline: string; sub: string; border: string; bg: string; color: string; buttonBg: string }
         const theme: BannerTheme = (() => {
           // Same medal-ladder colors as SimCard's placement badges: gold/silver/bronze,
-          // tinted at low opacity over transparent (not mixed into --surface-2 at
-          // 20-30%, which read as a muddy, low-contrast fill that swallowed the
-          // --text-dim/--text-muted sub-text) so the page's own near-black
-          // background still shows through and text stays legible.
+          // tinted at low opacity over the real page background (not mixed into
+          // --surface-2 at 20-30%, which read as a muddy, low-contrast fill that
+          // swallowed the --text-dim/--text-muted sub-text). bg is computed as an
+          // opaque color via opaqueTint() rather than a translucent color-mix()/
+          // rgba() value - same visual result, but without leaving any alpha
+          // compositing for a renderer to get wrong (this tripped up html2canvas
+          // during share-screenshot capture even with an explicitly opaque
+          // background forced at capture time - removing the translucency here,
+          // at the source, sidesteps that regardless of the exact cause).
           if (userTeam) {
-            if (placement === 'Winner')    return { icon: '🏆', headline: 'Champions!',             sub: `${userTeam} won the title`,             border: 'var(--score)', bg: 'color-mix(in srgb, var(--score) 10%, transparent)', color: 'var(--score)' }
-            if (placement === 'Runner-up') return { icon: '💔', headline: 'So close…',              sub: `${userTeam} — Runner-up`,               border: '#C0C0C0',       bg: 'color-mix(in srgb, #C0C0C0 10%, transparent)',      color: '#C0C0C0' }
-            if (placement === 'Playoffs')  return { icon: '✨', headline: 'You made the Playoffs!', sub: `${userTeam} reached the knockout stage`, border: '#CD7F32',       bg: 'color-mix(in srgb, #CD7F32 10%, transparent)',      color: '#CD7F32' }
-            return { icon: '😞', headline: 'Did not qualify', sub: `${userTeam} was eliminated in the group stage`, border: 'var(--border)', bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }
+            if (placement === 'Winner')    return { icon: '🏆', headline: 'Champions!',             sub: `${userTeam} won the title`,             border: 'var(--score)', bg: opaqueTint('var(--score)', 10), color: 'var(--score)', buttonBg: 'var(--text-dim)' }
+            if (placement === 'Runner-up') return { icon: '💔', headline: 'So close…',              sub: `${userTeam} - Runner-up`,               border: '#C0C0C0',       bg: opaqueTint('#C0C0C0', 10),      color: '#C0C0C0', buttonBg: 'var(--text-dim)' }
+            if (placement === 'Playoffs')  return { icon: '✨', headline: 'You made the Playoffs!', sub: `${userTeam} reached the knockout stage`, border: '#CD7F32',       bg: opaqueTint('#CD7F32', 10),      color: '#CD7F32', buttonBg: 'var(--text-dim)' }
+            return { icon: '😞', headline: 'Did not qualify', sub: `${userTeam} was eliminated in the group stage`, border: 'var(--border)', bg: opaqueTint('#FFFFFF', 6), color: 'var(--text)', buttonBg: 'var(--text-dim)' }
           }
-          return { icon: '🏆', headline: result.winner ? `${result.winner} won the tournament` : 'Tournament complete', sub: '', border: 'var(--score)', bg: 'color-mix(in srgb, var(--score) 10%, transparent)', color: 'var(--score)' }
+          return { icon: '🏆', headline: result.winner ? `${result.winner} won the tournament` : 'Tournament complete', sub: '', border: 'var(--score)', bg: opaqueTint('var(--score)', 10), color: 'var(--score)', buttonBg: 'var(--text-dim)' }
         })()
 
         // Secondary info line for multiplayer (when user is a participant)
@@ -727,45 +783,67 @@ export function ResultsPage() {
           return winner ? `🏆 Winner: ${winner}` : null
         })() : null
 
+        // Buttons sit beside the text (right-aligned, vertically centered)
+        // when there's room (md breakpoint and up), stacked below on
+        // narrower screens - a real breakpoint rather than flex-wrap, since
+        // the text block can always shrink further by wrapping onto more
+        // lines instead of actually running out of room, so wrap-on-overflow
+        // never actually triggered. Nested one level in from the icon so the
+        // stacked button row starts at the same x-position as the headline
+        // text above it, not the icon.
+        const buttonStyle: React.CSSProperties = { background: theme.buttonBg, padding: '6px 10px' }
         return (
           <div className="rounded-xl mb-5 fade-in overflow-hidden"
             style={{ border: `0.1px solid ${theme.border}`, background: theme.bg }}>
-            <div className="flex items-center gap-3 px-4 py-3">
-              <span className="text-2xl shrink-0 leading-none">{theme.icon}</span>
-              <div className="flex-1 min-w-0">
-                <div className="text-base font-bold leading-tight" style={{ color: theme.color }}>{theme.headline}</div>
-                <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  {theme.sub && <span>{theme.sub}</span>}
-                  {result.tournament_name && (
-                    <span style={{ color: 'var(--text-dim)' }}>
-                      {theme.sub ? ' · ' : ''}{result.tournament_name}{result.season && result.mode !== 'multiplayer' ? ` ${result.season}` : ''} · {result.total_matches} matches
-                    </span>
+            <div className="flex items-start gap-3 px-4 py-3">
+              <span className="text-2xl shrink-0 leading-none" style={{ marginTop: 4 }}>{theme.icon}</span>
+              <div className="flex flex-col md:flex-row md:items-center gap-3 flex-1 min-w-0">
+                <div className="flex-1 min-w-0">
+                  <div className="text-base font-bold leading-tight" style={{ color: theme.color }}>{theme.headline}</div>
+                  <div className="text-xs mt-0.5" style={{ color: 'var(--text)', lineHeight: 1.5 }}>
+                    {theme.sub && <span>{theme.sub}</span>}
+                    {result.tournament_name && (
+                      <span style={{ color: 'var(--text-dim)' }}>
+                        {theme.sub ? ' · ' : ''}{result.tournament_name}{result.season && result.mode !== 'multiplayer' ? ` ${result.season}` : ''} · {result.total_matches} matches
+                      </span>
+                    )}
+                  </div>
+                  {secondaryLine && (
+                    <div className="text-xs mt-1" style={{ color: placement === 'Winner' ? 'var(--text-dim)' : 'var(--score)' }}>{secondaryLine}</div>
                   )}
                 </div>
-                {secondaryLine && (
-                  <div className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>{secondaryLine}</div>
-                )}
+                <div className="flex items-center gap-2 shrink-0">
+                  {result.room_id && (
+                    <button
+                      className="btn-outline flex items-center gap-1.5 text-xs"
+                      style={buttonStyle}
+                      onClick={() => navigate(`/multiplayer/draft/${result.room_id}`)}
+                    >
+                      <Users size={12} /> Return to Lobby
+                    </button>
+                  )}
+                  {canTryAgain && (
+                    <button
+                      className="btn-outline flex items-center gap-1.5 text-xs"
+                      style={buttonStyle}
+                      // A URL query param (not router state) so this also works when
+                      // opened from a historical sim, or if the destination page gets
+                      // reloaded - FunModePage/ChallengeModePage re-fetch the full
+                      // session (tournament, team, swaps) from sim_id on mount rather
+                      // than depending on anything carried only in memory.
+                      onClick={() => navigate(`/${result!.mode}?retrySimId=${result!.sim_id}`)}
+                    >
+                      <RotateCcw size={12} /> Try again
+                    </button>
+                  )}
+                  <ShareButton
+                    text={tournamentShareText(result)}
+                    url={window.location.href}
+                    buildImage={() => captureViewportImage(`${result.tournament_name || 'tournament'}-result.png`)}
+                    style={buttonStyle}
+                  />
+                </div>
               </div>
-            </div>
-            <div className="px-4 pb-3 flex items-center gap-2">
-              {canTryAgain && (
-                <button
-                  className="btn-outline flex items-center gap-1.5 text-xs py-1.5 px-2.5"
-                  onClick={() => navigate(`/${result!.mode}`, {
-                    state: {
-                      tryAgain: true,
-                      tournamentId: result!.source_tournament_id,
-                      teamId: result!.user_team_id ?? null,
-                      tournamentName: result!.tournament_name,
-                      season: result!.season,
-                      teamName: result!.user_team_name ?? null,
-                    },
-                  })}
-                >
-                  <RotateCcw size={12} /> Try again differently
-                </button>
-              )}
-              <ShareButton text={tournamentShareText(result)} url={window.location.href} />
             </div>
           </div>
         )
@@ -942,7 +1020,7 @@ export function ResultsPage() {
                 case 'best_economy':         return ['economy', 2] as const
                 case 'best_bowling_average': return ['average', 1] as const
                 case 'most_dots':            return ['dots', 0] as const
-                case 'best_bowling_figures': return ['wickets', 0] as const
+                case 'best_bowling_figures': return ['best_figures', 0] as const
                 default:                     return ['total', 1] as const
               }
             })()
@@ -1052,11 +1130,11 @@ function MatchGroup({ title, matches, simId, navigate, userTeamName }: {
                       {m.home_score}/{m.home_wickets ?? 0}
                     </div>
                     <div className="text-xs mt-0.5" style={{ color: 'var(--text-dim)' }}>
-                      ({m.home_overs ?? '—'} Ov)
+                      ({m.home_overs ?? '-'} Ov)
                     </div>
                   </>
                 ) : (
-                  <div className="text-base font-bold" style={{ color: 'var(--text-dim)' }}>—</div>
+                  <div className="text-base font-bold" style={{ color: 'var(--text-dim)' }}>-</div>
                 )}
               </div>
 
@@ -1081,11 +1159,11 @@ function MatchGroup({ title, matches, simId, navigate, userTeamName }: {
                       {m.away_score}/{m.away_wickets ?? 0}
                     </div>
                     <div className="text-xs mt-0.5" style={{ color: 'var(--text-dim)' }}>
-                      ({m.away_overs ?? '—'} Ov)
+                      ({m.away_overs ?? '-'} Ov)
                     </div>
                   </>
                 ) : (
-                  <div className="text-base font-bold" style={{ color: 'var(--text-dim)' }}>—</div>
+                  <div className="text-base font-bold" style={{ color: 'var(--text-dim)' }}>-</div>
                 )}
               </div>
             </div>

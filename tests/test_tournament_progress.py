@@ -9,7 +9,7 @@ Tests for tournament simulation progress tracking (api/worker.py):
     appends a result line for every simulated match, regardless of whether
     persistence succeeds
 
-No live DB connection required anywhere in this file — all the logic under
+No live DB connection required anywhere in this file - all the logic under
 test is pure/in-process (fixture generation, dict bookkeeping).
 """
 from types import SimpleNamespace
@@ -49,7 +49,7 @@ def _make_config(num_teams: int = 4, playoff_format: str = "none") -> Tournament
 
 class TestPlayoffMatchCounts:
     """_PLAYOFF_MATCH_COUNTS must match generate_playoffs' actual fixture
-    count for every format it supports — this is what would have caught the
+    count for every format it supports - this is what would have caught the
     missing 'quarters_semis_final' entry."""
 
     @pytest.mark.parametrize("fmt", ["none", "two_teams", "semis_final", "ipl", "quarters_semis_final"])
@@ -90,7 +90,7 @@ class TestEstimateTotalDeliveries:
         assert _estimate_total_deliveries("ODI", total_matches=2) == 50 * 2 * 6 * 2
 
     def test_test_format_uses_labeled_rough_estimate(self):
-        # No fixed overs_per_innings for Test — days x overs/day, spanning all innings.
+        # No fixed overs_per_innings for Test - days x overs/day, spanning all innings.
         assert _estimate_total_deliveries("Test", total_matches=1) == _TEST_OVERS_ESTIMATE * 6
         assert _TEST_OVERS_ESTIMATE == 5 * 90
 
@@ -133,7 +133,7 @@ class TestOnFixtureCompleteIncrementsProgress:
         return SimpleNamespace(result=SimpleNamespace(description=description))
 
     def test_increments_even_when_teams_not_yet_known(self):
-        """Increment happens before the persistence-layer TBD check — progress
+        """Increment happens before the persistence-layer TBD check - progress
         should reflect matches actually simulated, not matches persisted."""
         _TOURNAMENT_PROGRESS["sim-1"] = {"completed": 0, "total": 5, "teams": 4, "total_deliveries": 1000, "results": []}
         engine = self._make_engine("sim-1", team_id_map={})  # no teams known -> TBD early return
@@ -163,7 +163,7 @@ class TestOnFixtureCompleteIncrementsProgress:
 
     def test_appends_result_entry_naming_both_teams(self):
         """The mockup names both sides ('IND beat AUS by 5 wkts.') but
-        match.result.description only names the winner — so the text must be
+        match.result.description only names the winner - so the text must be
         built from fixture.home/away plus the description, not the
         description alone. Structured {label, text, home, away} rather than
         one pre-formatted string so the frontend can style the label (and
@@ -178,7 +178,7 @@ class TestOnFixtureCompleteIncrementsProgress:
 
         [entry] = _TOURNAMENT_PROGRESS["sim-1"]["results"]
         assert entry["label"] == "Match 1"
-        assert entry["text"] == "Mumbai Indians vs Chennai Super Kings — Mumbai Indians won by 2 wickets"
+        assert entry["text"] == "Mumbai Indians vs Chennai Super Kings - Mumbai Indians won by 2 wickets"
         assert entry["home"] == "Mumbai Indians"
         assert entry["away"] == "Chennai Super Kings"
 

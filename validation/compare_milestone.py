@@ -94,7 +94,7 @@ def main():
         results.append((label, r))
 
     print("\n" + "═"*72)
-    print(f"  SUMMARY  {fmt} ({gender})  —  {samples:,} deliveries")
+    print(f"  SUMMARY  {fmt} ({gender})  -  {samples:,} deliveries")
     print("═"*72)
     print(f"  {'Config':<38} {'LogLoss':>8}  {'BndErr':>7}  {'WktErr':>7}  {'DotErr':>7}  {'EcoErr':>7}")
     print(f"  {'─'*68}")

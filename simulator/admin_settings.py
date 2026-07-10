@@ -4,9 +4,9 @@ In-memory admin-configurable simulation defaults.
 Mirrors the runtime-configurable pattern already used by simulator.logger's
 log-level switching (see set_log_level/get_current_log_level): a small piece
 of process-level state that api/routes/admin.py exposes over HTTP, and that
-the simulation engine consults directly — no restart required to change it.
+the simulation engine consults directly - no restart required to change it.
 
-Not persisted across a change made via the admin API — but the *startup*
+Not persisted across a change made via the admin API - but the *startup*
 values can be set via DEFAULT_OUTCOME_STRATEGY / DEFAULT_BOWLING_STRATEGY env
 vars (same pattern as STATS_CACHE_STRATEGY in db/stats_repository.py), so a
 restart/redeploy comes back up with whatever was configured rather than

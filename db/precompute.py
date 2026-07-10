@@ -2,16 +2,16 @@
 Precomputed tables for the cricket simulator.
 
 Populates:
-  history.global_yearly_baseline     — per-year global outcome distribution (era denominator)
-  history.player_outcome_stats       — batting/bowling/phase/milestone distributions per player
-  history.player_context_stats       — per-player venue and country distributions
-  history.batter_bowler_matchups     — head-to-head pair distributions
-  history.bowler_order_stats         — per-bowler over-frequency and phase-overs distributions
-  history.player_scalar_stats        — career, workload, death-over, phase, role scalars
-  history.aggregate_stats            — format-level baseline, phase, innings, position distributions
-  history.venue_stats                — venue-level distributions
-  history.country_stats              — country-level distributions
-  history.tournament_outcome_stats   — tournament-level distributions
+  history.global_yearly_baseline     - per-year global outcome distribution (era denominator)
+  history.player_outcome_stats       - batting/bowling/phase/milestone distributions per player
+  history.player_context_stats       - per-player venue and country distributions
+  history.batter_bowler_matchups     - head-to-head pair distributions
+  history.bowler_order_stats         - per-bowler over-frequency and phase-overs distributions
+  history.player_scalar_stats        - career, workload, death-over, phase, role scalars
+  history.aggregate_stats            - format-level baseline, phase, innings, position distributions
+  history.venue_stats                - venue-level distributions
+  history.country_stats              - country-level distributions
+  history.tournament_outcome_stats   - tournament-level distributions
 
 Usage:
     python -m db.precompute                  # Full rebuild of all tables
@@ -455,7 +455,7 @@ def _phase_case(fmt: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# populate_global_yearly_baseline — existing logic, unchanged
+# populate_global_yearly_baseline - existing logic, unchanged
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _compute_global_yearly_baseline(
@@ -756,7 +756,7 @@ def _populate_milestone_stats(
     for pid, milestones in acc.items():
         for ms, py_data in milestones.items():
             if _total_balls(py_data) < 20:
-                continue  # too sparse — strategy will use global milestone fallback
+                continue  # too sparse - strategy will use global milestone fallback
             raw = _decay_weighted_probs(py_data)
             if not raw:
                 continue
@@ -975,7 +975,7 @@ def _populate_aggregate_stats(conn, fmt: str, gender: str, dry_run: bool) -> int
 
     insert_rows = []
 
-    # Baseline (no decay — raw counts)
+    # Baseline (no decay - raw counts)
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -1463,7 +1463,7 @@ def _populate_scalar_stats(conn, fmt: str, gender: str, dry_run: bool) -> int:
 
 
 def _populate_player_roles(conn, dry_run: bool) -> int:
-    """Keeper and spinner flags — format-independent, stored with match_format='any'."""
+    """Keeper and spinner flags - format-independent, stored with match_format='any'."""
     print(f"  player_roles ...", end=" ", flush=True)
     t0 = time.perf_counter()
 
@@ -1712,7 +1712,7 @@ def seed_tournament_squads(
     Batting position: median position across ALL tournament matches where the
     player batted. Players who never batted get position 99.
 
-    Safe to re-run — uses INSERT ... ON CONFLICT DO UPDATE so admin edits to
+    Safe to re-run - uses INSERT ... ON CONFLICT DO UPDATE so admin edits to
     other players in the same (tournament, team) are preserved.
     """
     conn = get_db_connection(autocommit=False)
@@ -1724,7 +1724,7 @@ def seed_tournament_squads(
         cur.execute("SELECT tournament_name FROM history.tournaments WHERE tournament_id = %s", (tid,))
         row = cur.fetchone()
         if not row:
-            print(f"  tournament_id={tid} not found — skipping")
+            print(f"  tournament_id={tid} not found - skipping")
             continue
         print(f"  Seeding {row[0]} (id={tid}, last_n={last_n}) …")
 
@@ -1825,7 +1825,7 @@ def seed_tournament_squads(
             )
             row = cur.fetchone()
             if not row or not row[0]:
-                print(f"    WARNING: no config row for tournament_id={tid} — "
+                print(f"    WARNING: no config row for tournament_id={tid} - "
                       "run seed_sim_configs.py first", file=sys.stderr)
                 continue
 

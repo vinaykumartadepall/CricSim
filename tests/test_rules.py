@@ -165,7 +165,7 @@ class TestNrrAdjustedBalls:
         assert MatchRules.nrr_adjusted_balls(legal_balls=99, wickets=10, max_balls=120) == 120
 
     def test_not_all_out_uses_actual_balls_faced(self):
-        # Chased down in 12.2 overs (74 balls), 2 wickets down — no adjustment.
+        # Chased down in 12.2 overs (74 balls), 2 wickets down - no adjustment.
         assert MatchRules.nrr_adjusted_balls(legal_balls=74, wickets=2, max_balls=120) == 74
 
     def test_all_out_using_full_quota_is_a_noop(self):
@@ -182,7 +182,7 @@ class TestNrrAdjustedBalls:
 class TestNetRunRate:
     def test_matches_hand_verified_rajasthan_royals_example(self):
         # Cross-checked by hand against a real production sim's 14-match group
-        # stage (see conversation history) — the ICC all-out-rule-correct
+        # stage (see conversation history) - the ICC all-out-rule-correct
         # answer is +0.390, which is what the app displayed and what this
         # formula must reproduce given the same adjusted totals.
         nrr = MatchRules.net_run_rate(

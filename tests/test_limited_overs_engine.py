@@ -1,5 +1,5 @@
 """
-Tests for LimitedOversEngine._nrr_summary() — the per-team (runs, NRR-adjusted
+Tests for LimitedOversEngine._nrr_summary() - the per-team (runs, NRR-adjusted
 balls) summary used to feed the live points table. Verifies the ICC all-out
 rule (MatchRules.nrr_adjusted_balls) is actually applied here, which is the
 root fix for the NRR bug: the live tournament engine used to credit only
@@ -51,7 +51,7 @@ def test_side_using_full_quota_unaffected():
 def test_matches_hand_verified_rajasthan_royals_totals():
     # Same 14-match aggregate cross-checked by hand in conversation: correctly
     # adjusted totals give balls_for=1622 (270.3333 ov), balls_against=1636
-    # (272.6667 ov) — reproduced here at the per-innings level for two of
+    # (272.6667 ov) - reproduced here at the per-innings level for two of
     # those matches to pin the adjustment logic itself, not just the totals.
     fake_self = SimpleNamespace(
         match=SimpleNamespace(

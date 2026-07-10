@@ -3,10 +3,10 @@ Tests for api.routes.multiplayer._run_simulation's on_sim_created callback.
 
 The callback lets the websocket layer tell clients the sim_id as soon as the
 simulation.simulations row exists, instead of waiting for the full run (which
-can take 10-30s) to finish — this is what lets the multiplayer draft hand off
+can take 10-30s) to finish - this is what lets the multiplayer draft hand off
 to the shared SimulatingPage instead of showing its own bare spinner.
 
-No live DB connection required — SimulationRepository, run_match_job,
+No live DB connection required - SimulationRepository, run_match_job,
 run_tournament_job, and _save_multiplayer_game_sessions are all monkeypatched
 (the first three are imported locally inside _run_simulation, so patching the
 modules they're imported from is picked up at call time).

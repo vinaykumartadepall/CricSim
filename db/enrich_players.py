@@ -2,8 +2,8 @@
 Enrich history.players with ESPN/cricinfo data.
 
 Two-pass operation:
-  Pass 1  (fast, no network)  — maps people.csv identifier → cricinfo_id
-  Pass 2  (~1 hour, network)  — fetches displayName / batting_style /
+  Pass 1  (fast, no network)  - maps people.csv identifier → cricinfo_id
+  Pass 2  (~1 hour, network)  - fetches displayName / batting_style /
                                 bowling_style / player_role / country_id
                                 from ESPN athlete API per cricinfo_id
 
@@ -48,7 +48,7 @@ POSITION_TO_ROLE: dict[str, str] = {
     "BAR": "All-rounder",
     "BLA": "All-rounder",  # Bowling all-rounder (e.g. Narine, Ashwin, Holder)
     "BL":  "Bowler",
-    # UKN (Unknown) intentionally omitted — maps to None
+    # UKN (Unknown) intentionally omitted - maps to None
 }
 
 # ── people.csv ────────────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ def _fetch_athlete(cricinfo_id: int, max_retries: int = 4) -> Optional[dict]:
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                return None  # Player not in ESPN — don't retry
+                return None  # Player not in ESPN - don't retry
             wait = 2 ** attempt
             print(f"\n    [retry {attempt+1}/{max_retries} in {wait}s] {cricinfo_id}: HTTP {e.code}")
             time.sleep(wait)
@@ -90,7 +90,7 @@ def _fetch_athlete(cricinfo_id: int, max_retries: int = 4) -> Optional[dict]:
             print(f"\n    [retry {attempt+1}/{max_retries} in {wait}s] {cricinfo_id}: {e}")
             time.sleep(wait)
         except json.JSONDecodeError:
-            return None  # Malformed response — don't retry
+            return None  # Malformed response - don't retry
     return None
 
 
@@ -290,7 +290,7 @@ def pass2(commit: bool, max_workers: int = 5, chunk_size: int = 50, pause: float
 # ── Country remap (no API) ────────────────────────────────────────────────────
 
 def remap_countries(commit: bool) -> None:
-    """Update country_id from cached espn_country_int — no API calls needed."""
+    """Update country_id from cached espn_country_int - no API calls needed."""
     print("\n=== Remap countries from cached espn_country_int ===")
     conn = get_db_connection(autocommit=False)
     cur  = conn.cursor()
@@ -341,7 +341,7 @@ def main() -> None:
     parser.add_argument("--pass1-only",        action="store_true", help="Only run Pass 1 (people.csv → cricinfo_id)")
     parser.add_argument("--pass2-only",        action="store_true", help="Only run Pass 2 (ESPN API fetch)")
     parser.add_argument("--re-enrich-missing", action="store_true", help="Re-fetch players with missing role or country_id")
-    parser.add_argument("--remap-countries",   action="store_true", help="Update country_id from cached espn_country_int — no API calls")
+    parser.add_argument("--remap-countries",   action="store_true", help="Update country_id from cached espn_country_int - no API calls")
     parser.add_argument("--workers",           type=int, default=5,  help="ThreadPoolExecutor workers for Pass 2 (default 5)")
     args = parser.parse_args()
 

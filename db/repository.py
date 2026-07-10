@@ -95,7 +95,7 @@ class CricketRepository:
             self._venues_cache[canonical_name] = venue.id
             return venue
 
-        # New venue — resolve country (geocoding handled later by populate_venue_countries.py).
+        # New venue - resolve country (geocoding handled later by populate_venue_countries.py).
         country = resolve_final_country(canonical_name, city, self._venue_overrides)
         self.cur.execute(
             "INSERT INTO history.venues (name, city, country) VALUES (%s, %s, %s) RETURNING venue_id",

@@ -7,7 +7,7 @@ Tests for the read side of persisted POTM / final standings:
   present, and only falls back to the (deprecated) _build_points_table SQL
   recomputation for pre-migration sims that don't have it yet.
 
-No live DB connection — cur is a MagicMock; internals that aren't the focus
+No live DB connection - cur is a MagicMock; internals that aren't the focus
 of a given test (_fetch_innings_deliveries, _build_points_table) are
 monkeypatched out rather than exercised, keeping each test to the one thing
 it's checking.
@@ -101,3 +101,32 @@ class TestGetTournamentResultStandingsSource:
         result = match_mod.get_tournament_result(cur, "sim-1")
 
         assert result["points_table"] == fallback_result
+
+
+class TestBuildResultDescriptionTie:
+    """result == 'tie' covers three distinct situations that must render
+    differently: a genuinely unresolved tie (no super over, or a super over
+    tie that predates this fix / has no winner recorded), a decisive super
+    over (handled by the result == 'win' branch, not covered here), and a
+    playoff match where the super over also tied and a winner advanced via
+    the group-stage tiebreak."""
+
+    def _row(self, **overrides):
+        row = {'result': 'tie', 'winner': None, 'win_type': None, 'win_by': None,
+               'is_super_over': False}
+        row.update(overrides)
+        return row
+
+    def test_plain_tie_with_no_winner(self):
+        assert match_mod._build_result_description(self._row()) == "Match tied"
+
+    def test_super_over_tie_with_no_recorded_winner_stays_plain(self):
+        """is_super_over alone, with no winner, must not fabricate a name."""
+        row = self._row(is_super_over=True)
+        assert match_mod._build_result_description(row) == "Match tied"
+
+    def test_playoff_double_tie_advances_group_stage_winner(self):
+        row = self._row(is_super_over=True, winner='Alpha')
+        assert match_mod._build_result_description(row) == (
+            "Match tied · Super Over tied · Alpha advanced due to better group stage finish"
+        )

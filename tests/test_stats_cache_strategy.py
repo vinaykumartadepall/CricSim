@@ -1,7 +1,7 @@
 """
 Tests for the pluggable _PRECOMPUTED_CACHE retention strategies:
-  - PersistentCacheStrategy (default) — entries survive on_job_end()
-  - PerJobCacheStrategy — on_job_end() wipes the cache
+  - PersistentCacheStrategy (default) - entries survive on_job_end()
+  - PerJobCacheStrategy - on_job_end() wipes the cache
   - Strategy selection via the STATS_CACHE_STRATEGY env var
   - StatsRepository.on_job_end() / clear_cache() delegate to the active strategy
 
@@ -54,7 +54,7 @@ class TestPerJobCacheStrategy:
 
     def test_reuse_within_same_job_survives_until_end(self):
         # Simulates several matches within one tournament job reusing the
-        # same cached entries — nothing resets mid-job, only on_job_end()
+        # same cached entries - nothing resets mid-job, only on_job_end()
         # (called once the whole job finishes) wipes it.
         cache = PerJobCacheStrategy()
         cache[('pos', 'T20', 'batting')] = {1: 'x'}
@@ -128,7 +128,7 @@ class TestStatsRepositoryDelegation:
 
 
 # ---------------------------------------------------------------------------
-# Runtime hot-swap — StatsRepository.set_cache_strategy() (admin page control)
+# Runtime hot-swap - StatsRepository.set_cache_strategy() (admin page control)
 # ---------------------------------------------------------------------------
 
 class TestSetCacheStrategy:
@@ -161,7 +161,7 @@ class TestSetCacheStrategy:
         StatsRepository.set_cache_strategy('per_job')
 
         assert len(sr_mod._PRECOMPUTED_CACHE) == 0
-        # old object itself is untouched — just no longer referenced
+        # old object itself is untouched - just no longer referenced
         assert len(old) == 1
 
     def test_set_cache_strategy_rejects_unknown_name(self):
@@ -182,7 +182,7 @@ class TestSetCacheStrategy:
 
 
 # ---------------------------------------------------------------------------
-# Jobs must release the cache on both success AND failure — on_job_end() is
+# Jobs must release the cache on both success AND failure - on_job_end() is
 # called from a `finally` block precisely so a crashed job doesn't leave its
 # entries lingering until whenever the next job happens to start.
 # ---------------------------------------------------------------------------

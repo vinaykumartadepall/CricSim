@@ -105,7 +105,7 @@ def _run_tied_super_over(config_path: str, fmt: str, gender: str):
     eng = _MinimalEngine(match, outcome_strategy, bowling_strategy)
     eng.logger = logger
 
-    # Innings 1 — team_a bats
+    # Innings 1 - team_a bats
     eng._create_inning(1, team_a, team_b)
     eng._set_initial_players()
     sim1 = InningsSimulator(match, outcome_strategy, logger, bowling_strategy)
@@ -117,7 +117,7 @@ def _run_tied_super_over(config_path: str, fmt: str, gender: str):
         f"{team_b.name} need {match.target_score} in {match.overs_per_innings} overs\n"
     )
 
-    # Innings 2 — team_b bats, we stop exactly at team_a's total to manufacture a tie
+    # Innings 2 - team_b bats, we stop exactly at team_a's total to manufacture a tie
     team_a_total = inn1.batting_team.total_runs
     eng._create_inning(2, team_b, team_a)
     eng._set_initial_players()

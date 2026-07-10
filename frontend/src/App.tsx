@@ -54,7 +54,9 @@ function AppShell() {
       <HelpModal />
       <ScrollToTop />
       <ErrorBoundary>
-        <div className={isFullBleed ? undefined : 'mx-auto w-full'} style={isFullBleed ? undefined : { maxWidth: 1400 }}>
+        {/* id targeted by shareScreenshot.ts to capture page content only,
+            excluding the fixed header/its spacer above. */}
+        <div id="page-content" className={isFullBleed ? undefined : 'mx-auto w-full'} style={isFullBleed ? undefined : { maxWidth: 1400 }}>
         <Routes>
           <Route path="/"                                    element={<HomePage />} />
           <Route path="/play"                                element={<PlayModePage />} />
@@ -68,7 +70,7 @@ function AppShell() {
           <Route path="/stats"                               element={<StatsPage />} />
           <Route path="/stats/titles"                        element={<TitlesPage />} />
           <Route path="/profile"                             element={<ProfilePage />} />
-          {/* Not /admin — nginx already proxies that prefix straight to the
+          {/* Not /admin - nginx already proxies that prefix straight to the
               backend's ops-only /admin/* routes, which would swallow this
               page before the SPA fallback ever serves it. */}
           <Route path="/site-admin"                           element={<AdminPage />} />

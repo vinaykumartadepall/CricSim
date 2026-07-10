@@ -80,7 +80,7 @@ class ScheduleConfig:
     type: str = "round_robin"          # round_robin | double_round_robin | two_group_hybrid
     matches_per_pair: int = 1          # used for round_robin / double_round_robin
     neutral_venues: bool = True
-    # two_group_hybrid only — teams divided into two named groups
+    # two_group_hybrid only - teams divided into two named groups
     groups: Optional[List[List[str]]] = None  # [[group_a_names...], [group_b_names...]]
     within_matches_per_pair: int = 1           # how many times same-group pairs play
     cross_matches_per_pair: int = 2            # how many times cross-group pairs play

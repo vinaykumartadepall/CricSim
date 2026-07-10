@@ -15,7 +15,7 @@
 -- simulation.tournament_seeded.config is a JSONB snapshot taken at seed time
 -- and is never re-synced when history.tournaments changes later, so every fix
 -- below is applied in both places. Scope is intentionally limited to these
--- specific tournament_ids only — no other tournaments' data is touched.
+-- specific tournament_ids only - no other tournaments' data is touched.
 
 BEGIN;
 

@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, TrendingDown, Search } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
+import { SimulationTypeToggle } from '@/components/ui/SimulationTypeToggle'
 import { SquadEditor } from '@/components/SquadEditor'
 import { sortTournamentNames } from '@/lib/sortTournamentNames'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistoryTeamBest } from '@/types'
@@ -55,7 +56,8 @@ const CHALLENGE_STEP_SLIDE: Partial<Record<Step, number>> = {
 
 export function ChallengeModePage() {
   const navigate = useNavigate()
-  const location = useLocation()
+  const [searchParams] = useSearchParams()
+  const retrySimId = searchParams.get('retrySimId')
   const { openHelp } = useHelp()
   const [step, setStep] = useState<Step>('pick_tournament')
 
@@ -88,53 +90,61 @@ export function ChallengeModePage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
 
+  // Try-again resume flow - driven by a URL query param (?retrySimId=) and a
+  // fresh fetch of that session, rather than router state carried in memory,
+  // so this also works when landing here from a historical sim (My
+  // Simulations) or after a reload of this very page, not just immediately
+  // after finishing a fresh run.
   useEffect(() => {
-    const s = location.state as any
-    if (!s?.tryAgain || !s?.tournamentId || !s?.teamName) return
-    setSelectedName(s.tournamentName ?? '')
-    setSelectedEntry({
-      tournament_id: s.tournamentId,
-      team_id: s.teamId,
-      team_name: s.teamName ?? '',
-      season: s.season ?? '',
-      wins: 0, total_matches: 0, win_pct: 0,
-    })
-    setLoadingSquad(true)
-    api.getTournamentSquads(s.tournamentId)
-      .then(data => {
-        const teams = data.teams || []
-        setAllTeams(teams)
-        const team = teams.find((t: any) => t.team_name === s.teamName) ?? null
-        if (team) {
-          setSelectedTeam(team)
-          setBattingOrder(team.players.map((p: any) => p.player_id))
-          setStep('squad')
-        }
+    if (!retrySimId) return
+    api.getSimResult(retrySimId, clientId)
+      .then(result => {
+        if (!result?.source_tournament_id || !result?.user_team_name) return
+        setSelectedName(result.tournament_name ?? '')
+        setSelectedEntry({
+          tournament_id: result.source_tournament_id,
+          team_id: result.user_team_id ?? 0,
+          team_name: result.user_team_name ?? '',
+          season: result.season ?? '',
+          wins: 0, total_matches: 0, win_pct: 0,
+        })
+        setLoadingSquad(true)
+        return api.getTournamentSquads(result.source_tournament_id)
+          .then(data => {
+            const teams = data.teams || []
+            setAllTeams(teams)
+            const team = teams.find((t: any) => t.team_name === result.user_team_name) ?? null
+            if (team) {
+              setSelectedTeam(team)
+              setBattingOrder(team.players.map((p: any) => p.player_id))
+              setSwaps(result.swaps ?? [])
+              setStep('squad')
+            }
+          })
+          .finally(() => setLoadingSquad(false))
       })
       .catch(() => {})
-      .finally(() => setLoadingSquad(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // The resume flow above jumps straight to 'squad' without going through
-  // pickName(), so `underdogs` is never populated — backing up to the
+  // pickName(), so `underdogs` is never populated - backing up to the
   // pick_team_season step then shows an empty list. Fill it in the same way
   // pickName() would, but only if nothing has set it yet.
   useEffect(() => {
-    const s = location.state as any
-    if (!s?.tryAgain || !s?.tournamentName || underdogs.length > 0) return
+    if (!retrySimId || !selectedName || underdogs.length > 0) return
     setLoadingUnderdogs(true)
-    api.getUnderdogs(s.tournamentName)
+    api.getUnderdogs(selectedName)
       .then(data => {
         setUnderdogs(data)
         if (data.length === 0) {
-          setUnderdogError('No underdog teams found — all teams win > 33% of matches in every season')
+          setUnderdogError('No underdog teams found - all teams win > 33% of matches in every season')
         }
       })
       .catch(() => setUnderdogError('Failed to load teams'))
       .finally(() => setLoadingUnderdogs(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [selectedName])
 
   useEffect(() => {
     setLoadingTournaments(true)
@@ -171,7 +181,7 @@ export function ChallengeModePage() {
       .then(data => {
         setUnderdogs(data)
         if (data.length === 0) {
-          setUnderdogError('No underdog teams found — all teams win > 33% of matches in every season')
+          setUnderdogError('No underdog teams found - all teams win > 33% of matches in every season')
           return
         }
         const uniqueTids = [...new Set(data.map(e => e.tournament_id))]
@@ -398,7 +408,7 @@ export function ChallengeModePage() {
           <div className="flex items-center gap-1.5 mb-5">
             <TrendingDown size={12} style={{ color: 'var(--loss)' }} />
             <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
-              Teams with historical win rate &lt; 33% — ordered newest season first
+              Teams with historical win rate &lt; 33% - ordered newest season first
             </span>
           </div>
 
@@ -479,6 +489,7 @@ export function ChallengeModePage() {
                 squad={selectedTeam.players}
                 allTeams={allTeams}
                 userTeamId={selectedTeam.team_id}
+                maxSwaps={3}
                 swaps={swaps}
                 onSwapsChange={setSwaps}
                 onOrderChange={setBattingOrder}
@@ -526,6 +537,10 @@ export function ChallengeModePage() {
               value={swaps.length === 0 ? 'None' : `${swaps.length} trade${swaps.length !== 1 ? 's' : ''}`}
             />
             <Row label="Mode" value="Challenge Mode" accent />
+          </div>
+
+          <div className="mb-6">
+            <SimulationTypeToggle />
           </div>
 
           {error && (

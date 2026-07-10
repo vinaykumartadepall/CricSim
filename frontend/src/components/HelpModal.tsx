@@ -5,10 +5,10 @@ import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useHelp } from '@/contexts/HelpContext'
 import { findMatchedHelp, hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 
-// Pages that manage their own step-based help triggers — skip pathname auto-open for these.
+// Pages that manage their own step-based help triggers - skip pathname auto-open for these.
 // /multiplayer/draft is here because auto-opening on pathname alone could pop the modal
 // up mid-draft (e.g. a browser's first-ever visit landing after the host already started)
-// — DraftPage triggers it itself, only while the room is still in the waiting phase.
+// - DraftPage triggers it itself, only while the room is still in the waiting phase.
 const STEP_BASED_PATHS = ['/fun', '/challenge', '/custom', '/multiplayer/draft']
 
 export function HelpModal() {
@@ -30,7 +30,7 @@ export function HelpModal() {
   useEffect(() => { setIndex(0) }, [pathname])
 
   // Auto-open on page arrival, first visit only (non-stepped pages only).
-  // Keyed by the resolved content key (e.g. '/results'), NOT the raw pathname —
+  // Keyed by the resolved content key (e.g. '/results'), NOT the raw pathname -
   // dynamic routes like /results/:simId have a different pathname every time,
   // which would defeat "first visit only" entirely if used directly.
   // The "simulation still running" state lives on its own route (SimulatingPage)
@@ -71,7 +71,7 @@ export function HelpModal() {
           </button>
         </div>
 
-        {/* Navigation row — hidden in single-slide mode */}
+        {/* Navigation row - hidden in single-slide mode */}
         {!helpSingleSlide && (
           <div className="flex items-center justify-between px-4 pt-4 pb-0">
             <button

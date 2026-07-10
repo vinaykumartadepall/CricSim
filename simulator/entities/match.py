@@ -40,11 +40,11 @@ class SimulationMatch:
 
     Fields are grouped by concern:
 
-    ① Static match identity — set once at construction, never mutated.
-    ② Accumulated innings data — grows as innings complete.
-    ③ Live inning cursor — current position within the active inning.
-    ④ Active delivery context — changes on every ball.
-    ⑤ Terminal match state — written by the engine at match completion.
+    ① Static match identity - set once at construction, never mutated.
+    ② Accumulated innings data - grows as innings complete.
+    ③ Live inning cursor - current position within the active inning.
+    ④ Active delivery context - changes on every ball.
+    ⑤ Terminal match state - written by the engine at match completion.
 
     Presentation is handled externally by
     ``simulator.presentation.formatters.print_match_scorecard`` and
@@ -89,7 +89,7 @@ class SimulationMatch:
 
     # ── ⑥ Infrastructure ───────────────────────────────────────────────────────
     # NOTE: the bus is re-wired per inning by BaseEngine._create_inning().
-    # It is match-scoped by storage but inning-scoped by usage — a known smell
+    # It is match-scoped by storage but inning-scoped by usage - a known smell
     # scheduled for extraction to a proper inning-scoped bus in a future pass.
     event_bus: MatchEventBus = field(default_factory=MatchEventBus)
 

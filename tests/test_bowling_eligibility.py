@@ -4,7 +4,7 @@ Unit tests for T20HistoricalBowlingStrategy._eligible.
 The key invariants:
   1. Players with avg_overs_per_match >= MIN_AVG_OVERS are the primary candidate list.
   2. Players below the threshold (or absent from workload_cache) are excluded from
-     the primary list — they only appear in the fallback when NO genuine bowler exists.
+     the primary list - they only appear in the fallback when NO genuine bowler exists.
   3. The current bowler is always excluded.
   4. When the primary list is non-empty, only those players are returned (not the full
      under-quota roster).

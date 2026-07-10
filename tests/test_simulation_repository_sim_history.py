@@ -4,7 +4,7 @@ Unit tests for SimulationRepository.get_sim_history_counts.
 Covers the fix where "completed" was counting any finished simulation run
 regardless of outcome; it must now only count tournament sims where the
 user's team actually won the final (via the _FINAL_LATERAL fragment).
-No live DB connection — cursor is mocked per this project's convention.
+No live DB connection - cursor is mocked per this project's convention.
 """
 from unittest.mock import MagicMock
 

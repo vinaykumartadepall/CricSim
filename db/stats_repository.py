@@ -21,7 +21,7 @@ _D3Y  = _decay_sql(3.0)   # tournament distribution
 _D5Y  = _decay_sql(5.0)   # batter, bowler, matchup, phase, player-country (close)
 _D6Y  = _decay_sql(6.0)   # player-country (region-wide)
 _D7Y  = _decay_sql(7.0)   # venue aggregate
-_D8Y  = _decay_sql(8.0)   # player-venue (sparse — slower decay to preserve signal)
+_D8Y  = _decay_sql(8.0)   # player-venue (sparse - slower decay to preserve signal)
 
 
 # Maps unified format names to all raw DB format strings that belong to that bucket.
@@ -40,17 +40,17 @@ _FORMAT_ALIASES: Dict[str, List[str]] = {
 # dict directly, so all the existing `key in _PRECOMPUTED_CACHE`,
 # `_PRECOMPUTED_CACHE[key]`, `.get(...)`, `.setdefault(...)`, `.clear()` call
 # sites throughout this file work unchanged no matter which strategy is active
-# — strategies only differ in *retention*, not in how they're read/written.
+# - strategies only differ in *retention*, not in how they're read/written.
 #
 # - PersistentCacheStrategy (default, current behavior): entries live for the
 #   whole process lifetime until StatsRepository.clear_cache() is called (the
 #   low-RAM monitor in api/main.py). Best when many simulations reuse the same
 #   players/teams across separate runs, but can grow unbounded over a
-#   long-lived process — a single simulation job never sees it shrink.
+#   long-lived process - a single simulation job never sees it shrink.
 # - PerJobCacheStrategy: entries only live for the duration of one simulation
-#   job. StatsRepository.on_job_end() — called in the `finally` block of both
+#   job. StatsRepository.on_job_end() - called in the `finally` block of both
 #   run_match_job and run_tournament_job in api/worker.py, so it fires whether
-#   the job succeeds or fails — wipes it as soon as that job is done. Bounded,
+#   the job succeeds or fails - wipes it as soon as that job is done. Bounded,
 #   predictable footprint; the cache never sits around holding memory during
 #   idle gaps between simulations, and a failed job's entries don't linger
 #   either. Trades away cache reuse *across* separate simulations (each job
@@ -63,14 +63,14 @@ _FORMAT_ALIASES: Dict[str, List[str]] = {
 # opt in.
 #
 # Adding a future LRU strategy (bounded by entry count, evicting
-# least-recently-used) is a matter of adding another subclass here — override
+# least-recently-used) is a matter of adding another subclass here - override
 # __setitem__/__getitem__ to track recency and evict past a size cap, and
 # on_job_end() only if it should also reset per-job. No other file needs to
 # change.
 
 class _CacheStrategy(dict):
     """Base class for _PRECOMPUTED_CACHE backends. Behaves exactly like a
-    plain dict — the only addition is the on_job_end() lifecycle hook."""
+    plain dict - the only addition is the on_job_end() lifecycle hook."""
 
     def on_job_end(self) -> None:
         """Called once at the end of every simulation job (match or
@@ -186,7 +186,7 @@ class StatsRepository:
     Singleton DB connection shared across all instances in the process.
 
     The first StatsRepository() call opens one psycopg2 connection and stores it
-    at the class level. Every subsequent StatsRepository() reuses that connection —
+    at the class level. Every subsequent StatsRepository() reuses that connection -
     no new DB handshake, no TCP overhead.
 
     After the process-level _PRECOMPUTED_CACHE is warm, _run_query is almost never
@@ -268,7 +268,7 @@ class StatsRepository:
         with StatsRepository._query_lock:
             try:
                 cur = self.conn.cursor()
-                # DEBUG, not TRACE — TRACE is dominated by extremely high-volume
+                # DEBUG, not TRACE - TRACE is dominated by extremely high-volume
                 # per-ball/per-over strategy dumps elsewhere in the codebase;
                 # DEBUG keeps query visibility usable without that noise, opt-in
                 # rather than cluttering the default (INFO) log output.
@@ -458,9 +458,9 @@ class StatsRepository:
     def get_batting_position_baseline(self, match_format: str, gender: str = 'male') -> Dict[str, Dict[Tuple, float]]:
         """
         Returns outcome probability distributions keyed by batting position group:
-          'top_order'    — positions 1-3 (openers + first-drop)
-          'middle_order' — positions 4-6
-          'lower_order'  — positions 7+
+          'top_order'    - positions 1-3 (openers + first-drop)
+          'middle_order' - positions 4-6
+          'lower_order'  - positions 7+
 
         Position is derived from each batter's first appearance (by over/ball) in each innings.
         Used as a fallback when a batter has no personal career history in the cache.
@@ -937,13 +937,13 @@ class StatsRepository:
     def cache_key_count(cls) -> int:
         """Number of top-level keys currently in the cache (read-only, no eviction).
         Each key is one (stat_type, match_format, ...) combination and can hold
-        thousands of nested per-player entries — this is a key count, not a row count."""
+        thousands of nested per-player entries - this is a key count, not a row count."""
         return len(_PRECOMPUTED_CACHE)
 
     @classmethod
     def clear_cache(cls) -> int:
         """Clear the entire precomputed cache. Returns the number of entries removed.
-        Safe to call at any time — lazy loading re-populates on next simulation."""
+        Safe to call at any time - lazy loading re-populates on next simulation."""
         count = len(_PRECOMPUTED_CACHE)
         _PRECOMPUTED_CACHE.clear()
         return count
@@ -958,7 +958,7 @@ class StatsRepository:
 
     @classmethod
     def set_cache_strategy(cls, name: str) -> None:
-        """Hot-swap the active cache strategy at runtime — no restart required.
+        """Hot-swap the active cache strategy at runtime - no restart required.
         The new strategy always starts empty; entries from the old one are dropped
         (matches what a restart would have done under STATS_CACHE_STRATEGY anyway)."""
         global _PRECOMPUTED_CACHE
@@ -984,11 +984,11 @@ class StatsRepository:
         """
         Pre-populate _PRECOMPUTED_CACHE for all formats and genders at server startup.
         After this runs, every init_model call in EnhancedStrategy and the bowling
-        model returns from dict — no DB round-trip on any subsequent request.
+        model returns from dict - no DB round-trip on any subsequent request.
 
-        NOT called anywhere in production (deliberately lazy — see project memory);
+        NOT called anywhere in production (deliberately lazy - see project memory);
         kept for local benchmarking only. Only warms the caches that still have a
-        genuine full-table variant (player_outcome_stats, matchup aggregates) —
+        genuine full-table variant (player_outcome_stats, matchup aggregates) -
         roles/workload/bowler_order/test_phase_freq were converted to
         per-player-scoped lazy caches (_ensure_in_*) to fix a real production RAM
         issue and no longer support a "load everything" mode; they warm themselves
@@ -1068,12 +1068,12 @@ class StatsRepository:
     ) -> Dict[int, Dict[str, float]]:
         """
         Returns {player_id: {'death_sr': float, 'boundary_rate': float, 'balls': int}}.
-        Derived from precomputed player_outcome_stats death phases — zero deliveries access.
+        Derived from precomputed player_outcome_stats death phases - zero deliveries access.
         Lazily computed per requested player, merged into a process-level cache.
 
         Used to bulk-load phase_death1/phase_death2 for every player who's ever
         played this format via the unscoped _load_player_stat_cache, then filter
-        to batter_ids only at the end — the filtering happened too late to avoid
+        to batter_ids only at the end - the filtering happened too late to avoid
         the cost. Now sources from _ensure_in_stat_cache (already correctly
         player-scoped) and only derives death_sr/boundary_rate for players not
         already merged.
@@ -1146,11 +1146,11 @@ class StatsRepository:
         """
         Returns {player_id: {phase: {'economy': float, 'wicket_rate': float, 'balls': int}}}.
         Phases: 'powerplay', 'middle', 'death'.
-        Derived from precomputed player_outcome_stats bowling-role phases — zero deliveries access.
+        Derived from precomputed player_outcome_stats bowling-role phases - zero deliveries access.
         Lazily computed per requested player, merged into a process-level cache.
 
         Used to bulk-load every phase stat_type for every player who's ever
-        bowled in this format via the unscoped _load_player_stat_cache — measured
+        bowled in this format via the unscoped _load_player_stat_cache - measured
         at 1.24GB for T20 alone (43,431 rows across all players), the single
         largest contributor found to the production swap-thrashing issue. Now
         sources from _ensure_in_stat_cache (already correctly player-scoped) and
@@ -1259,18 +1259,18 @@ class StatsRepository:
         Denominator is total matches played (from match_players), not just matches bowled.
         When `country` is provided, only matches at venues in that country are counted.
 
-        NOTE: No live callers found — superseded by get_bowler_phase_dist_precomputed.
+        NOTE: No live callers found - superseded by get_bowler_phase_dist_precomputed.
         Queries history.deliveries; do not call at simulation runtime.
 
-        T20 phases  — 'powerplay_early' (ov 1-4), 'powerplay_late' (ov 5-6),
+        T20 phases  - 'powerplay_early' (ov 1-4), 'powerplay_late' (ov 5-6),
                        'middle' (ov 7-15), 'death_early' (ov 16-17), 'death_late' (ov 18-20)
-        ODI phases  — 'powerplay' (ov 1-10), 'middle' (ov 11-39),
+        ODI phases  - 'powerplay' (ov 1-10), 'middle' (ov 11-39),
                        'death_early' (ov 40-43), 'death_late' (ov 44+)
-        All formats — 'opening' (ov 1-2)
+        All formats - 'opening' (ov 1-2)
 
         Phase keys that don't apply to a format will be 0 (e.g. 'powerplay_early' is 0 for ODI).
         """
-        _repo_log.warning("get_bowler_phase_frequency: no live callers — superseded by precomputed tables. Querying history.deliveries.")
+        _repo_log.warning("get_bowler_phase_frequency: no live callers - superseded by precomputed tables. Querying history.deliveries.")
         if not bowler_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
@@ -1388,12 +1388,12 @@ class StatsRepository:
         ODI:  key = over_number // 5  (0-indexed, 0–9, one bin per 5 overs)
 
         Scope (highest priority wins):
-          venue_id  — restrict to a specific venue.
-          countries — restrict to venues in any of these countries (list).
-          country   — convenience alias for countries=[country].
+          venue_id  - restrict to a specific venue.
+          countries - restrict to venues in any of these countries (list).
+          country   - convenience alias for countries=[country].
         match_type: when provided (e.g. 'international'), restricts to that match_type only.
         inning_number: when provided (1 or 2), restricts to that innings only.
-        Returns {player_id: {key: fraction}} — sparse (only keys with data present).
+        Returns {player_id: {key: fraction}} - sparse (only keys with data present).
         """
         if not bowler_ids or not self.conn:
             return {}
@@ -1578,7 +1578,7 @@ class StatsRepository:
         Only bowlers with at least 18 balls at the venue are included.
         NOTE: No live callers found. Queries history.deliveries; do not call at simulation runtime.
         """
-        _repo_log.warning("get_bowler_venue_stats: no live callers — queries history.deliveries.")
+        _repo_log.warning("get_bowler_venue_stats: no live callers - queries history.deliveries.")
         if not bowler_ids or not self.conn:
             return {}
         query = """
@@ -1612,7 +1612,7 @@ class StatsRepository:
         Returns {player_id: {'economy': float, 'wicket_rate': float, 'balls': int}}
         NOTE: No live callers found. Queries history.deliveries; do not call at simulation runtime.
         """
-        _repo_log.warning("get_bowler_country_stats: no live callers — queries history.deliveries.")
+        _repo_log.warning("get_bowler_country_stats: no live callers - queries history.deliveries.")
         if not bowler_ids or not self.conn:
             return {}
         query = """
@@ -1646,7 +1646,7 @@ class StatsRepository:
         Returns {player_id: {'economy': float, 'wicket_rate': float, 'balls': int}}
         NOTE: No live callers found. Queries history.deliveries; do not call at simulation runtime.
         """
-        _repo_log.warning("get_bowler_recent_form: no live callers — queries history.deliveries.")
+        _repo_log.warning("get_bowler_recent_form: no live callers - queries history.deliveries.")
         if not bowler_ids or not self.conn:
             return {}
         query = """
@@ -1691,7 +1691,7 @@ class StatsRepository:
     ) -> Dict[int, Dict]:
         """
         Returns {player_id: {'n': int, 'buckets': {innings_bucket: {phase_idx: float}}}}
-        for Test cricket. No minimum-match threshold — callers blend with a global prior.
+        for Test cricket. No minimum-match threshold - callers blend with a global prior.
 
         innings_bucket 1 = match innings 1 or 2 (first innings of each team).
         innings_bucket 2 = match innings 3 or 4 (second innings of each team).
@@ -1699,10 +1699,10 @@ class StatsRepository:
         new-ball cycle: 0→overs 0-9, 1→10-19, ..., 7→70-79.
 
         Scope (highest priority wins):
-          venue_id  — restrict to a specific venue (most granular, sparsest).
-          countries — restrict to venues in any of these countries (list); use for
+          venue_id  - restrict to a specific venue (most granular, sparsest).
+          countries - restrict to venues in any of these countries (list); use for
                       regional grouping e.g. West Indies islands under one pool.
-          country   — convenience alias for countries=[country].
+          country   - convenience alias for countries=[country].
         `n` is total matches the player participated in within the chosen scope.
         """
         if not player_ids or not self.conn:
@@ -1935,7 +1935,7 @@ class StatsRepository:
         Outcome distribution conditioned on the batter's running score at the time of delivery.
         Uses a window function to compute score_before for every delivery.
 
-        Milestones: 10-run buckets — 'm0' (0-9), 'm10' (10-19), ..., 'm90' (90-99), 'm100' (100+).
+        Milestones: 10-run buckets - 'm0' (0-9), 'm10' (10-19), ..., 'm90' (90-99), 'm100' (100+).
         These are global (all-batter) distributions used as fallback when a specific
         batter lacks sufficient per-bucket data.
 
@@ -2047,7 +2047,7 @@ class StatsRepository:
             player_ms: Dict[str, Dict[Tuple, float]] = {}
             for milestone, metric_rows in ms_data.items():
                 if bucket_totals[batter_id][milestone] < min_balls:
-                    continue  # too few samples — caller will fall back to global
+                    continue  # too few samples - caller will fall back to global
                 probs = self._parse_rows_to_probs(metric_rows)
                 if probs:
                     player_ms[milestone] = probs
@@ -2070,9 +2070,9 @@ class StatsRepository:
            runs_batter, runs_extras, outcome_type, outcome_kind,
            batter_score_before, team_score_before, team_wickets_before)
 
-        batter_score_before  — batter's runs in this innings before this delivery (window fn).
-        team_score_before    — team's total runs before this delivery (window fn).
-        team_wickets_before  — team's wickets fallen before this delivery (window fn).
+        batter_score_before  - batter's runs in this innings before this delivery (window fn).
+        team_score_before    - team's total runs before this delivery (window fn).
+        team_wickets_before  - team's wickets fallen before this delivery (window fn).
         These last two allow pressure-proxy classification without a target lookup.
 
         venue_id: when set, restricts sample to that venue (for context-specific testing).
@@ -2138,7 +2138,7 @@ class StatsRepository:
                    batter_score_before, bowler_career_balls)
 
         bowler_career_balls is the bowler's total ball count across ALL
-        matches in this format — same metric used by _PARTTIME_THRESHOLDS.
+        matches in this format - same metric used by _PARTTIME_THRESHOLDS.
         """
         if not self.conn:
             return []
@@ -2256,7 +2256,7 @@ class StatsRepository:
 
         This used to be an unscoped bulk load of the whole table (854MB / 8,592
         players for T20 alone, confirmed by measurement, when a typical tournament
-        only needs ~200) — converted to the same per-player lazy pattern already
+        only needs ~200) - converted to the same per-player lazy pattern already
         used correctly by _ensure_in_stat_cache / _ensure_in_matchup_agg_cache.
         """
         full_key = ('pcs_country', match_format)
@@ -2313,7 +2313,7 @@ class StatsRepository:
     def get_full_aggregate_distribution(self, match_format: str, gender: str = 'male') -> Dict[Tuple, float]:
         """
         Overall delivery outcome probability distribution across all deliveries for this format.
-        Used as the baseline anchor in the enhanced strategy — derived from raw counts rather
+        Used as the baseline anchor in the enhanced strategy - derived from raw counts rather
         than by averaging per-innings distributions.
         """
         agg = self._load_aggregate_cache(match_format, gender)
@@ -2478,10 +2478,10 @@ class StatsRepository:
         Returns (phase_dists, phase_ball_counts):
           phase_dists       = {batter_id: {phase: {outcome_key: prob}}}
           phase_ball_counts = {batter_id: {phase: approx_ball_count}}
-        NOTE: No live callers found — superseded by get_batter_phase_probs_precomputed.
+        NOTE: No live callers found - superseded by get_batter_phase_probs_precomputed.
         Queries history.deliveries; do not call at simulation runtime.
         """
-        _repo_log.warning("get_batter_phase_distribution: no live callers — superseded by precomputed tables. Querying history.deliveries.")
+        _repo_log.warning("get_batter_phase_distribution: no live callers - superseded by precomputed tables. Querying history.deliveries.")
         if not batter_ids or not self.conn:
             return {}, {}
         raw_fmts = self._raw_formats(match_format)
@@ -2518,14 +2518,14 @@ class StatsRepository:
 
         return phase_dists, phase_ball_counts
 
-    # ── Era normalization — per-year raw count queries ────────────────────────
+    # ── Era normalization - per-year raw count queries ────────────────────────
 
     def get_global_yearly_baseline(
         self, match_format: str, gender: str = 'male',
         use_precomputed: bool = True,
     ) -> Dict[int, Dict[Tuple, float]]:
         """
-        Returns {year: {outcome_key: probability}} — the global outcome distribution
+        Returns {year: {outcome_key: probability}} - the global outcome distribution
         per calendar year. Used as the era denominator in era normalization.
 
         When use_precomputed=True (default), reads from history.global_yearly_baseline
@@ -2533,7 +2533,7 @@ class StatsRepository:
         if the table is empty or use_precomputed=False.
         NOTE: No live callers found in simulation or API code.
         """
-        _repo_log.warning("get_global_yearly_baseline: no live callers — use precompute.py directly.")
+        _repo_log.warning("get_global_yearly_baseline: no live callers - use precompute.py directly.")
         if not self.conn:
             return {}
 
@@ -2594,7 +2594,7 @@ class StatsRepository:
         Returns {(batter_id, bowler_id): {year: {outcome_key: count}}}.
         NOTE: No live callers found. Used by precompute.py logic only.
         """
-        _repo_log.warning("get_matchup_distribution_per_year: no live callers — queries history.deliveries.")
+        _repo_log.warning("get_matchup_distribution_per_year: no live callers - queries history.deliveries.")
         if not batter_ids or not bowler_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
@@ -2640,7 +2640,7 @@ class StatsRepository:
         Returns {batter_id: {year: {outcome_key: count}}}.
         NOTE: No live callers found. Used by precompute.py logic only.
         """
-        _repo_log.warning("get_batters_distribution_per_year: no live callers — queries history.deliveries.")
+        _repo_log.warning("get_batters_distribution_per_year: no live callers - queries history.deliveries.")
         if not batter_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
@@ -2676,7 +2676,7 @@ class StatsRepository:
         Returns {bowler_id: {year: {outcome_key: count}}}.
         NOTE: No live callers found. Used by precompute.py logic only.
         """
-        _repo_log.warning("get_bowlers_distribution_per_year: no live callers — queries history.deliveries.")
+        _repo_log.warning("get_bowlers_distribution_per_year: no live callers - queries history.deliveries.")
         if not bowler_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
@@ -2712,7 +2712,7 @@ class StatsRepository:
         Returns {batter_id: {phase: {year: {outcome_key: count}}}}.
         NOTE: No live callers found. Used by precompute.py logic only.
         """
-        _repo_log.warning("get_batter_phase_distribution_per_year: no live callers — queries history.deliveries.")
+        _repo_log.warning("get_batter_phase_distribution_per_year: no live callers - queries history.deliveries.")
         if not batter_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
@@ -2781,7 +2781,7 @@ class StatsRepository:
         Returns {player_id: {year: {outcome_key: count}}}.
         NOTE: No live callers found. Used by precompute.py logic only.
         """
-        _repo_log.warning("get_player_venue_distribution_per_year: no live callers — queries history.deliveries.")
+        _repo_log.warning("get_player_venue_distribution_per_year: no live callers - queries history.deliveries.")
         if not player_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
@@ -2817,7 +2817,7 @@ class StatsRepository:
         Returns {player_id: {milestone: {year: {outcome_key: count}}}}.
         NOTE: No live callers found. Used by precompute.py logic only.
         """
-        _repo_log.warning("get_player_milestone_distributions_per_year: no live callers — queries history.deliveries.")
+        _repo_log.warning("get_player_milestone_distributions_per_year: no live callers - queries history.deliveries.")
         if not player_ids or not self.conn:
             return {}
         raw_fmts = self._raw_formats(match_format)
@@ -3026,7 +3026,7 @@ class StatsRepository:
         Returns {(batter_id, bowler_id): (probs_raw, probs_era, ball_count)}.
         Queries batter_bowler_matchups for the requested pairs directly.
         When the table is populated for this format, pairs not present simply have no
-        qualifying head-to-head data — returns empty dict rather than falling back to
+        qualifying head-to-head data - returns empty dict rather than falling back to
         a full deliveries scan.  Only falls back when the table itself is empty
         (i.e. precompute.py hasn't been run yet).
         """
