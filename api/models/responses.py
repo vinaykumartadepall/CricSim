@@ -95,6 +95,18 @@ class BowlerRow(BaseModel):
     dot_balls: int
 
 
+class FallOfWicketRow(BaseModel):
+    batter: str
+    score: int
+    wicket: int
+    over: str                      # e.g. "12.3"
+
+
+class DidNotBatPlayer(BaseModel):
+    name: str
+    role: Optional[str] = None
+
+
 class InningScorecard(BaseModel):
     inning_number: int
     batting_team: str
@@ -109,6 +121,8 @@ class InningScorecard(BaseModel):
     extras_byes: int = 0
     batters: List[BatterRow]
     bowlers: List[BowlerRow]
+    fall_of_wickets: List[FallOfWicketRow] = []
+    did_not_bat: List[DidNotBatPlayer] = []
 
 
 class PotmInfo(BaseModel):
@@ -130,6 +144,7 @@ class ScorecardResponse(BaseModel):
     innings: List[InningScorecard]
     potm: Optional[PotmInfo] = None
     room_id: Optional[str] = None
+    user_team_name: Optional[str] = None
 
 
 # ── /commentary ────────────────────────────────────────────────────────────────

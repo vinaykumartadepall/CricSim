@@ -449,9 +449,10 @@ CREATE INDEX IF NOT EXISTS idx_sim_matches_sim_id
 
 -- Players who participated in a match.
 CREATE TABLE IF NOT EXISTS simulation.match_players (
-    match_id  INT REFERENCES simulation.matches(match_id),
-    team_id   INT REFERENCES simulation.teams(team_id),
-    player_id INT REFERENCES history.players(player_id),
+    match_id          INT REFERENCES simulation.matches(match_id),
+    team_id           INT REFERENCES simulation.teams(team_id),
+    player_id         INT REFERENCES history.players(player_id),
+    batting_position  SMALLINT,
     PRIMARY KEY (match_id, player_id)
 );
 

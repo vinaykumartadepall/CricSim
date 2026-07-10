@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronDown, ChevronUp, Users } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
 import { ShareButton } from '@/components/ui/ShareButton'
 import { api } from '@/api/client'
+import { getClientId } from '@/api/clientId'
 import type { Scorecard, Innings } from '@/types'
 import { captureViewportImage } from '@/lib/shareScreenshot'
 
@@ -344,6 +345,18 @@ function InningsPanel({ inn, defaultOpen, isSuperOver }: { inn: Innings; default
             </table>
           </div>
 
+          {inn.did_not_bat.length > 0 && (
+            <div className="text-sm mb-4" style={{ color: 'var(--text-dim)' }}>
+              <span className="font-semibold" style={{ color: 'var(--text)' }}>Did not bat: </span>
+              {inn.did_not_bat.map((p, i) => (
+                <span key={i}>
+                  {p.name}
+                  {i < inn.did_not_bat.length - 1 ? ', ' : ''}
+                </span>
+              ))}
+            </div>
+          )}
+
           <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-dim)' }}>Bowling</div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[280px]">
@@ -367,6 +380,32 @@ function InningsPanel({ inn, defaultOpen, isSuperOver }: { inn: Innings; default
               </tbody>
             </table>
           </div>
+
+          {inn.fall_of_wickets.length > 0 && (
+            <>
+              <div className="text-xs font-semibold uppercase tracking-wider mb-2 mt-4" style={{ color: 'var(--text-dim)' }}>Fall of Wickets</div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[240px]">
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      {['Batter', 'Score', 'Over'].map(h => (
+                        <th key={h} className="pr-3 py-2 text-left font-medium" style={{ color: 'var(--text-muted)' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inn.fall_of_wickets.map((f, i) => (
+                      <tr key={i} style={{ borderBottom: i < inn.fall_of_wickets.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                        <td className="pr-3 py-2 font-medium" style={{ color: 'var(--text)', whiteSpace: 'nowrap' }}>{f.batter}</td>
+                        <td className="pr-3 py-2" style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{f.score}-{f.wicket}</td>
+                        <td className="pr-3 py-2" style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{f.over}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -887,7 +926,7 @@ export function MatchDetailPage() {
   const location = useLocation()
   const fromTab = ((location.state as Record<string, unknown>)?.fromTab as string) ?? 'matches'
   const backPath = ((location.state as Record<string, unknown>)?.backPath as string) ?? null
-  const userTeam = ((location.state as Record<string, unknown>)?.userTeam as string) ?? null
+  const stateUserTeam = ((location.state as Record<string, unknown>)?.userTeam as string) ?? null
   const [tab, setTab] = useState<Tab>('result')
   const [scorecard, setScorecard] = useState<Scorecard | null>(null)
   const [commentary, setCommentary] = useState<Commentary | null>(null)
@@ -900,8 +939,9 @@ export function MatchDetailPage() {
     if (!simId || mid == null) return
     setLoading(true)
     // Fetch both scorecard and commentary upfront (commentary needed for worm chart)
+    const clientId = getClientId()
     Promise.all([
-      api.getMatchScorecard(simId, mid).catch(() => api.getSimScorecard(simId)),
+      api.getMatchScorecard(simId, mid, clientId).catch(() => api.getSimScorecard(simId, clientId)),
       api.getMatchCommentary(simId, mid).catch(() => api.getSimCommentary(simId)).catch(() => null),
     ]).then(([sc, comm]) => {
       setScorecard(sc as Scorecard)
@@ -925,6 +965,15 @@ export function MatchDetailPage() {
   const hasSuperOver = scorecard.innings.some(i => i.inning_number >= 3) &&
                        commentary?.match_format !== 'Test'
 
+  // Router state (set live at sim_created time, from whoever's display name
+  // was fetching at that exact moment) takes priority - it's what's actually
+  // been working. The server-side lookup by client_id is only a fallback for
+  // when state is genuinely missing (reload/history/direct link), since
+  // client_id itself isn't stable across a login/logout in between playing
+  // and viewing (AuthContext swaps it to the Supabase user id on login) -
+  // so it can't be trusted to always outrank a value captured live.
+  const userTeam = stateUserTeam ?? scorecard.user_team_name ?? null
+
   const { winner, margin, isTied, isNoResult, isDrawn } = parseMatchResult(scorecard.result_description ?? null)
   const isUserMatch = !!userTeam && (
     userTeam.toLowerCase() === scorecard.home_team.toLowerCase() ||
@@ -933,13 +982,17 @@ export function MatchDetailPage() {
   const userWon  = isUserMatch && !!winner && winner.toLowerCase() === userTeam!.toLowerCase()
   const userLost = isUserMatch && !!winner && winner.toLowerCase() !== userTeam!.toLowerCase()
 
+  // Plain bordered look (transparent fill, --border outline, white text) -
+  // just .btn-outline's own default appearance, with a more compact padding
+  // than its class default (10px 24px).
+  const headerButtonStyle: React.CSSProperties = { padding: '6px 10px' }
+
   const inn = (n: number) => scorecard.innings.find(i => i.inning_number === n)
 
-  // Last regular innings idx for default-open panel
-  const mainInnings = hasSuperOver
-    ? scorecard.innings
-    : scorecard.innings.filter(i => i.inning_number <= 2)
-  const lastInnIdx = mainInnings.length - 1
+  // Last innings idx for default-open panel - the actual last innings played
+  // (e.g. innings 4 in a Test, or a super over), not just the 2nd of a
+  // filtered subset.
+  const lastInnIdx = scorecard.innings.length - 1
 
   return (
     <div className="w-full px-1 py-6">
@@ -951,35 +1004,57 @@ export function MatchDetailPage() {
         <ChevronLeft size={14} /> Back
       </button>
 
-      <div className="mb-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-base font-semibold" style={{ color: 'var(--text)' }}>
-            {scorecard.home_team} vs {scorecard.away_team}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {scorecard.room_id && (
-              <button
-                className="btn-outline flex items-center gap-1.5 text-xs"
-                onClick={() => navigate(`/multiplayer/draft/${scorecard.room_id}`)}
-              >
-                <Users size={12} /> Return to Lobby
-              </button>
-            )}
-            {scorecard.result_description && (
-              <ShareButton
-                text={matchShareText({
-                  homeTeam: scorecard.home_team, awayTeam: scorecard.away_team, userTeam,
-                  userWon, userLost, winner, margin, isTied, isNoResult, isDrawn,
-                })}
-                url={window.location.href}
-                buildImage={() => captureViewportImage(`${scorecard.home_team}-vs-${scorecard.away_team}.png`)}
-              />
-            )}
-          </div>
+      {/* Single button (Share only, the common case) always sits inline
+          beside the title, on every screen size - a plain 2-col grid, no
+          breakpoint needed. Both buttons (Return to Lobby + Share, 1v1
+          multiplayer results) reflow instead: a single column on mobile, so
+          grid auto-placement just stacks title/subtitle/buttons in DOM order
+          top to bottom (buttons land below the match/venue line for free);
+          pulled into the same 2-col shape once there's room (md:). Each
+          branch below is a complete, literal class string (not built by
+          concatenating a shared prefix) so Tailwind's build-time scanner can
+          actually find and generate these utilities. */}
+      <div className={scorecard.room_id
+        ? 'mb-4 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-x-3 gap-y-3'
+        : 'mb-4 grid grid-cols-[1fr_auto] gap-x-3 gap-y-3'
+      }>
+        <div
+          className={scorecard.room_id ? 'text-base font-semibold md:col-start-1 md:row-start-1' : 'text-base font-semibold col-start-1 row-start-1'}
+          style={{ color: 'var(--text)' }}
+        >
+          {scorecard.home_team} vs {scorecard.away_team}
         </div>
-        <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+        <div
+          className={scorecard.room_id ? 'text-xs md:col-start-1 md:row-start-2 md:col-span-2' : 'text-xs col-start-1 row-start-2 col-span-2'}
+          style={{ color: 'var(--text-muted)' }}
+        >
           {scorecard.match_label}
           {scorecard.venue ? ` · ${scorecard.venue}${scorecard.venue_country ? `, ${scorecard.venue_country}` : ''}` : ''}
+        </div>
+        <div className={scorecard.room_id
+          ? 'flex items-center gap-2 shrink-0 md:col-start-2 md:row-start-1'
+          : 'flex items-center gap-2 shrink-0 col-start-2 row-start-1'
+        }>
+          {scorecard.room_id && (
+            <button
+              className="btn-outline flex items-center gap-1.5 text-xs"
+              style={headerButtonStyle}
+              onClick={() => navigate(`/multiplayer/draft/${scorecard.room_id}`)}
+            >
+              <Users size={12} /> Return to Lobby
+            </button>
+          )}
+          {scorecard.result_description && (
+            <ShareButton
+              text={matchShareText({
+                homeTeam: scorecard.home_team, awayTeam: scorecard.away_team, userTeam,
+                userWon, userLost, winner, margin, isTied, isNoResult, isDrawn,
+              })}
+              url={window.location.href}
+              buildImage={() => captureViewportImage(`${scorecard.home_team}-vs-${scorecard.away_team}.png`)}
+              style={headerButtonStyle}
+            />
+          )}
         </div>
       </div>
 

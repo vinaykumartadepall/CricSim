@@ -450,7 +450,7 @@ def get_lineups(sim_id: str):
 # ── GET /{sim_id}/scorecard  (match only) ─────────────────────────────────────
 
 @router.get("/{sim_id}/scorecard", response_model=ScorecardResponse)
-def match_scorecard(sim_id: str):
+def match_scorecard(sim_id: str, client_id: Optional[str] = None):
     repo = SimulationRepository()
     try:
         sim = _require_completed(repo, sim_id)
@@ -460,8 +460,13 @@ def match_scorecard(sim_id: str):
             raise HTTPException(status_code=404, detail="No match data")
         match_id = matches[0]['match_id']
         data = get_scorecard(repo.dict_cursor, match_id)
-        session = repo.get_game_session(sim_id)
+        # Per-viewer, not per-sim: game_sessions has one row per participant,
+        # so which team is "mine" (personalized banner/colors/share text) and
+        # the room to return to must be resolved for THIS caller's client_id,
+        # not just whichever row happens to come back first.
+        session = repo.get_game_session(sim_id, client_id=client_id)
         data["room_id"] = session.get("room_id") if session else None
+        data["user_team_name"] = session.get("user_team_name") if session else None
     finally:
         repo.close()
     return ScorecardResponse(**data)
@@ -521,13 +526,20 @@ def tournament_match_result(sim_id: str, match_id: int):
 # ── GET /{sim_id}/matches/{match_id}/scorecard  (tournament) ──────────────────
 
 @router.get("/{sim_id}/matches/{match_id}/scorecard", response_model=ScorecardResponse)
-def tournament_match_scorecard(sim_id: str, match_id: int):
+def tournament_match_scorecard(sim_id: str, match_id: int, client_id: Optional[str] = None):
     repo = SimulationRepository()
     try:
         sim = _require_completed(repo, sim_id)
         _require_type(sim, 'tournament', '/matches/{id}/scorecard')
         _verify_match_belongs(repo, sim_id, match_id)
         data = get_scorecard(repo.dict_cursor, match_id)
+        # Same per-viewer resolution as the 1v1 /scorecard route above - the
+        # tournament's game_sessions row (one per participant) carries this
+        # viewer's own team name and originating room, independent of which
+        # specific match within the tournament is being viewed.
+        session = repo.get_game_session(sim_id, client_id=client_id)
+        data["room_id"] = session.get("room_id") if session else None
+        data["user_team_name"] = session.get("user_team_name") if session else None
     finally:
         repo.close()
     return ScorecardResponse(**data)

@@ -219,6 +219,18 @@ export interface BowlerRow {
   dot_balls?: number
 }
 
+export interface FallOfWicketRow {
+  batter: string
+  score: number
+  wicket: number
+  over: string
+}
+
+export interface DidNotBatPlayer {
+  name: string
+  role: string | null
+}
+
 export interface Innings {
   inning_number: number
   batting_team: string
@@ -233,6 +245,8 @@ export interface Innings {
   extras_byes: number
   batters: BatterRow[]
   bowlers: BowlerRow[]
+  fall_of_wickets: FallOfWicketRow[]
+  did_not_bat: DidNotBatPlayer[]
 }
 
 export interface PotmInfo {
@@ -254,6 +268,7 @@ export interface Scorecard {
   innings: Innings[]
   potm: PotmInfo | null
   room_id?: string | null
+  user_team_name?: string | null
 }
 
 export interface AwardEntry {

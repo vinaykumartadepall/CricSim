@@ -213,6 +213,14 @@ export function SimulatingPage() {
   const [errorMsg, setErrorMsg] = useState('')
   const [progress, setProgress] = useState<Progress | null>(null)
   const [queuePosition, setQueuePosition] = useState<number | null>(null)
+  // A single 1v1 match never gets tournament progress data (see
+  // get_tournament_progress) - simulation_type distinguishes it from a
+  // tournament explicitly instead, so the stadium/progress-ring treatment
+  // (built for the many-match tournament wait) doesn't get shown for what's
+  // actually a ~10-30s single-match wait. Defaults to the plain look until
+  // the first status poll resolves, rather than flashing the heavy
+  // stadium background for a sim that might turn out to be a quick match.
+  const [simType, setSimType] = useState<'match' | 'tournament' | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -233,6 +241,7 @@ export function SimulatingPage() {
           setErrorMsg(s.error || 'Simulation failed')
         } else {
           setStatus(s.status as 'pending' | 'running')
+          setSimType(s.simulation_type === 'tournament' ? 'tournament' : 'match')
           setQueuePosition(s.status === 'pending' ? s.queue_position ?? null : null)
           setProgress(
             s.matches_total
@@ -271,42 +280,46 @@ export function SimulatingPage() {
           focus. The gradient scrim is heavier at top/bottom (title, buttons)
           and lighter through the middle (progress ring, stat cards), so the
           stadium bowl behind the content is felt rather than just covered. */}
-      <div
-        className="fixed inset-0"
-        style={{
-          zIndex: 0,
-          backgroundImage: `url(${simulatingBg})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          transform: 'scale(1.08)',
-        }}
-      />
-      <div
-        className="fixed inset-0"
-        style={{
-          zIndex: 0,
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 50%, rgba(0,0,0,0.85) 100%)',
-        }}
-      />
-      {/* Dust motes, faintly lit as if by the floodlights - subtle enough that
-          the screen feels alive even while progress is between polls. */}
-      <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 0, pointerEvents: 'none' }}>
-        {DUST_PARTICLES.map((p, i) => (
-          <span
-            key={i}
-            className="dust-particle"
+      {simType === 'tournament' && (
+        <>
+          <div
+            className="fixed inset-0"
             style={{
-              left: p.left,
-              width: p.size,
-              height: p.size,
-              animationDuration: `${p.duration}s`,
-              animationDelay: `${p.delay}s`,
-              '--dust-drift-x': `${p.driftX}px`,
-              '--dust-peak-opacity': p.peakOpacity,
-            } as CSSProperties}
+              zIndex: 0,
+              backgroundImage: `url(${simulatingBg})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              transform: 'scale(1.08)',
+            }}
           />
-        ))}
-      </div>
+          <div
+            className="fixed inset-0"
+            style={{
+              zIndex: 0,
+              background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 50%, rgba(0,0,0,0.85) 100%)',
+            }}
+          />
+          {/* Dust motes, faintly lit as if by the floodlights - subtle enough that
+              the screen feels alive even while progress is between polls. */}
+          <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 0, pointerEvents: 'none' }}>
+            {DUST_PARTICLES.map((p, i) => (
+              <span
+                key={i}
+                className="dust-particle"
+                style={{
+                  left: p.left,
+                  width: p.size,
+                  height: p.size,
+                  animationDuration: `${p.duration}s`,
+                  animationDelay: `${p.delay}s`,
+                  '--dust-drift-x': `${p.driftX}px`,
+                  '--dust-peak-opacity': p.peakOpacity,
+                } as CSSProperties}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       {status === 'failed' ? (
         <div className="relative max-w-md mx-auto px-4 py-16 text-center" style={{ zIndex: 1 }}>
@@ -317,7 +330,9 @@ export function SimulatingPage() {
         </div>
       ) : (
         <div className="relative flex flex-col items-center min-h-[calc(100vh-64px)] gap-3 px-4 py-10" style={{ zIndex: 1 }}>
-          <div className="text-base font-medium" style={{ color: 'var(--text)' }}>Simulating tournament…</div>
+          <div className="text-base font-medium" style={{ color: 'var(--text)' }}>
+            {simType === 'tournament' ? 'Simulating tournament…' : 'Simulating match…'}
+          </div>
           <div className="text-xs -mt-2" style={{ color: 'var(--text-dim)' }}>Please wait while the action unfolds</div>
 
           {progress ? (

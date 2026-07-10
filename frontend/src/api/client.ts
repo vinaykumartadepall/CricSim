@@ -103,11 +103,15 @@ export const api = {
   getMatches: (simId: string) =>
     get<MatchItem[]>(`/simulations/${simId}/matches`),
 
-  getSimScorecard: (simId: string) =>
-    get<Scorecard>(`/simulations/${simId}/scorecard`),
+  getSimScorecard: (simId: string, clientId?: string) => {
+    const qs = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''
+    return get<Scorecard>(`/simulations/${simId}/scorecard${qs}`)
+  },
 
-  getMatchScorecard: (simId: string, matchId: number) =>
-    get<Scorecard>(`/simulations/${simId}/matches/${matchId}/scorecard`),
+  getMatchScorecard: (simId: string, matchId: number, clientId?: string) => {
+    const qs = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''
+    return get<Scorecard>(`/simulations/${simId}/matches/${matchId}/scorecard${qs}`)
+  },
 
   getSimCommentary: (simId: string) =>
     get<{ innings: { team: string; balls: { over: number; ball: number; text: string }[] }[] }>(

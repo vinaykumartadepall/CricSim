@@ -371,14 +371,15 @@ class SimulationRepository:
     ):
         """
         Record which players participated in a match on a given team.
-        player_ids must be history.players IDs.
+        player_ids must be history.players IDs, in batting-lineup order (used
+        to reconstruct "did not bat" in lineup order on the scorecard).
         """
-        rows = [(match_id, team_id, pid) for pid in player_ids]
+        rows = [(match_id, team_id, pid, i) for i, pid in enumerate(player_ids)]
         psycopg2.extras.execute_batch(
             self.cur,
             """
-            INSERT INTO simulation.match_players (match_id, team_id, player_id)
-            VALUES (%s, %s, %s)
+            INSERT INTO simulation.match_players (match_id, team_id, player_id, batting_position)
+            VALUES (%s, %s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
             rows,

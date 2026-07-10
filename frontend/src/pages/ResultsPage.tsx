@@ -9,6 +9,7 @@ import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
 import { captureViewportImage } from '@/lib/shareScreenshot'
+import { opaqueTint } from '@/lib/colorTint'
 import type {
   TournamentResult, LeaderboardsDashboard,
   MatchItem,
@@ -17,36 +18,6 @@ import type {
 type Tab = 'standings' | 'leaderboards' | 'matches'
 
 // ── Result banner background ────────────────────────────────────────────────────
-
-// Resolves a hex color or `var(--token)` reference against the live theme.
-function resolveHex(color: string): { r: number; g: number; b: number } | null {
-  const varMatch = color.match(/^var\((--[\w-]+)\)$/)
-  const resolved = varMatch
-    ? getComputedStyle(document.documentElement).getPropertyValue(varMatch[1]).trim()
-    : color
-  const hex = resolved.match(/^#([0-9a-f]{6})$/i)
-  if (!hex) return null
-  const n = parseInt(hex[1], 16)
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
-}
-
-// The banner background used to be a translucent color-mix()/rgba() tint -
-// intentionally, so the page's own dark background shows through rather than
-// a flat, muddy fill (see comment at the theme definition below). But that
-// translucency turned out to render incorrectly (near-opaque white) when
-// captured via html2canvas for the share-screenshot feature, in a way that
-// survived multiple targeted capture-time fixes. Pre-computing the same
-// visual result as a literal opaque color - blended once here in JS against
-// the actual --bg, instead of left for the browser (or any other renderer)
-// to alpha-composite at paint time - produces the identical on-screen look
-// while removing the translucency that any renderer could mishandle.
-function opaqueTint(color: string, percent: number): string {
-  const fg = resolveHex(color) ?? { r: 255, g: 255, b: 255 }
-  const bg = resolveHex('var(--bg)') ?? { r: 8, g: 8, b: 8 }
-  const a = percent / 100
-  const mix = (u: number, o: number) => Math.round(u * (1 - a) + o * a)
-  return `rgb(${mix(bg.r, fg.r)}, ${mix(bg.g, fg.g)}, ${mix(bg.b, fg.b)})`
-}
 
 // ── Share text ────────────────────────────────────────────────────────────────
 
@@ -752,7 +723,7 @@ export function ResultsPage() {
         const placement = result.user_team_placement
         const userTeam = result.user_team_name
 
-        type BannerTheme = { icon: string; headline: string; sub: string; border: string; bg: string; color: string; buttonBg: string }
+        type BannerTheme = { icon: string; headline: string; sub: string; border: string; bg: string; color: string }
         const theme: BannerTheme = (() => {
           // Same medal-ladder colors as SimCard's placement badges: gold/silver/bronze,
           // tinted at low opacity over the real page background (not mixed into
@@ -765,12 +736,12 @@ export function ResultsPage() {
           // background forced at capture time - removing the translucency here,
           // at the source, sidesteps that regardless of the exact cause).
           if (userTeam) {
-            if (placement === 'Winner')    return { icon: '🏆', headline: 'Champions!',             sub: `${userTeam} won the title`,             border: 'var(--score)', bg: opaqueTint('var(--score)', 10), color: 'var(--score)', buttonBg: 'var(--text-dim)' }
-            if (placement === 'Runner-up') return { icon: '💔', headline: 'So close…',              sub: `${userTeam} - Runner-up`,               border: '#C0C0C0',       bg: opaqueTint('#C0C0C0', 10),      color: '#C0C0C0', buttonBg: 'var(--text-dim)' }
-            if (placement === 'Playoffs')  return { icon: '✨', headline: 'You made the Playoffs!', sub: `${userTeam} reached the knockout stage`, border: '#CD7F32',       bg: opaqueTint('#CD7F32', 10),      color: '#CD7F32', buttonBg: 'var(--text-dim)' }
-            return { icon: '😞', headline: 'Did not qualify', sub: `${userTeam} was eliminated in the group stage`, border: 'var(--border)', bg: opaqueTint('#FFFFFF', 6), color: 'var(--text)', buttonBg: 'var(--text-dim)' }
+            if (placement === 'Winner')    return { icon: '🏆', headline: 'Champions!',             sub: `${userTeam} won the title`,             border: 'var(--score)', bg: opaqueTint('var(--score)', 10), color: 'var(--score)' }
+            if (placement === 'Runner-up') return { icon: '💔', headline: 'So close…',              sub: `${userTeam} - Runner-up`,               border: '#C0C0C0',       bg: opaqueTint('#C0C0C0', 10),      color: '#C0C0C0' }
+            if (placement === 'Playoffs')  return { icon: '✨', headline: 'You made the Playoffs!', sub: `${userTeam} reached the knockout stage`, border: '#CD7F32',       bg: opaqueTint('#CD7F32', 10),      color: '#CD7F32' }
+            return { icon: '😞', headline: 'Did not qualify', sub: `${userTeam} was eliminated in the group stage`, border: 'var(--border)', bg: opaqueTint('#FFFFFF', 6), color: 'var(--text)' }
           }
-          return { icon: '🏆', headline: result.winner ? `${result.winner} won the tournament` : 'Tournament complete', sub: '', border: 'var(--score)', bg: opaqueTint('var(--score)', 10), color: 'var(--score)', buttonBg: 'var(--text-dim)' }
+          return { icon: '🏆', headline: result.winner ? `${result.winner} won the tournament` : 'Tournament complete', sub: '', border: 'var(--score)', bg: opaqueTint('var(--score)', 10), color: 'var(--score)' }
         })()
 
         // Secondary info line for multiplayer (when user is a participant)
@@ -791,7 +762,19 @@ export function ResultsPage() {
         // never actually triggered. Nested one level in from the icon so the
         // stacked button row starts at the same x-position as the headline
         // text above it, not the icon.
-        const buttonStyle: React.CSSProperties = { background: theme.buttonBg, padding: '6px 10px' }
+        // A flat neutral-gray fill read as a disabled control regardless of
+        // text brightness - tinting the button with the banner's own accent
+        // (gold/silver/bronze/neutral, same color as theme.border/color)
+        // instead makes each banner's buttons feel branded to it rather than
+        // generic. A dark outer shadow on an already near-black page just
+        // reads as a smear, not lift, so only a faint inward top highlight
+        // is used for sheen.
+        const buttonStyle: React.CSSProperties = {
+          background: opaqueTint(theme.border, 18),
+          padding: '6px 10px',
+          color: theme.color,
+          boxShadow: 'inset 1px 1px 0 rgba(255,255,255,0.07)',
+        }
         return (
           <div className="rounded-xl mb-5 fade-in overflow-hidden"
             style={{ border: `0.1px solid ${theme.border}`, background: theme.bg }}>

@@ -21,7 +21,8 @@ def get_scorecard(cur, match_id: int) -> dict:
         return {}
 
     innings_data = _fetch_innings_deliveries(cur, match_id)
-    innings = [_build_inning_scorecard(inning_num, rows)
+    squads = _fetch_match_squads(cur, match_id)
+    innings = [_build_inning_scorecard(inning_num, rows, squads)
                for inning_num, rows in innings_data.items()]
 
     potm = None
@@ -304,6 +305,7 @@ def _fetch_innings_deliveries(cur, match_id: int) -> Dict[int, list]:
                bowler_p.cricinfo_id                            AS bowler_cricinfo_id,
                d.runs_batter, d.runs_extras,
                d.outcome_type, d.outcome_kind,
+               d.batting_team_id, d.bowling_team_id,
                bat_t.name AS batting_team_name,
                bowl_t.name AS bowling_team_name,
                d.is_free_hit
@@ -325,7 +327,31 @@ def _fetch_innings_deliveries(cur, match_id: int) -> Dict[int, list]:
     return innings
 
 
-def _build_inning_scorecard(inning_num: int, rows: list) -> dict:
+def _fetch_match_squads(cur, match_id: int) -> Dict[int, list]:
+    """Return {team_id: [{'player_id', 'name', 'role'}, ...]} in batting-lineup
+    order, for computing "did not bat" (squad minus who actually batted)."""
+    cur.execute(
+        """
+        SELECT mp.team_id, mp.player_id, mp.batting_position,
+               COALESCE(p.display_name, p.name) AS name, p.player_role
+        FROM   simulation.match_players mp
+        JOIN   history.players p ON p.player_id = mp.player_id
+        WHERE  mp.match_id = %s
+        ORDER  BY mp.team_id, mp.batting_position NULLS LAST, mp.player_id
+        """,
+        (match_id,),
+    )
+    squads: Dict[int, list] = {}
+    for row in cur.fetchall():
+        squads.setdefault(row['team_id'], []).append({
+            'player_id': row['player_id'],
+            'name':      row['name'],
+            'role':      row['player_role'],
+        })
+    return squads
+
+
+def _build_inning_scorecard(inning_num: int, rows: list, squads: Dict[int, list]) -> dict:
     if not rows:
         return {}
 
@@ -351,6 +377,11 @@ def _build_inning_scorecard(inning_num: int, rows: list) -> dict:
     _ensure_batter(rows[0]['batter_id'],      rows[0]['batter_name'],     rows[0]['batter_cricinfo_id'])
     _ensure_batter(rows[0]['non_striker_id'], rows[0]['non_striker_name'], None)
 
+    # ── Fall of wickets ──────────────────────────────────────────────────────────
+    fall_of_wickets: list = []
+    running_runs  = 0
+    running_wkts  = 0
+
     for row in rows:
         bid = row['batter_id']
         _ensure_batter(bid, row['batter_name'], row['batter_cricinfo_id'])
@@ -367,6 +398,16 @@ def _build_inning_scorecard(inning_num: int, rows: list) -> dict:
                 b['dismissal'] = _dismissal_text(
                     row['outcome_kind'], row['bowler_name'], row['outcome_player_name']
                 )
+
+        running_runs += row['runs_batter'] + row['runs_extras']
+        if row['outcome_type'] == 'Wicket':
+            running_wkts += 1
+            fall_of_wickets.append({
+                'batter': row['batter_name'] or 'Unknown',
+                'score':  running_runs,
+                'wicket': running_wkts,
+                'over':   f"{row['over_number']}.{row['ball_number']}",
+            })
 
     # ── Bowling ────────────────────────────────────────────────────────────────
     bowler_order: list = []
@@ -431,6 +472,15 @@ def _build_inning_scorecard(inning_num: int, rows: list) -> dict:
             'dot_balls':  bw['dots'],
         })
 
+    # ── Did not bat ──────────────────────────────────────────────────────────────
+    batting_team_id = rows[0]['batting_team_id']
+    batted_ids      = set(batter_order)
+    did_not_bat = [
+        {'name': p['name'], 'role': p['role']}
+        for p in squads.get(batting_team_id, [])
+        if p['player_id'] not in batted_ids
+    ]
+
     return {
         'inning_number':   inning_num,
         'batting_team':    batting_team,
@@ -441,6 +491,8 @@ def _build_inning_scorecard(inning_num: int, rows: list) -> dict:
         'extras':          extras,
         'extras_wides':    extras_wides,
         'extras_nb':       extras_nb,
+        'fall_of_wickets': fall_of_wickets,
+        'did_not_bat':     did_not_bat,
         'extras_lb':       extras_lb,
         'extras_byes':     extras_byes,
         'batters':         batter_rows,
