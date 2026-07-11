@@ -312,6 +312,8 @@ def get_result(sim_id: str, client_id: Optional[str] = None):
             mode                 = t_data.get('mode'),
             source_tournament_id = t_data.get('source_tournament_id'),
             user_team_id         = t_data.get('user_team_id'),
+            swaps                = t_data.get('swaps') or [],
+            room_id              = t_data.get('room_id'),
         )
     finally:
         repo.close()

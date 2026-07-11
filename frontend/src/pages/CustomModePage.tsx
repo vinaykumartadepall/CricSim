@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Search, ArrowUp, ArrowDown, X } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
@@ -382,6 +382,7 @@ function PickPanel({
 
 export function CustomModePage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { clientId } = useAuth()
   const { openHelp } = useHelp()
 
@@ -404,6 +405,60 @@ export function CustomModePage() {
 
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
+
+  // Keeps the URL as the durable record of "where am I" (tournament + team +
+  // step) so reload/back/forward/history land back in the right place instead
+  // of resetting to step 1. The squad itself (11 in-progress picks) is
+  // deliberately NOT restored this way - same reasoning as swaps in Fun/
+  // Challenge Mode: it's frequently-mutated, fiddly to serialize, and not
+  // worth the URL noise. Reloading mid-draft restores the right team, with an
+  // empty XI to re-pick, rather than resetting all the way to step 1.
+  function updateUrlParams(patch: Record<string, string | undefined>) {
+    const next = new URLSearchParams(searchParams)
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) next.delete(k)
+      else next.set(k, v)
+    }
+    setSearchParams(next, { replace: true })
+  }
+
+  function goToStep(newStep: Step, extra?: Record<string, string | undefined>) {
+    setStep(newStep)
+    updateUrlParams({ step: newStep, ...extra })
+  }
+
+  // URL-driven restore on mount - Custom Mode has no retrySimId/try-again flow
+  // (there's nothing to trade), so this is the only restoration path.
+  useEffect(() => {
+    const urlTournamentId = searchParams.get('tournament_id')
+    if (!urlTournamentId) return
+    const tid = Number(urlTournamentId)
+    const urlTeamId = searchParams.get('team_id')
+    api.getTournaments().then(all => {
+      const t = all.find(x => x.tournament_id === tid)
+      if (!t) return
+      setTournamentName(t.name)
+      setSelectedSeason(t)
+      setLoadingTeams(true)
+      return api.getTournamentSquads(tid)
+        .then(data => {
+          const teams = data.teams || []
+          setAllTeams(teams)
+          const team = urlTeamId ? teams.find(tm => tm.team_id === Number(urlTeamId)) ?? null : null
+          if (team) {
+            // Always land on 'draft', never 'confirm' - the squad itself isn't
+            // restorable, so 'confirm' would show a broken empty-XI state.
+            setSelectedTeam(team)
+            setStep('draft')
+          } else {
+            setStep('team')
+          }
+        })
+        .catch(() => setAllTeams([]))
+        .finally(() => setLoadingTeams(false))
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const stepIndex = STEPS.indexOf(step)
   const pickedCount = squad.filter(Boolean).length
@@ -463,6 +518,7 @@ export function CustomModePage() {
     setSeasons((grouped[name] || []).sort((a, b) => b.season.localeCompare(a.season)))
     setSelectedSeason(null)
     setStep('season')
+    updateUrlParams({ tournament_id: undefined, team_id: undefined, step: 'season' })
   }
 
   function selectSeason(t: Tournament) {
@@ -476,12 +532,14 @@ export function CustomModePage() {
       .catch(() => setAllTeams([]))
       .finally(() => setLoadingTeams(false))
     setStep('team')
+    updateUrlParams({ tournament_id: String(t.tournament_id), team_id: undefined, step: 'team' })
   }
 
   function selectTeam(team: Team) {
     setSelectedTeam(team)
     setSquad(Array(11).fill(null))
     setStep('draft')
+    updateUrlParams({ team_id: String(team.team_id), step: 'draft' })
   }
 
   const pickPlayer = useCallback((player: Player) => {
@@ -548,7 +606,7 @@ export function CustomModePage() {
             style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
             <div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setStep('team')} style={{ color: 'var(--text-dim)', lineHeight: 0 }}>
+                <button onClick={() => goToStep('team')} style={{ color: 'var(--text-dim)', lineHeight: 0 }}>
                   <ChevronLeft size={16} />
                 </button>
                 <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
@@ -613,7 +671,7 @@ export function CustomModePage() {
                   </div>
                 )}
                 <button
-                  onClick={() => setStep('confirm')}
+                  onClick={() => goToStep('confirm')}
                   disabled={!hasKeeper || overseasExceeded}
                   className="w-full py-3 rounded-xl font-semibold text-sm transition-all"
                   style={{ background: 'var(--accent)', color: 'var(--bg)', opacity: (!hasKeeper || overseasExceeded) ? 0.45 : 1, cursor: (!hasKeeper || overseasExceeded) ? 'not-allowed' : undefined }}
@@ -705,7 +763,7 @@ export function CustomModePage() {
       {/* Step: Season */}
       {step === 'season' && (
         <div className="fade-in">
-          <BackButton onClick={() => setStep('tournament')} />
+          <BackButton onClick={() => goToStep('tournament')} />
           <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>{tournamentName}</div>
           <div className="text-sm mb-5" style={{ color: 'var(--text-muted)' }}>Select a season</div>
           <div className="flex flex-col gap-2">
@@ -725,7 +783,7 @@ export function CustomModePage() {
       {/* Step: Team */}
       {step === 'team' && (
         <div className="fade-in">
-          <BackButton onClick={() => setStep('season')} />
+          <BackButton onClick={() => goToStep('season')} />
           <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>
             {tournamentName} {selectedSeason?.season}
           </div>
@@ -752,7 +810,7 @@ export function CustomModePage() {
       {/* Step: Confirm */}
       {step === 'confirm' && selectedTeam && (
         <div className="fade-in">
-          <BackButton onClick={() => setStep('draft')} />
+          <BackButton onClick={() => goToStep('draft')} />
           <div className="text-xl font-semibold mb-5" style={{ color: 'var(--text)' }}>Ready to simulate</div>
 
           <div className="card p-5 mb-4 space-y-3">

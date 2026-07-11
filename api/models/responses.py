@@ -71,6 +71,8 @@ class TournamentResultResponse(BaseModel):
     mode: Optional[str] = None
     source_tournament_id: Optional[int] = None
     user_team_id: Optional[int] = None
+    swaps: List[dict] = []
+    room_id: Optional[str] = None
 
 
 # ── /scorecard ─────────────────────────────────────────────────────────────────

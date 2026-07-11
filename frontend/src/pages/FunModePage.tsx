@@ -39,7 +39,7 @@ const FUN_STEP_SLIDE: Partial<Record<Step, number>> = {
 
 export function FunModePage() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const retrySimId = searchParams.get('retrySimId')
   const { clientId } = useAuth()
   const { openHelp } = useHelp()
@@ -74,6 +74,48 @@ export function FunModePage() {
       .catch(() => {/* non-critical */})
   }, [clientId])
 
+  // Keeps the URL as the durable record of "where am I" (season + team + step)
+  // so reload/back/forward/history land back in the right place instead of
+  // resetting to step 1 - the same recurring bug class as retrySimId/room_id
+  // elsewhere in the app. Swaps are deliberately NOT included here (kept out
+  // of the URL by design) - retrySimId remains the durable path for those,
+  // since they only exist once a sim has actually been run.
+  function updateUrlParams(patch: Record<string, string | undefined>) {
+    const next = new URLSearchParams(searchParams)
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) next.delete(k)
+      else next.set(k, v)
+    }
+    setSearchParams(next, { replace: true })
+  }
+
+  function goToStep(newStep: Step, extra?: Record<string, string | undefined>) {
+    setStep(newStep)
+    updateUrlParams({ step: newStep, ...extra })
+  }
+
+  // Shared by selectSeason(), the retry flow, and the URL-restore effect below
+  // - previously the retry flow fetched squads on its own without this, so
+  // teamBest never got populated and going back to the team step after a
+  // retry showed no "best result" badges for any team, even with real history.
+  function loadSeasonData(tournamentId: number): Promise<Team[]> {
+    setLoadingTeams(true)
+    setAllTeams([])
+    setTeamBest(new Map())
+    return Promise.all([
+      api.getTournamentSquads(tournamentId),
+      api.getSimHistoryBest(clientId, tournamentId, 'fun').catch(() => [] as SimHistoryTeamBest[]),
+    ]).then(([squadsData, bestData]) => {
+      const teams = squadsData.teams || []
+      setAllTeams(teams)
+      setTeamBest(new Map(bestData.map(r => [r.team_name, r])))
+      return teams
+    }).catch(() => {
+      setAllTeams([])
+      return [] as Team[]
+    }).finally(() => setLoadingTeams(false))
+  }
+
   // Try-again resume flow - driven by a URL query param (?retrySimId=) and a
   // fresh fetch of that session, rather than router state carried in memory,
   // so this also works when landing here from a historical sim (My
@@ -91,11 +133,8 @@ export function FunModePage() {
           season: result.season ?? '',
           team_count: 0, gender: '',
         })
-        setLoadingTeams(true)
-        return api.getTournamentSquads(result.source_tournament_id)
-          .then(data => {
-            const teams = data.teams || []
-            setAllTeams(teams)
+        return loadSeasonData(result.source_tournament_id)
+          .then(teams => {
             const team = result.user_team_name
               ? teams.find((t: any) => t.team_name === result.user_team_name) ?? null
               : null
@@ -104,13 +143,47 @@ export function FunModePage() {
               setBattingOrder(team.players.map((p: any) => p.player_id))
               setSwaps(result.swaps ?? [])
               setStep('squad')
+              updateUrlParams({ tournament_id: String(result.source_tournament_id), team_id: String(team.team_id), step: 'squad' })
             } else {
               setStep('team')
+              updateUrlParams({ tournament_id: String(result.source_tournament_id), team_id: undefined, step: 'team' })
             }
           })
-          .finally(() => setLoadingTeams(false))
       })
       .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // URL-driven restore for a fresh (not-yet-simulated) build - covers the case
+  // retrySimId doesn't: reloading or navigating back mid-build, before any sim
+  // has ever been created. Only fires when retrySimId isn't in play, since
+  // that flow is authoritative (it also restores swaps, which this can't).
+  useEffect(() => {
+    if (retrySimId) return
+    const urlTournamentId = searchParams.get('tournament_id')
+    if (!urlTournamentId) return
+    const tid = Number(urlTournamentId)
+    const urlTeamId = searchParams.get('team_id')
+    const urlStep = searchParams.get('step')
+    api.getTournaments().then(all => {
+      const t = all.find(x => x.tournament_id === tid)
+      if (!t) return
+      setTournamentName(t.name)
+      setSelectedSeason(t)
+      return loadSeasonData(tid).then(teams => {
+        const team = urlTeamId ? teams.find(tm => tm.team_id === Number(urlTeamId)) ?? null : null
+        if (team) {
+          setSelectedTeam(team)
+          setBattingOrder(team.players.map(p => p.player_id))
+        }
+        // Honor step=confirm even with no team (the "no preference" skipTeam
+        // path) - only fall back to 'team' when there's not enough restored
+        // context for either 'squad' or 'confirm' to make sense.
+        if (urlStep === 'confirm') setStep('confirm')
+        else if (team) setStep('squad')
+        else setStep('team')
+      })
+    }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -122,13 +195,14 @@ export function FunModePage() {
       .finally(() => setLoadingTournaments(false))
   }, [search])
 
-  // The try-again resume flow above jumps straight to 'team'/'squad' without going
-  // through selectTournamentName(), so `seasons` is never populated - backing up
-  // to the season step then shows an empty list. Fill it in once tournaments load,
-  // but only if nothing has set it yet (normal selectTournamentName() calls always
-  // take precedence once the user actually interacts with the flow).
+  // Neither the retry flow nor the URL-restore effect above go through
+  // selectTournamentName(), so `seasons` (the season-step's own list) is never
+  // populated by either shortcut - backing up to the season step would show
+  // an empty list. Fill it in once tournaments load, but only if nothing has
+  // set it yet (normal selectTournamentName() calls always take precedence
+  // once the user actually interacts with the flow).
   useEffect(() => {
-    if (!retrySimId || !tournamentName || seasons.length > 0 || tournaments.length === 0) return
+    if (!tournamentName || seasons.length > 0 || tournaments.length === 0) return
     const nameSeasons = tournaments
       .filter(t => t.name === tournamentName)
       .sort((a, b) => b.season.localeCompare(a.season))
@@ -150,6 +224,8 @@ export function FunModePage() {
     setSelectedSeason(null)
     setSeasonCounts(new Map())
     setStep('season')
+    // A different tournament name invalidates any previously-selected season/team.
+    updateUrlParams({ tournament_id: undefined, team_id: undefined, step: 'season' })
 
     // Fetch season-level counts using IDs from the already-known nameCounts
     const nameRow = nameCounts.get(name)
@@ -163,24 +239,11 @@ export function FunModePage() {
 
   function selectSeason(t: Tournament) {
     setSelectedSeason(t)
-    setLoadingTeams(true)
-    setAllTeams([])
-    setTeamBest(new Map())
-
-    // Fetch squads and best results in parallel
-    Promise.all([
-      api.getTournamentSquads(t.tournament_id),
-      api.getSimHistoryBest(clientId, t.tournament_id, 'fun').catch(() => [] as SimHistoryTeamBest[]),
-    ]).then(([squadsData, bestData]) => {
-      setAllTeams(squadsData.teams || [])
-      setTeamBest(new Map(bestData.map(r => [r.team_name, r])))
-    }).catch(() => {
-      setAllTeams([])
-    }).finally(() => setLoadingTeams(false))
-
     setSelectedTeam(null)
     setSwaps([])
     setStep('team')
+    updateUrlParams({ tournament_id: String(t.tournament_id), team_id: undefined, step: 'team' })
+    loadSeasonData(t.tournament_id)
   }
 
   function selectTeam(team: Team) {
@@ -188,12 +251,14 @@ export function FunModePage() {
     setSwaps([])
     setBattingOrder(team.players.map(p => p.player_id))
     setStep('squad')
+    updateUrlParams({ team_id: String(team.team_id), step: 'squad' })
   }
 
   function skipTeam() {
     setSelectedTeam(null)
     setSwaps([])
     setStep('confirm')
+    updateUrlParams({ team_id: undefined, step: 'confirm' })
   }
 
   async function runSim() {
@@ -365,7 +430,7 @@ export function FunModePage() {
       {/* Step: Season */}
       {step === 'season' && (
         <div className="fade-in">
-          <BackButton onClick={() => setStep('tournament')} />
+          <BackButton onClick={() => goToStep('tournament')} />
           <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>{tournamentName}</div>
           <div className="text-sm mb-5" style={{ color: 'var(--text-muted)' }}>Select a season</div>
           <div className="flex flex-col gap-2">
@@ -403,7 +468,7 @@ export function FunModePage() {
       {/* Step: Team */}
       {step === 'team' && (
         <div className="fade-in">
-          <BackButton onClick={() => setStep('season')} />
+          <BackButton onClick={() => goToStep('season')} />
           <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>
             {tournamentName} {selectedSeason?.season}
           </div>
@@ -452,7 +517,7 @@ export function FunModePage() {
       {/* Step: Squad editor */}
       {step === 'squad' && selectedTeam && (
         <div className="fade-in">
-          <BackButton onClick={() => setStep('team')} />
+          <BackButton onClick={() => goToStep('team')} />
           <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>
             Edit your squad
           </div>
@@ -484,7 +549,7 @@ export function FunModePage() {
           <div className="mt-4 sticky bottom-0 -mx-4 px-4 py-3 flex flex-col gap-2" style={{ background: 'var(--bg)', borderTop: '1px solid var(--border)' }}>
             <button
               className="btn-accent w-full py-3 text-base"
-              onClick={() => setStep('confirm')}
+              onClick={() => goToStep('confirm')}
               disabled={!hasKeeper || !overseasValid}
               style={{ opacity: (!hasKeeper || !overseasValid) ? 0.45 : 1, cursor: (!hasKeeper || !overseasValid) ? 'not-allowed' : undefined }}
             >
@@ -497,7 +562,7 @@ export function FunModePage() {
       {/* Step: Confirm */}
       {step === 'confirm' && (
         <div className="fade-in">
-          <BackButton onClick={() => setStep(selectedTeam ? 'squad' : 'team')} />
+          <BackButton onClick={() => goToStep(selectedTeam ? 'squad' : 'team')} />
           <div className="text-xl font-semibold mb-5" style={{ color: 'var(--text)' }}>Ready to simulate</div>
 
           <div className="card p-5 mb-6 space-y-3">

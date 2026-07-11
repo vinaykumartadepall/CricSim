@@ -56,7 +56,7 @@ const CHALLENGE_STEP_SLIDE: Partial<Record<Step, number>> = {
 
 export function ChallengeModePage() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const retrySimId = searchParams.get('retrySimId')
   const { openHelp } = useHelp()
   const [step, setStep] = useState<Step>('pick_tournament')
@@ -90,6 +90,79 @@ export function ChallengeModePage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
 
+  // Keeps the URL as the durable record of "where am I" (tournament + team +
+  // step) so reload/back/forward/history land back in the right place instead
+  // of resetting to step 1. Swaps deliberately excluded (kept out of the URL
+  // by design) - retrySimId remains the durable path for those, since they
+  // only exist once a sim has actually been run.
+  function updateUrlParams(patch: Record<string, string | undefined>) {
+    const next = new URLSearchParams(searchParams)
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) next.delete(k)
+      else next.set(k, v)
+    }
+    setSearchParams(next, { replace: true })
+  }
+
+  function goToStep(newStep: Step, extra?: Record<string, string | undefined>) {
+    setStep(newStep)
+    updateUrlParams({ step: newStep, ...extra })
+  }
+
+  // Shared by pickName(), the retry flow, and the URL-restore effect below -
+  // previously the retry flow fetched underdogs on its own without fetching
+  // teamBest, so going back to the pick_team_season step after a retry showed
+  // no "best result" line for any entry, even with real history.
+  function loadUnderdogs(name: string): Promise<UnderdogEntry[]> {
+    setLoadingUnderdogs(true)
+    setUnderdogError('')
+    setTeamBest(new Map())
+    return api.getUnderdogs(name)
+      .then(data => {
+        setUnderdogs(data)
+        if (data.length === 0) {
+          setUnderdogError('No underdog teams found - all teams win > 33% of matches in every season')
+          return data
+        }
+        const uniqueTids = [...new Set(data.map(e => e.tournament_id))]
+        return Promise.all(
+          uniqueTids.map(tid =>
+            api.getSimHistoryBest(clientId, tid, 'challenge')
+              .then(rows => rows.map(r => ({ ...r, tournament_id: tid })))
+              .catch(() => [] as (SimHistoryTeamBest & { tournament_id: number })[])
+          )
+        ).then(results => {
+          const map = new Map<string, SimHistoryTeamBest>()
+          results.flat().forEach(r => map.set(`${r.team_name}-${r.tournament_id}`, r))
+          setTeamBest(map)
+          return data
+        })
+      })
+      .catch(() => {
+        setUnderdogError('Failed to load teams')
+        return [] as UnderdogEntry[]
+      })
+      .finally(() => setLoadingUnderdogs(false))
+  }
+
+  // Shared by pickEntry() and the URL-restore effect below.
+  function loadTeamForTournament(tournamentId: number, teamId: number | null): Promise<Team | null> {
+    setLoadingSquad(true)
+    return api.getTournamentSquads(tournamentId)
+      .then(data => {
+        const teams = data.teams || []
+        setAllTeams(teams)
+        const team = teamId ? teams.find(t => t.team_id === teamId) ?? null : null
+        if (team) {
+          setSelectedTeam(team)
+          setBattingOrder(team.players.map(p => p.player_id))
+        }
+        return team
+      })
+      .catch(() => null)
+      .finally(() => setLoadingSquad(false))
+  }
+
   // Try-again resume flow - driven by a URL query param (?retrySimId=) and a
   // fresh fetch of that session, rather than router state carried in memory,
   // so this also works when landing here from a historical sim (My
@@ -108,43 +181,48 @@ export function ChallengeModePage() {
           season: result.season ?? '',
           wins: 0, total_matches: 0, win_pct: 0,
         })
-        setLoadingSquad(true)
-        return api.getTournamentSquads(result.source_tournament_id)
-          .then(data => {
-            const teams = data.teams || []
-            setAllTeams(teams)
-            const team = teams.find((t: any) => t.team_name === result.user_team_name) ?? null
+        loadUnderdogs(result.tournament_name ?? '')
+        return loadTeamForTournament(result.source_tournament_id, result.user_team_id ?? null)
+          .then(team => {
             if (team) {
-              setSelectedTeam(team)
-              setBattingOrder(team.players.map((p: any) => p.player_id))
               setSwaps(result.swaps ?? [])
               setStep('squad')
+              updateUrlParams({ tournament_id: String(result.source_tournament_id), team_id: String(team.team_id), step: 'squad' })
             }
           })
-          .finally(() => setLoadingSquad(false))
       })
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // The resume flow above jumps straight to 'squad' without going through
-  // pickName(), so `underdogs` is never populated - backing up to the
-  // pick_team_season step then shows an empty list. Fill it in the same way
-  // pickName() would, but only if nothing has set it yet.
+  // URL-driven restore for a fresh (not-yet-simulated) build - covers the case
+  // retrySimId doesn't: reloading or navigating back mid-build, before any sim
+  // has ever been created. Only fires when retrySimId isn't in play, since
+  // that flow is authoritative (it also restores swaps, which this can't).
   useEffect(() => {
-    if (!retrySimId || !selectedName || underdogs.length > 0) return
-    setLoadingUnderdogs(true)
-    api.getUnderdogs(selectedName)
-      .then(data => {
-        setUnderdogs(data)
-        if (data.length === 0) {
-          setUnderdogError('No underdog teams found - all teams win > 33% of matches in every season')
-        }
+    if (retrySimId) return
+    const urlTournamentId = searchParams.get('tournament_id')
+    const urlTeamId = searchParams.get('team_id')
+    if (!urlTournamentId || !urlTeamId) return
+    const tid = Number(urlTournamentId)
+    const teamId = Number(urlTeamId)
+    const urlStep = searchParams.get('step')
+    api.getTournaments().then(all => {
+      const t = all.find(x => x.tournament_id === tid)
+      if (!t) return
+      setSelectedName(t.name)
+      loadUnderdogs(t.name)
+      return loadTeamForTournament(tid, teamId).then(team => {
+        if (!team) return
+        setSelectedEntry({
+          tournament_id: tid, team_id: team.team_id, team_name: team.team_name,
+          season: t.season, wins: 0, total_matches: 0, win_pct: 0,
+        })
+        setStep(urlStep === 'confirm' ? 'confirm' : 'squad')
       })
-      .catch(() => setUnderdogError('Failed to load teams'))
-      .finally(() => setLoadingUnderdogs(false))
+    }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedName])
+  }, [])
 
   useEffect(() => {
     setLoadingTournaments(true)
@@ -174,50 +252,25 @@ export function ChallengeModePage() {
     setAllTeams([])
     setSelectedTeam(null)
     setSwaps([])
-    setUnderdogError('')
-    setTeamBest(new Map())
-    setLoadingUnderdogs(true)
-    api.getUnderdogs(name)
-      .then(data => {
-        setUnderdogs(data)
-        if (data.length === 0) {
-          setUnderdogError('No underdog teams found - all teams win > 33% of matches in every season')
-          return
-        }
-        const uniqueTids = [...new Set(data.map(e => e.tournament_id))]
-        Promise.all(
-          uniqueTids.map(tid =>
-            api.getSimHistoryBest(clientId, tid, 'challenge')
-              .then(rows => rows.map(r => ({ ...r, tournament_id: tid })))
-              .catch(() => [] as (SimHistoryTeamBest & { tournament_id: number })[])
-          )
-        ).then(results => {
-          const map = new Map<string, SimHistoryTeamBest>()
-          results.flat().forEach(r => map.set(`${r.team_name}-${r.tournament_id}`, r))
-          setTeamBest(map)
-        })
-      })
-      .catch(() => setUnderdogError('Failed to load teams'))
-      .finally(() => setLoadingUnderdogs(false))
     setStep('pick_team_season')
+    updateUrlParams({ tournament_id: undefined, team_id: undefined, step: 'pick_team_season' })
+    loadUnderdogs(name)
   }
 
   function pickEntry(entry: UnderdogEntry) {
     setSelectedEntry(entry)
     setSwaps([])
     setSelectedTeam(null)
-    setLoadingSquad(true)
-    api.getTournamentSquads(entry.tournament_id)
-      .then(data => {
-        const teams = data.teams || []
-        setAllTeams(teams)
-        const team = teams.find(t => t.team_id === entry.team_id)
-        setSelectedTeam(team || { team_id: entry.team_id, team_name: entry.team_name, players: [] })
-        setBattingOrder(team ? team.players.map(p => p.player_id) : [])
-      })
-      .catch(() => setSelectedTeam({ team_id: entry.team_id, team_name: entry.team_name, players: [] }))
-      .finally(() => setLoadingSquad(false))
     setStep('squad')
+    updateUrlParams({ tournament_id: String(entry.tournament_id), team_id: String(entry.team_id), step: 'squad' })
+    loadTeamForTournament(entry.tournament_id, entry.team_id).then(team => {
+      if (!team) {
+        // Squad fetch failed or team not found in the tournament's squads -
+        // still show a placeholder rather than dead-ending the step.
+        setSelectedTeam({ team_id: entry.team_id, team_name: entry.team_name, players: [] })
+        setBattingOrder([])
+      }
+    })
   }
 
   async function runSim() {
@@ -400,7 +453,7 @@ export function ChallengeModePage() {
       {/* Step 2: Pick underdog team+season */}
       {step === 'pick_team_season' && (
         <div className="fade-in">
-          <BackButton onClick={() => setStep('pick_tournament')} />
+          <BackButton onClick={() => goToStep('pick_tournament')} />
           <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>
             Pick your underdog
           </div>
@@ -468,7 +521,7 @@ export function ChallengeModePage() {
       {/* Step 3: Squad editor */}
       {step === 'squad' && selectedEntry && (
         <div className="fade-in">
-          <BackButton onClick={() => setStep('pick_team_season')} />
+          <BackButton onClick={() => goToStep('pick_team_season')} />
           <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>Edit your squad</div>
           <div className="text-sm mb-5" style={{ color: 'var(--text-muted)' }}>
             {selectedName} {selectedEntry.season} · {selectedEntry.team_name}
@@ -512,7 +565,7 @@ export function ChallengeModePage() {
                 <button
                   className="btn-accent w-full py-3 text-base"
                   style={{ background: (!hasKeeper || !overseasValid) ? undefined : 'var(--score)', color: 'var(--bg)', opacity: (!hasKeeper || !overseasValid) ? 0.45 : 1, cursor: (!hasKeeper || !overseasValid) ? 'not-allowed' : undefined }}
-                  onClick={() => setStep('confirm')}
+                  onClick={() => goToStep('confirm')}
                   disabled={!hasKeeper || !overseasValid}
                 >
                   Continue →
@@ -526,7 +579,7 @@ export function ChallengeModePage() {
       {/* Step 4: Confirm */}
       {step === 'confirm' && selectedEntry && selectedTeam && (
         <div className="fade-in">
-          <BackButton onClick={() => setStep('squad')} />
+          <BackButton onClick={() => goToStep('squad')} />
           <div className="text-xl font-semibold mb-5" style={{ color: 'var(--text)' }}>Ready to simulate</div>
 
           <div className="card p-5 mb-4 space-y-3">

@@ -11,13 +11,12 @@ Each job:
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict
 
 from db.simulation_repository import SimulationRepository
 from db.stats_repository import StatsRepository
 from simulator.admin_settings import get_admin_settings
-from simulator.logger import log_context
+from simulator.logger import get_logger, log_context
 from simulator.match_runner import MatchRunner
 from simulator.predictors.factory import FORMAT_SETTINGS, resolve_venue
 from simulator.awards import MatchAwards
@@ -25,7 +24,14 @@ from simulator.tournament.config import TournamentConfig
 from simulator.tournament.engine import TournamentEngine
 from simulator.tournament.scheduler import generate_fixtures
 
-logger = logging.getLogger(__name__)
+# logging.getLogger(__name__) ("api.worker") is a different branch of the
+# logging hierarchy than get_logger()'s "cricket_sim" - the app's file
+# handlers (logs/simulation.log, logs/errors.log) and [sim_id/mN] context
+# tagging are only attached to "cricket_sim". Using the stdlib logger here
+# meant every logger.exception(...) in this file silently went to Python's
+# lastResort stderr handler instead of anywhere durable - including the
+# exception that explains why a job actually failed.
+logger = get_logger()
 
 # Process-level progress tracker for in-flight tournament jobs, keyed by sim_id.
 # In-memory only (see api/main.py's _memory_monitor / _PRECOMPUTED_CACHE for the
