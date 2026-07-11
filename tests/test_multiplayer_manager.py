@@ -188,3 +188,45 @@ class TestBattingOrderReservedGaps:
         with pytest.raises(ValueError, match="Not a member"):
             manager.reorder_squad(room, "ghost", [None] * SQUAD_SIZE)
         assert room.status == "drafting"
+
+
+class TestJoinRoomNameDedup:
+    """Display names double as team names, and the sim/persistence/frontend
+    pipeline identifies teams by name - two identical names crashed the Test
+    engine (prod sim 3a974ea4) and silently corrupted team attribution in
+    other formats. join_room suffixes collisions instead."""
+
+    def _manager_with_room(self, player_count=4):
+        manager = DraftManager()
+        room = manager.create_room(
+            host_id="host", display_name="Vinay", mode="tournament",
+            tournament_name="Test Cup", player_count=player_count,
+        )
+        return manager, room
+
+    def test_duplicate_name_gets_suffixed(self):
+        manager, room = self._manager_with_room()
+        manager.join_room(room.room_id, "p1", "Vinay")
+
+        assert room.members["p1"].display_name == "Vinay (2)"
+
+    def test_third_duplicate_increments_suffix(self):
+        manager, room = self._manager_with_room()
+        manager.join_room(room.room_id, "p1", "Vinay")
+        manager.join_room(room.room_id, "p2", "Vinay")
+
+        assert room.members["p2"].display_name == "Vinay (3)"
+
+    def test_unique_name_unchanged(self):
+        manager, room = self._manager_with_room()
+        manager.join_room(room.room_id, "p1", "Rohit")
+
+        assert room.members["p1"].display_name == "Rohit"
+
+    def test_rejoin_same_client_does_not_resuffix(self):
+        manager, room = self._manager_with_room()
+        manager.join_room(room.room_id, "p1", "Vinay")
+        manager.join_room(room.room_id, "p1", "Vinay")  # rejoin, e.g. page reload
+
+        assert room.members["p1"].display_name == "Vinay (2)"
+        assert len(room.members) == 2

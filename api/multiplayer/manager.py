@@ -163,9 +163,29 @@ class DraftManager:
         if len(room.members) >= room.player_count:
             raise ValueError("Room is full")
         if client_id not in room.members:
-            room.members[client_id] = Member(client_id=client_id, display_name=display_name)
+            room.members[client_id] = Member(
+                client_id=client_id,
+                display_name=self._dedupe_display_name(room, display_name),
+            )
         room.last_activity = time.time()
         return room
+
+    @staticmethod
+    def _dedupe_display_name(room: RoomState, display_name: str) -> str:
+        """Suffix a joining member's display name if it's already taken in the
+        room ("Vinay" -> "Vinay (2)"). Display names double as team names, and
+        the sim/persistence/frontend pipeline identifies teams by name in many
+        places (engine finalize, worker's name->team_id map, winner_id
+        resolution, the frontend's "you won/lost" comparison) - two identical
+        names crash the Test engine outright and silently corrupt team
+        attribution in every other format."""
+        taken = {m.display_name for m in room.members.values()}
+        if display_name not in taken:
+            return display_name
+        n = 2
+        while f"{display_name} ({n})" in taken:
+            n += 1
+        return f"{display_name} ({n})"
 
     def remove_room(self, room_id: str) -> None:
         self._rooms.pop(room_id, None)

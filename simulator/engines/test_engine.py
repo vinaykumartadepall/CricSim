@@ -155,14 +155,22 @@ class TestMatchEngine(BaseEngine):
         self.logger.headline("\n=== Match Complete ===")
 
         innings = self.match.innings
-        team_names = list(dict.fromkeys(inn.batting_team.name for inn in innings))
-        team_totals = {n: 0 for n in team_names}
-        team_balls  = {n: 0 for n in team_names}
+        # Keyed by team id, not name - InningTeam.id is the in-memory MatchTeam
+        # id (always distinct: match_runner assigns 1/2), whereas names can
+        # collide (multiplayer display names double as team names). Deduping by
+        # name collapsed both teams into one entry here, crashing team_ids[1]
+        # below. Room joins now dedupe names, so this is defense in depth:
+        # a duplicate from any unforeseen path degrades to ambiguous display
+        # text instead of a failed simulation.
+        team_ids  = list(dict.fromkeys(inn.batting_team.id for inn in innings))
+        id_to_name = {inn.batting_team.id: inn.batting_team.name for inn in innings}
+        team_totals = {tid: 0 for tid in team_ids}
+        team_balls  = {tid: 0 for tid in team_ids}
         for inn in innings:
-            team_totals[inn.batting_team.name] += inn.batting_team.total_runs
-            team_balls[inn.batting_team.name]  += inn.batting_team.total_balls
+            team_totals[inn.batting_team.id] += inn.batting_team.total_runs
+            team_balls[inn.batting_team.id]  += inn.batting_team.total_balls
 
-        summary = {n: (team_totals[n], team_balls[n]) for n in team_names}
+        summary = {id_to_name[tid]: (team_totals[tid], team_balls[tid]) for tid in team_ids}
 
         if len(innings) == 4:
             # Equal totals / a reached target / an all-out dismissal all decide the match
@@ -171,7 +179,7 @@ class TestMatchEngine(BaseEngine):
             batting_4th = innings[3].batting_team
             target_reached = bool(self.match.target_score) and batting_4th.total_runs >= self.match.target_score
             all_out = batting_4th.total_wickets >= 10
-            totals_equal = team_totals[team_names[0]] == team_totals[team_names[1]]
+            totals_equal = team_totals[team_ids[0]] == team_totals[team_ids[1]]
 
             if totals_equal:
                 result = MatchResult(winner=None, description="Match Tied", is_tie=True,
@@ -182,10 +190,11 @@ class TestMatchEngine(BaseEngine):
                 result = MatchResult(winner=batting_4th.name, description=desc,
                                      team_innings_summary=summary)
             elif all_out:
-                winner = max(team_totals, key=team_totals.get)
-                margin = abs(team_totals[team_names[0]] - team_totals[team_names[1]])
-                desc = f"{winner} won by {margin} run{'s' if margin != 1 else ''}"
-                result = MatchResult(winner=winner, description=desc, team_innings_summary=summary)
+                winner_id = max(team_totals, key=team_totals.get)
+                margin = abs(team_totals[team_ids[0]] - team_totals[team_ids[1]])
+                desc = f"{id_to_name[winner_id]} won by {margin} run{'s' if margin != 1 else ''}"
+                result = MatchResult(winner=id_to_name[winner_id], description=desc,
+                                     team_innings_summary=summary)
             else:
                 result = MatchResult(winner=None, description="Match Drawn", is_no_result=True,
                                      team_innings_summary=summary)
@@ -194,14 +203,15 @@ class TestMatchEngine(BaseEngine):
                 result = MatchResult(winner=None, description="Match Drawn", is_no_result=True,
                                      team_innings_summary=summary)
             else:
-                innings_count = {n: 0 for n in team_names}
+                innings_count = {tid: 0 for tid in team_ids}
                 for inn in innings:
-                    innings_count[inn.batting_team.name] += 1
-                winner = next(n for n, c in innings_count.items() if c == 1)
-                loser  = next(n for n, c in innings_count.items() if c == 2)
-                margin = team_totals[winner] - team_totals[loser]
-                desc = f"{winner} won by an innings and {margin} run{'s' if margin != 1 else ''}"
-                result = MatchResult(winner=winner, description=desc, team_innings_summary=summary)
+                    innings_count[inn.batting_team.id] += 1
+                winner_id = next(tid for tid, c in innings_count.items() if c == 1)
+                loser_id  = next(tid for tid, c in innings_count.items() if c == 2)
+                margin = team_totals[winner_id] - team_totals[loser_id]
+                desc = f"{id_to_name[winner_id]} won by an innings and {margin} run{'s' if margin != 1 else ''}"
+                result = MatchResult(winner=id_to_name[winner_id], description=desc,
+                                     team_innings_summary=summary)
         else:
             result = MatchResult(winner=None, description="Match Drawn", is_no_result=True,
                                  team_innings_summary=summary)

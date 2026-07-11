@@ -75,7 +75,10 @@ _CONSOLE_FMT = logging.Formatter(
 )
 _FILE_FMT = logging.Formatter(
     fmt="%(asctime)s  %(levelname)-7s  [%(sim_id)s/m%(match_id)s]  %(message)s",
-    datefmt="%H:%M:%S",
+    # Full date, not just time-of-day: the rotating files span multiple days,
+    # so time-only lines can't be correlated with DB timestamps (this made a
+    # prod incident needlessly hard to trace). Console format stays time-only.
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 
 

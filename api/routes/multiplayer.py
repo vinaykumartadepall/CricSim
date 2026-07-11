@@ -183,7 +183,10 @@ def join_room(room_id: str, body: JoinRoomRequest):
         room = draft_manager.join_room(room_id, body.client_id, body.display_name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    _persist_member(room.room_id, body.client_id, body.display_name)
+    # Persist the member's name as join_room actually stored it, not the raw
+    # request value - join_room dedupes collisions ("Vinay" -> "Vinay (2)"),
+    # and a restore-from-DB must not resurrect the duplicate.
+    _persist_member(room.room_id, body.client_id, room.members[body.client_id].display_name)
     return room.to_dict()
 
 

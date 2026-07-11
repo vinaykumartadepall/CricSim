@@ -723,6 +723,10 @@ export function DraftPage() {
 
   // Room state
   const [room, setRoom]         = useState<FullRoomState | null>(null)
+  // Latest room, readable from handleMessage without adding `room` to its
+  // deps (which would tear down and reopen the websocket on every update).
+  const roomRef = useRef<FullRoomState | null>(null)
+  useEffect(() => { roomRef.current = room }, [room])
   const [timer, setTimer]       = useState(PICK_TIMER_TOTAL)
   const [toast, setToast]       = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -870,7 +874,13 @@ export function DraftPage() {
         // teamName is read by SimulatingPage; userTeam/backPath are read by
         // MatchDetailPage once SimulatingPage hands off to it on completion
         // (only relevant for 1v1 - tournament results ignore these).
-        navigate(`/simulating/${sim_id}`, { state: { teamName: displayName, userTeam: displayName, backPath: '/' } })
+        // The room's copy of my display name, NOT AuthContext's: join_room
+        // suffixes name collisions ("Vinay" -> "Vinay (2)"), and team names
+        // in the sim come from the room. Passing the unsuffixed name here
+        // would match the OTHER same-named player's team in the results
+        // pages' name-based personalization.
+        const myTeamName = roomRef.current?.members.find(m => m.client_id === clientId)?.display_name ?? displayName
+        navigate(`/simulating/${sim_id}`, { state: { teamName: myTeamName, userTeam: myTeamName, backPath: '/' } })
         break
       }
       case 'left_room': {

@@ -34,13 +34,23 @@ def _make_engine(innings, target_score=None, overs_total=0):
     return engine
 
 
-def _inning(num, team_name, runs, wickets, balls=300):
-    team = InningTeam(team=MatchTeam(id=1, name=team_name))
+def _inning(num, team_name, runs, wickets, balls=300, team_id=None):
+    # Distinct id per team, mirroring production (match_runner assigns 1/2):
+    # _finalize_match identifies teams by id, not name, since multiplayer
+    # display names can collide. Derived from the name here so existing
+    # call sites ("A"/"B") keep working; pass team_id explicitly to model
+    # two different teams sharing one name.
+    if team_id is None:
+        team_id = _TEAM_IDS.setdefault(team_name, len(_TEAM_IDS) + 1)
+    team = InningTeam(team=MatchTeam(id=team_id, name=team_name))
     team.total_runs = runs
     team.total_wickets = wickets
     team.total_balls = balls
-    other = InningTeam(team=MatchTeam(id=2, name="Other"))
+    other = InningTeam(team=MatchTeam(id=99, name="Other"))
     return Inning(inning_number=num, batting_team=team, bowling_team=other)
+
+
+_TEAM_IDS: dict = {}
 
 
 class TestTestMatchTie:
@@ -149,3 +159,47 @@ class TestTestMatchDecisive:
 
         assert engine.match.result.is_no_result is True
         assert engine.match.result.description == "Match Drawn"
+
+
+class TestDuplicateTeamNames:
+    """Two teams sharing one display name (multiplayer 1v1 where both players
+    had identical names) crashed _finalize_match with IndexError - teams were
+    deduplicated by name, collapsing both sides into one entry. Reproduces
+    prod sim 3a974ea4; teams are identified by id now."""
+
+    def test_four_innings_with_identical_names_does_not_crash(self):
+        innings = [
+            _inning(1, "Vinay", 300, 10, team_id=1),
+            _inning(2, "Vinay", 250, 10, team_id=2),
+            _inning(3, "Vinay", 150, 10, team_id=1),
+            _inning(4, "Vinay", 120, 10, team_id=2),
+        ]
+        engine = _make_engine(innings, target_score=201)
+        engine._finalize_match()
+
+        # team 1: 450, team 2: 370, all out -> team 1 wins by 80 runs
+        assert engine.match.result.winner == "Vinay"
+        assert "won by 80 run" in engine.match.result.description
+
+    def test_innings_victory_with_identical_names(self):
+        innings = [
+            _inning(1, "Vinay", 500, 10, team_id=1),
+            _inning(2, "Vinay", 150, 10, team_id=2),
+            _inning(3, "Vinay", 200, 10, team_id=2),
+        ]
+        engine = _make_engine(innings)
+        engine._finalize_match()
+
+        assert "won by an innings and 150 run" in engine.match.result.description
+
+    def test_tie_with_identical_names(self):
+        innings = [
+            _inning(1, "Vinay", 300, 10, team_id=1),
+            _inning(2, "Vinay", 280, 10, team_id=2),
+            _inning(3, "Vinay", 150, 10, team_id=1),
+            _inning(4, "Vinay", 170, 10, team_id=2),
+        ]
+        engine = _make_engine(innings, target_score=171)
+        engine._finalize_match()
+
+        assert engine.match.result.is_tie is True
