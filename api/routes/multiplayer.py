@@ -344,7 +344,9 @@ async def _handle_message(room: RoomState, client_id: str, ws: WebSocket, msg: d
             try:
                 await kicked.ws.close(code=4001, reason="Removed from room by host")
             except Exception:
-                pass
+                # Non-fatal (socket may already be dead), but still log it -
+                # every exception must be findable in errors.log.
+                get_logger().exception("Failed to close kicked client's ws for room %s", room.room_id)
         await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})
 
     elif t == "leave_room":
@@ -362,7 +364,7 @@ async def _handle_message(room: RoomState, client_id: str, ws: WebSocket, msg: d
             try:
                 _cleanup_room_db(room.room_id)
             except Exception:
-                pass
+                get_logger().exception("Failed to delete emptied room %s from DB", room.room_id)
             draft_manager.remove_room(room.room_id)
         else:
             await draft_manager.broadcast(room, {"type": "room_state", "data": room.to_dict()})

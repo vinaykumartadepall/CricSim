@@ -125,7 +125,7 @@ def run_match_job(sim_id: str, config: dict) -> None:
             try:
                 repo.rollback()
             except Exception:
-                pass
+                logger.exception("Rollback failed for simulation %s", sim_id)
             repo.update_status(sim_id, 'failed', error=str(exc))
             repo.commit()
         finally:
@@ -225,7 +225,7 @@ def run_tournament_job(
             try:
                 repo.rollback()
             except Exception:
-                pass
+                logger.exception("Rollback failed for simulation %s", sim_id)
             repo.update_status(sim_id, 'failed', error=str(exc))
             repo.commit()
         finally:

@@ -18,7 +18,6 @@ To add a new strategy:
 
 from __future__ import annotations
 
-import logging
 from abc import ABC, abstractmethod
 from typing import ClassVar, Optional
 
@@ -36,11 +35,15 @@ from simulator.predictors.ball_outcome_prediction.enhanced_historical_stats impo
     T20EnhancedHistoricalStatsStrategy,
     TestEnhancedHistoricalStatsStrategy,
 )
+from simulator.logger import get_logger
 from simulator.predictors.bowling.strategy_interface import BowlingStrategy
 from simulator.predictors.bowling.historical import create_historical_bowling_strategy
 from simulator.predictors.bowling.smart import SmartBowlingStrategy
 
-log = logging.getLogger(__name__)
+# Must be the app's "cricket_sim" logger, not logging.getLogger(__name__) -
+# the file handlers (simulation.log/errors.log) are only attached to
+# "cricket_sim", so a stdlib module logger's warnings silently go to stderr.
+log = get_logger()
 
 # Maps format name → SimulationMatch constructor kwargs.
 FORMAT_SETTINGS: dict[str, dict] = {

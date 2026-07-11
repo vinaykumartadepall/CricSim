@@ -17,14 +17,17 @@ Eligibility:
   Test     only constraint is no consecutive overs (current bowler excluded)
 """
 
-import logging
 from typing import Optional, Tuple
 
 from simulator.entities.inning_player import InningPlayer
 from simulator.entities.match import SimulationMatch
+from simulator.logger import get_logger
 from simulator.predictors.bowling.historical.base import HistoricalBowlingBase
 
-log = logging.getLogger(__name__)
+# Must be the app's "cricket_sim" logger, not logging.getLogger(__name__) -
+# the file handlers (simulation.log/errors.log) are only attached to
+# "cricket_sim", so a stdlib module logger's warnings silently go to stderr.
+log = get_logger()
 
 
 # ── T20 ───────────────────────────────────────────────────────────────────────

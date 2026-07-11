@@ -34,6 +34,7 @@ Before marking any task complete, add tests in `tests/`. All tests must run with
 
 ### Log system
 - No per-match log files. All output goes to rotating files: `logs/simulation.log` (20MB×10) and `logs/errors.log` (5MB×5).
+- **Every exception in runtime code must be findable in `errors.log`.** The file handlers are attached only to the `"cricket_sim"` logger — always use `simulator.logger.get_logger()`, never `logging.getLogger(__name__)` (an unconfigured stdlib logger whose output silently goes to stderr; this hid a prod job failure entirely). Never swallow a failure with `except: pass` — log it. Bare pass is only acceptable for genuine control flow (e.g. `WebSocketDisconnect` on client leave).
 - Every log line carries `[sim_id/m{match_id}]` context injected from `ContextVar`s - safe for concurrent runs.
 - Set context with `log_context(sim_id=..., match_id=...)` from `simulator.logger`. Only the vars explicitly passed are changed; others inherit outer context.
 - Runtime level switching: `set_log_level("DEBUG")` changes `simulation.log` level; `errors.log` is always WARNING+.
