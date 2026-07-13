@@ -72,6 +72,22 @@ class _FakeRepo:
         pass
 
 
+class _FakeProfileRepo:
+    """Profiles live in the Supabase DB; only signed-in users have a row."""
+
+    def get_display_names(self, user_ids):
+        assert set(user_ids) == {"someone-else", "another-user"}
+        return {"someone-else": "Ravi"}  # 'another-user' is anonymous - no row
+
+    def close(self):
+        pass
+
+
+class _ExplodingProfileRepo:
+    def __init__(self):
+        raise RuntimeError("supabase unreachable")
+
+
 @pytest.fixture(scope="module")
 def client():
     prev_env = os.environ.get("ADMIN_USER_IDS")
@@ -92,6 +108,7 @@ class TestAdminSimulationsList:
 
     def test_returns_all_rows_with_owner_fields_and_total(self, client, monkeypatch):
         monkeypatch.setattr(admin_data_mod, "SimulationRepository", _FakeRepo)
+        monkeypatch.setattr(admin_data_mod, "ProfileRepository", _FakeProfileRepo)
         resp = client.get("/cricsimapi/admin/data/simulations")
         assert resp.status_code == 200
         body = resp.json()
@@ -99,6 +116,8 @@ class TestAdminSimulationsList:
         assert len(body["simulations"]) == 2
         first, second = body["simulations"]
         assert first["client_id"] == "someone-else"
+        assert first["display_name"] == "Ravi"       # signed-in: profile merged in
+        assert second["display_name"] is None        # anonymous: no profile row
         assert second["status"] == "failed"
         assert second["error_message"] == "boom"
         # window-count column must not leak into the response rows
@@ -106,7 +125,16 @@ class TestAdminSimulationsList:
 
     def test_reachable_on_bare_mount_too(self, client, monkeypatch):
         monkeypatch.setattr(admin_data_mod, "SimulationRepository", _FakeRepo)
+        monkeypatch.setattr(admin_data_mod, "ProfileRepository", _FakeProfileRepo)
         assert client.get("/admin/data/simulations").status_code == 200
+
+    def test_supabase_outage_degrades_to_ids_only(self, client, monkeypatch):
+        # Best effort: the list must still render if the profiles DB is down.
+        monkeypatch.setattr(admin_data_mod, "SimulationRepository", _FakeRepo)
+        monkeypatch.setattr(admin_data_mod, "ProfileRepository", _ExplodingProfileRepo)
+        resp = client.get("/cricsimapi/admin/data/simulations")
+        assert resp.status_code == 200
+        assert all(r["display_name"] is None for r in resp.json()["simulations"])
 
     def test_non_admin_is_403(self, client):
         app.dependency_overrides[get_current_user_id] = lambda: "not-the-admin"

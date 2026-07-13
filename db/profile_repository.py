@@ -21,6 +21,17 @@ class ProfileRepository:
         row = self._cur.fetchone()
         return dict(row) if row else None
 
+    def get_display_names(self, user_ids: list) -> dict:
+        """Batched lookup: {user_id: display_name} for the ids that have a
+        profile (signed-in users only; anonymous ids simply won't be found)."""
+        if not user_ids:
+            return {}
+        self._cur.execute(
+            "SELECT user_id, display_name FROM simulation.profiles WHERE user_id = ANY(%s)",
+            (list(user_ids),),
+        )
+        return {r["user_id"]: r["display_name"] for r in self._cur.fetchall()}
+
     def upsert(self, user_id: str, display_name: str, anonymous_id: str | None = None) -> dict:
         self._cur.execute(
             """

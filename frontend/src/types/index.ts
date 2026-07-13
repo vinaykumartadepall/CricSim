@@ -84,7 +84,9 @@ export interface SimSummary {
 
 // Admin data view: SimSummary plus owner/diagnostic fields (admin-only endpoint)
 export interface AdminSimRow extends SimSummary {
+  completed_at?: string | null
   client_id?: string | null
+  display_name?: string | null
   error_message?: string | null
 }
 
