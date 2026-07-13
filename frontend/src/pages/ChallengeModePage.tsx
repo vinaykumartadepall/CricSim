@@ -7,28 +7,15 @@ import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import { SimulationTypeToggle } from '@/components/ui/SimulationTypeToggle'
+import { FormatBadge } from '@/components/ui/FormatBadge'
+import { BackButton } from '@/components/ui/BackButton'
+import { ConfirmRow } from '@/components/ui/ConfirmRow'
 import { SquadEditor } from '@/components/SquadEditor'
 import { sortTournamentNames } from '@/lib/sortTournamentNames'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistoryTeamBest } from '@/types'
 
 
 type Step = 'pick_tournament' | 'pick_team_season' | 'squad' | 'confirm'
-
-const FORMAT_BADGE_STYLES: Record<string, { bg: string; color: string }> = {
-  T20:  { bg: 'rgba(59,130,246,0.1)',  color: 'var(--accent)' },
-  ODI:  { bg: 'rgba(14,165,233,0.1)', color: '#0ea5e9' },
-  Test: { bg: 'rgba(245,158,11,0.1)', color: 'var(--score)' },
-}
-
-function FormatBadge({ format }: { format?: string | null }) {
-  if (!format) return null
-  const s = FORMAT_BADGE_STYLES[format] ?? { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }
-  return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold self-start" style={{ background: s.bg, color: s.color }}>
-      {format}
-    </span>
-  )
-}
 
 interface UnderdogEntry {
   team_id: number
@@ -159,7 +146,10 @@ export function ChallengeModePage() {
         }
         return team
       })
-      .catch(() => null)
+      .catch(err => {
+        console.warn('Failed to load team squads for tournament', err)
+        return null
+      })
       .finally(() => setLoadingSquad(false))
   }
 
@@ -191,7 +181,7 @@ export function ChallengeModePage() {
             }
           })
       })
-      .catch(() => {})
+      .catch(err => console.warn('Failed to restore previous run for Try Again', err))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -220,7 +210,7 @@ export function ChallengeModePage() {
         })
         setStep(urlStep === 'confirm' ? 'confirm' : 'squad')
       })
-    }).catch(() => {})
+    }).catch(err => console.warn('Failed to restore build from URL context', err))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -235,7 +225,7 @@ export function ChallengeModePage() {
   useEffect(() => {
     api.getSimHistoryNameCounts(clientId, 'challenge')
       .then(data => setNameCounts(new Map(data.map(r => [r.name, r]))))
-      .catch(() => {})
+      .catch(err => console.warn('Sim-history name counts unavailable (non-critical)', err))
   }, [clientId])
 
   // Group by name for step 1 (same pattern as FunModePage)
@@ -423,7 +413,7 @@ export function ChallengeModePage() {
                     <div>
                       <div className="text-sm font-medium" style={{ color: 'var(--text)' }}>{name}</div>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        <FormatBadge format={grouped[name][0]?.format} />
+                        <FormatBadge format={grouped[name][0]?.format} className="self-start" />
                         {hist && (
                           <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-dim)' }}>
                             {hist.completed}/{hist.total} complete
@@ -583,13 +573,13 @@ export function ChallengeModePage() {
           <div className="text-xl font-semibold mb-5" style={{ color: 'var(--text)' }}>Ready to simulate</div>
 
           <div className="card p-5 mb-4 space-y-3">
-            <Row label="Tournament" value={`${selectedName} ${selectedEntry.season}`} />
-            <Row label="Your team" value={selectedTeam.team_name} />
-            <Row
+            <ConfirmRow label="Tournament" value={`${selectedName} ${selectedEntry.season}`} />
+            <ConfirmRow label="Your team" value={selectedTeam.team_name} />
+            <ConfirmRow
               label="Trades"
               value={swaps.length === 0 ? 'None' : `${swaps.length} trade${swaps.length !== 1 ? 's' : ''}`}
             />
-            <Row label="Mode" value="Challenge Mode" accent />
+            <ConfirmRow label="Mode" value="Challenge Mode" accentColor="var(--score)" />
           </div>
 
           <div className="mb-6">
@@ -618,21 +608,3 @@ export function ChallengeModePage() {
   )
 }
 
-function BackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button className="flex items-center gap-1 text-sm mb-5" style={{ color: 'var(--text-muted)' }} onClick={onClick}>
-      <ChevronLeft size={14} /> Back
-    </button>
-  )
-}
-
-function Row({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{label}</span>
-      <span className="text-sm font-medium" style={{ color: accent ? 'var(--score)' : 'var(--text)' }}>
-        {value}
-      </span>
-    </div>
-  )
-}

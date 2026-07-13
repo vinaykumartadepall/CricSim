@@ -1,5 +1,7 @@
 import logging
 import os
+from contextlib import contextmanager
+
 import psycopg2
 from psycopg2 import sql
 
@@ -100,6 +102,33 @@ def get_db_connection(autocommit=True):
     if autocommit:
         conn.autocommit = True
     return conn
+
+@contextmanager
+def db_cursor(autocommit=True):
+    """Connection + cursor pair that is always closed, even when the body raises.
+
+    Replaces the leak-prone `conn = get_db_connection(); cur = conn.cursor()`
+    pattern: without a finally, an execute() that raises leaves the TCP
+    connection open until GC, and repeated failures can exhaust Postgres
+    max_connections. For autocommit=False, commits on clean exit and rolls
+    back on exception.
+    """
+    conn = get_db_connection(autocommit=autocommit)
+    try:
+        cur = conn.cursor()
+        try:
+            yield cur
+            if not autocommit:
+                conn.commit()
+        except Exception:
+            if not autocommit:
+                conn.rollback()
+            raise
+        finally:
+            cur.close()
+    finally:
+        conn.close()
+
 
 def create_database():
     try:

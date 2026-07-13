@@ -12,7 +12,7 @@ import json as _json
 
 from api.job_queue import job_queue
 from api.multiplayer.manager import HOST_RECONNECT_GRACE_S, SQUAD_SIZE, RoomState, draft_manager, _snake_sequence
-from db.database import get_db_connection
+from db.database import db_cursor
 from simulator.logger import get_logger
 
 router = APIRouter(prefix="/cricsimapi/multiplayer", tags=["multiplayer"])
@@ -35,8 +35,7 @@ def search_players(
     bowling_style: Optional[List[str]] = Query(None),
     limit: int = Query(30, le=50),
 ):
-    conn = get_db_connection(); cur = conn.cursor()
-    try:
+    with db_cursor() as cur:
         # Each filter is multi-select (repeated query params) - ANY(%s) against
         # a list matches "role IN (...)" without building a dynamic IN clause.
         filters: list[str] = []
@@ -73,8 +72,6 @@ def search_players(
             (*params, f"%{q}%", f"%{q}%", limit),
         )
         rows = cur.fetchall()
-    finally:
-        cur.close(); conn.close()
 
     return [
         {
@@ -97,8 +94,7 @@ def search_players(
 def player_filter_options():
     """Distinct values to populate the search filter dropdowns - kept as a
     live query (not hardcoded) so it always matches the actual player data."""
-    conn = get_db_connection(); cur = conn.cursor()
-    try:
+    with db_cursor() as cur:
         cur.execute(
             "SELECT DISTINCT player_role FROM history.players "
             "WHERE gender = 'male' AND player_role IS NOT NULL ORDER BY 1"
@@ -127,8 +123,6 @@ def player_filter_options():
             "WHERE gender = 'male' AND bowling_style IS NOT NULL ORDER BY 1"
         )
         bowling_styles = [r[0] for r in cur.fetchall()]
-    finally:
-        cur.close(); conn.close()
 
     return {
         "roles": roles,
@@ -724,57 +718,52 @@ def _persist_draft_start(room: RoomState) -> None:
     entirely. Nulling it here removes the button from those old results
     rather than leaving it to dead-end.
     """
-    conn = get_db_connection(autocommit=True); cur = conn.cursor()
-    cur.execute("UPDATE simulation.rooms SET status='drafting' WHERE room_id=%s", (room.room_id,))
-    cur.execute("UPDATE simulation.game_sessions SET room_id=NULL WHERE room_id=%s", (room.room_id,))
-    for m in room.members.values():
-        cur.execute(
-            "UPDATE simulation.room_members SET draft_order=%s WHERE room_id=%s AND client_id=%s",
-            (m.draft_order, room.room_id, m.client_id),
-        )
-    cur.close(); conn.close()
+    with db_cursor() as cur:
+        cur.execute("UPDATE simulation.rooms SET status='drafting' WHERE room_id=%s", (room.room_id,))
+        cur.execute("UPDATE simulation.game_sessions SET room_id=NULL WHERE room_id=%s", (room.room_id,))
+        for m in room.members.values():
+            cur.execute(
+                "UPDATE simulation.room_members SET draft_order=%s WHERE room_id=%s AND client_id=%s",
+                (m.draft_order, room.room_id, m.client_id),
+            )
 
 
 def _persist_reset_to_waiting(room_id: str) -> None:
     """Mirror DraftManager.reset_to_waiting in the DB - status back to
     'waiting' and every member's squad cleared, ready for a fresh draft."""
-    conn = get_db_connection(autocommit=True); cur = conn.cursor()
-    cur.execute("UPDATE simulation.rooms SET status='waiting' WHERE room_id=%s", (room_id,))
-    cur.execute(
-        "UPDATE simulation.room_members SET squad='[]'::jsonb, draft_order=NULL WHERE room_id=%s",
-        (room_id,),
-    )
-    cur.close(); conn.close()
+    with db_cursor() as cur:
+        cur.execute("UPDATE simulation.rooms SET status='waiting' WHERE room_id=%s", (room_id,))
+        cur.execute(
+            "UPDATE simulation.room_members SET squad='[]'::jsonb, draft_order=NULL WHERE room_id=%s",
+            (room_id,),
+        )
 
 
 def _persist_leave_room(room_id: str, client_id: str) -> None:
-    conn = get_db_connection(autocommit=True); cur = conn.cursor()
-    cur.execute("DELETE FROM simulation.room_members WHERE room_id=%s AND client_id=%s", (room_id, client_id))
-    cur.close(); conn.close()
+    with db_cursor() as cur:
+        cur.execute("DELETE FROM simulation.room_members WHERE room_id=%s AND client_id=%s", (room_id, client_id))
 
 
 def _persist_squad(room_id: str, client_id: str, squad: list) -> None:
     """Update a member's squad in DB after each pick."""
-    conn = get_db_connection(autocommit=True); cur = conn.cursor()
-    cur.execute(
-        "UPDATE simulation.room_members SET squad=%s::jsonb WHERE room_id=%s AND client_id=%s",
-        (_json.dumps(squad), room_id, client_id),
-    )
-    cur.close(); conn.close()
+    with db_cursor() as cur:
+        cur.execute(
+            "UPDATE simulation.room_members SET squad=%s::jsonb WHERE room_id=%s AND client_id=%s",
+            (_json.dumps(squad), room_id, client_id),
+        )
 
 
 def _fetch_player_details(player_ids: list) -> list:
     """Return player info dicts for a list of player_ids (used to rebuild frontend playerMap)."""
     if not player_ids:
         return []
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute(
-        "SELECT player_id, COALESCE(display_name, name) AS display_name, player_role, cricinfo_id "
-        "FROM history.players WHERE player_id = ANY(%s)",
-        (player_ids,),
-    )
-    rows = cur.fetchall()
-    cur.close(); conn.close()
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT player_id, COALESCE(display_name, name) AS display_name, player_role, cricinfo_id "
+            "FROM history.players WHERE player_id = ANY(%s)",
+            (player_ids,),
+        )
+        rows = cur.fetchall()
     return [
         {"player_id": r[0], "name": r[1], "role": r[2],
          "headshot_url": _headshot(r[3]), "is_keeper": r[2] == "Keeper"}
@@ -783,19 +772,15 @@ def _fetch_player_details(player_ids: list) -> list:
 
 
 def _room_exists_in_db(room_id: str) -> bool:
-    conn = get_db_connection(autocommit=True); cur = conn.cursor()
-    try:
+    with db_cursor() as cur:
         cur.execute("SELECT 1 FROM simulation.rooms WHERE room_id = %s", (room_id.upper(),))
         return cur.fetchone() is not None
-    finally:
-        cur.close(); conn.close()
 
 
 def _restore_room_from_db(room_id: str) -> "RoomState | None":
     """Reconstruct an in-memory RoomState from DB records (e.g. after server restart)."""
     from api.multiplayer.manager import Member, RoomState as RS
-    conn = get_db_connection(autocommit=True); cur = conn.cursor()
-    try:
+    with db_cursor() as cur:
         cur.execute(
             "SELECT host_id, mode, status, tournament_name, player_count, match_format "
             "FROM simulation.rooms WHERE room_id = %s",
@@ -844,39 +829,34 @@ def _restore_room_from_db(room_id: str) -> "RoomState | None":
 
         draft_manager._rooms[room_id.upper()] = room
         return room
-    finally:
-        cur.close(); conn.close()
 
 
 def _persist_room(room: RoomState) -> None:
-    conn = get_db_connection(autocommit=True); cur = conn.cursor()
-    cur.execute(
-        """INSERT INTO simulation.rooms (room_id, host_id, mode, status, tournament_name, player_count, match_format)
-           VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING""",
-        (room.room_id, room.host_id, room.mode, room.status, room.tournament_name, room.player_count, room.match_format),
-    )
-    cur.execute(
-        """INSERT INTO simulation.room_members (room_id, client_id, display_name, squad)
-           VALUES (%s, %s, %s, '[]') ON CONFLICT DO NOTHING""",
-        (room.room_id, room.host_id, room.members[room.host_id].display_name),
-    )
-    cur.close(); conn.close()
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO simulation.rooms (room_id, host_id, mode, status, tournament_name, player_count, match_format)
+               VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING""",
+            (room.room_id, room.host_id, room.mode, room.status, room.tournament_name, room.player_count, room.match_format),
+        )
+        cur.execute(
+            """INSERT INTO simulation.room_members (room_id, client_id, display_name, squad)
+               VALUES (%s, %s, %s, '[]') ON CONFLICT DO NOTHING""",
+            (room.room_id, room.host_id, room.members[room.host_id].display_name),
+        )
 
 
 def _persist_member(room_id: str, client_id: str, display_name: str) -> None:
-    conn = get_db_connection(autocommit=True); cur = conn.cursor()
-    cur.execute(
-        """INSERT INTO simulation.room_members (room_id, client_id, display_name, squad)
-           VALUES (%s, %s, %s, '[]') ON CONFLICT DO NOTHING""",
-        (room_id, client_id, display_name),
-    )
-    cur.close(); conn.close()
+    with db_cursor() as cur:
+        cur.execute(
+            """INSERT INTO simulation.room_members (room_id, client_id, display_name, squad)
+               VALUES (%s, %s, %s, '[]') ON CONFLICT DO NOTHING""",
+            (room_id, client_id, display_name),
+        )
 
 
 def _cleanup_room_db(room_id: str) -> None:
-    conn = get_db_connection(autocommit=True); cur = conn.cursor()
-    cur.execute("DELETE FROM simulation.rooms WHERE room_id = %s", (room_id,))
-    cur.close(); conn.close()
+    with db_cursor() as cur:
+        cur.execute("DELETE FROM simulation.rooms WHERE room_id = %s", (room_id,))
 
 
 # ── idle-room reaper ───────────────────────────────────────────────────────────
@@ -906,29 +886,24 @@ async def _reap_idle_rooms_forever() -> None:
 
 
 def _load_keeper_ids() -> set:
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("SELECT player_id FROM history.players WHERE gender='male' AND player_role='Keeper'")
-    ids = {r[0] for r in cur.fetchall()}
-    cur.close(); conn.close()
-    return ids
+    with db_cursor() as cur:
+        cur.execute("SELECT player_id FROM history.players WHERE gender='male' AND player_role='Keeper'")
+        return {r[0] for r in cur.fetchall()}
 
 
 def _load_all_player_ids() -> list:
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("SELECT player_id FROM history.players WHERE gender='male' ORDER BY player_id")
-    ids = [r[0] for r in cur.fetchall()]
-    cur.close(); conn.close()
-    return ids
+    with db_cursor() as cur:
+        cur.execute("SELECT player_id FROM history.players WHERE gender='male' ORDER BY player_id")
+        return [r[0] for r in cur.fetchall()]
 
 
 def _player_info(player_id: int) -> dict:
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute(
-        "SELECT COALESCE(display_name, name) AS display_name, player_role, cricinfo_id FROM history.players WHERE player_id=%s",
-        (player_id,),
-    )
-    row = cur.fetchone()
-    cur.close(); conn.close()
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT COALESCE(display_name, name) AS display_name, player_role, cricinfo_id FROM history.players WHERE player_id=%s",
+            (player_id,),
+        )
+        row = cur.fetchone()
     if not row:
         return {"player_id": player_id, "name": "Unknown", "role": "", "headshot_url": None}
     return {

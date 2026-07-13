@@ -10,6 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List
 
+# Qualification floors for rate-stat leaderboards. Single source of truth:
+# db/leaderboard_repository.py builds its SQL WHERE clauses from these same
+# constants, so the CLI boards and the product API can never disagree.
+MIN_RUNS_FOR_BATTING_RATE_BOARDS = 50   # best batting average / best strike rate
+MIN_BALLS_FOR_BOWLING_RATE_BOARDS = 30  # best bowling average / best economy
+
 
 @dataclass
 class BatterStats:
@@ -150,13 +156,14 @@ class TournamentLeaderboards:
         return sorted(self._batting.values(),
                        key=lambda s: s.highest_score, reverse=True)[:top_n]
 
-    def best_batting_average(self, min_innings: int = 3, top_n: int = 10) -> List[BatterStats]:
-        eligible = [s for s in self._batting.values()
-                    if s.innings - s.not_outs >= min_innings]
+    def best_batting_average(self, min_runs: int = MIN_RUNS_FOR_BATTING_RATE_BOARDS,
+                             top_n: int = 10) -> List[BatterStats]:
+        eligible = [s for s in self._batting.values() if s.runs >= min_runs]
         return sorted(eligible, key=lambda s: s.average, reverse=True)[:top_n]
 
-    def best_strike_rate(self, min_balls: int = 50, top_n: int = 10) -> List[BatterStats]:
-        eligible = [s for s in self._batting.values() if s.balls >= min_balls]
+    def best_strike_rate(self, min_runs: int = MIN_RUNS_FOR_BATTING_RATE_BOARDS,
+                         top_n: int = 10) -> List[BatterStats]:
+        eligible = [s for s in self._batting.values() if s.runs >= min_runs]
         return sorted(eligible, key=lambda s: s.strike_rate, reverse=True)[:top_n]
 
     def most_sixes(self, top_n: int = 10) -> List[BatterStats]:
@@ -168,11 +175,13 @@ class TournamentLeaderboards:
     def most_wickets(self, top_n: int = 10) -> List[BowlerStats]:
         return sorted(self._bowling.values(), key=lambda s: s.wickets, reverse=True)[:top_n]
 
-    def best_bowling_average(self, min_wickets: int = 5, top_n: int = 10) -> List[BowlerStats]:
-        eligible = [s for s in self._bowling.values() if s.wickets >= min_wickets]
+    def best_bowling_average(self, min_balls: int = MIN_BALLS_FOR_BOWLING_RATE_BOARDS,
+                             top_n: int = 10) -> List[BowlerStats]:
+        eligible = [s for s in self._bowling.values() if s.balls >= min_balls]
         return sorted(eligible, key=lambda s: s.average)[:top_n]
 
-    def best_economy(self, min_balls: int = 60, top_n: int = 10) -> List[BowlerStats]:
+    def best_economy(self, min_balls: int = MIN_BALLS_FOR_BOWLING_RATE_BOARDS,
+                     top_n: int = 10) -> List[BowlerStats]:
         eligible = [s for s in self._bowling.values() if s.balls >= min_balls]
         return sorted(eligible, key=lambda s: s.economy)[:top_n]
 

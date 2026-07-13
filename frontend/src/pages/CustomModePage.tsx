@@ -9,6 +9,11 @@ import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import { SimulationTypeToggle } from '@/components/ui/SimulationTypeToggle'
 import { FilterDropdown } from '@/components/ui/FilterDropdown'
+import { FormatBadge } from '@/components/ui/FormatBadge'
+import { RoleBadge } from '@/components/ui/RoleBadge'
+import { Headshot } from '@/components/ui/Avatar'
+import { BackButton } from '@/components/ui/BackButton'
+import { ConfirmRow } from '@/components/ui/ConfirmRow'
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import { sortTournamentNames } from '@/lib/sortTournamentNames'
 import type { Tournament, Team, Player, MultiplayerPlayer, PlayerFilterOptions } from '@/types'
@@ -17,65 +22,6 @@ type Step = 'tournament' | 'season' | 'team' | 'draft' | 'confirm'
 
 const STEPS: Step[] = ['tournament', 'season', 'team', 'draft', 'confirm']
 const STEP_LABELS = ['Tournament', 'Season', 'Team', 'Draft XI', 'Simulate']
-
-const FORMAT_BADGE_STYLES: Record<string, { bg: string; color: string }> = {
-  T20:  { bg: 'rgba(59,130,246,0.1)',  color: 'var(--accent)' },
-  ODI:  { bg: 'rgba(14,165,233,0.1)', color: '#0ea5e9' },
-  Test: { bg: 'rgba(245,158,11,0.1)', color: 'var(--score)' },
-}
-
-function FormatBadge({ format }: { format?: string | null }) {
-  if (!format) return null
-  const s = FORMAT_BADGE_STYLES[format] ?? { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }
-  return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold self-start" style={{ background: s.bg, color: s.color }}>
-      {format}
-    </span>
-  )
-}
-
-// ── Role helpers ───────────────────────────────────────────────────────────────
-
-const ROLE_STYLES: Record<string, { bg: string; color: string }> = {
-  'Batter':      { bg: 'rgba(59,130,246,0.12)',  color: 'var(--accent)' },
-  'Bowler':      { bg: 'rgba(249,115,22,0.12)', color: '#f97316' },
-  'All-rounder': { bg: 'rgba(14,165,233,0.12)', color: '#0ea5e9' },
-  'Keeper':      { bg: 'rgba(168,85,247,0.12)', color: '#a855f7' },
-}
-
-function RoleBadge({ role }: { role: string | null | undefined }) {
-  if (!role) return null
-  const s = ROLE_STYLES[role] ?? { bg: 'rgba(255,255,255,0.08)', color: 'var(--text-muted)' }
-  return (
-    <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0" style={{ background: s.bg, color: s.color }}>
-      {role}
-    </span>
-  )
-}
-
-// ── Headshot ──────────────────────────────────────────────────────────────────
-
-const AVATAR_COLORS = ['#00E5CC', '#F59E0B', '#0EA5E9', '#8B5CF6', '#EF4444', '#22C55E']
-
-function Headshot({ url, name, size = 32 }: { url: string | null | undefined; name: string; size?: number }) {
-  const [err, setErr] = useState(false)
-  const initials = name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
-  const color = AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length]
-  if (url && !err) {
-    return (
-      <img src={url} alt={name}
-        style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-        onError={() => setErr(true)}
-      />
-    )
-  }
-  return (
-    <div className="rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold"
-      style={{ width: size, height: size, background: `${color}22`, color, border: `1px solid ${color}44` }}>
-      {initials}
-    </div>
-  )
-}
 
 // ── Squad slot view ────────────────────────────────────────────────────────────
 
@@ -456,7 +402,7 @@ export function CustomModePage() {
         })
         .catch(() => setAllTeams([]))
         .finally(() => setLoadingTeams(false))
-    }).catch(() => {})
+    }).catch(err => console.warn('Failed to restore build from URL context', err))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -745,7 +691,7 @@ export function CustomModePage() {
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}>
                   <div className="flex flex-col gap-0.5">
                     <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{name}</span>
-                    <FormatBadge format={grouped[name][0]?.format} />
+                    <FormatBadge format={grouped[name][0]?.format} className="self-start" />
                   </div>
                   <span className="text-xs shrink-0" style={{ color: 'var(--text-dim)' }}>
                     {grouped[name].length} season{grouped[name].length > 1 ? 's' : ''}
@@ -866,19 +812,3 @@ export function CustomModePage() {
   )
 }
 
-function BackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button className="flex items-center gap-1 text-sm mb-5" style={{ color: 'var(--text-muted)' }} onClick={onClick}>
-      <ChevronLeft size={14} /> Back
-    </button>
-  )
-}
-
-function ConfirmRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{label}</span>
-      <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{value}</span>
-    </div>
-  )
-}

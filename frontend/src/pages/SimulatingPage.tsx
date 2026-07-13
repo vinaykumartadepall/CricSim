@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { X } from 'lucide-react'
-import { Spinner } from '@/components/ui/Spinner'
 import { api } from '@/api/client'
 import simulatingBg from '@/assets/simulating.png'
 import teamsIcon from '@/assets/icon-teams.png'
@@ -213,13 +212,9 @@ export function SimulatingPage() {
   const [errorMsg, setErrorMsg] = useState('')
   const [progress, setProgress] = useState<Progress | null>(null)
   const [queuePosition, setQueuePosition] = useState<number | null>(null)
-  // A single 1v1 match never gets tournament progress data (see
-  // get_tournament_progress) - simulation_type distinguishes it from a
-  // tournament explicitly instead, so the stadium/progress-ring treatment
-  // (built for the many-match tournament wait) doesn't get shown for what's
-  // actually a ~10-30s single-match wait. Defaults to the plain look until
-  // the first status poll resolves, rather than flashing the heavy
-  // stadium background for a sim that might turn out to be a quick match.
+  // Only drives the title text ("Simulating match…" vs "…tournament…") -
+  // content already differs naturally (matches never get tournament progress
+  // data, so they show the heartbeat spinner instead of the progress ring).
   const [simType, setSimType] = useState<'match' | 'tournament' | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -280,46 +275,42 @@ export function SimulatingPage() {
           focus. The gradient scrim is heavier at top/bottom (title, buttons)
           and lighter through the middle (progress ring, stat cards), so the
           stadium bowl behind the content is felt rather than just covered. */}
-      {simType === 'tournament' && (
-        <>
-          <div
-            className="fixed inset-0"
+      <div
+        className="fixed inset-0"
+        style={{
+          zIndex: 0,
+          backgroundImage: `url(${simulatingBg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          transform: 'scale(1.08)',
+        }}
+      />
+      <div
+        className="fixed inset-0"
+        style={{
+          zIndex: 0,
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 50%, rgba(0,0,0,0.85) 100%)',
+        }}
+      />
+      {/* Dust motes, faintly lit as if by the floodlights - subtle enough that
+          the screen feels alive even while progress is between polls. */}
+      <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 0, pointerEvents: 'none' }}>
+        {DUST_PARTICLES.map((p, i) => (
+          <span
+            key={i}
+            className="dust-particle"
             style={{
-              zIndex: 0,
-              backgroundImage: `url(${simulatingBg})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              transform: 'scale(1.08)',
-            }}
+              left: p.left,
+              width: p.size,
+              height: p.size,
+              animationDuration: `${p.duration}s`,
+              animationDelay: `${p.delay}s`,
+              '--dust-drift-x': `${p.driftX}px`,
+              '--dust-peak-opacity': p.peakOpacity,
+            } as CSSProperties}
           />
-          <div
-            className="fixed inset-0"
-            style={{
-              zIndex: 0,
-              background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 50%, rgba(0,0,0,0.85) 100%)',
-            }}
-          />
-          {/* Dust motes, faintly lit as if by the floodlights - subtle enough that
-              the screen feels alive even while progress is between polls. */}
-          <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 0, pointerEvents: 'none' }}>
-            {DUST_PARTICLES.map((p, i) => (
-              <span
-                key={i}
-                className="dust-particle"
-                style={{
-                  left: p.left,
-                  width: p.size,
-                  height: p.size,
-                  animationDuration: `${p.duration}s`,
-                  animationDelay: `${p.delay}s`,
-                  '--dust-drift-x': `${p.driftX}px`,
-                  '--dust-peak-opacity': p.peakOpacity,
-                } as CSSProperties}
-              />
-            ))}
-          </div>
-        </>
-      )}
+        ))}
+      </div>
 
       {status === 'failed' ? (
         <div className="relative max-w-md mx-auto px-4 py-16 text-center" style={{ zIndex: 1 }}>
@@ -329,7 +320,11 @@ export function SimulatingPage() {
           <button className="btn-outline" onClick={() => navigate('/')}>Back to home</button>
         </div>
       ) : (
-        <div className="relative flex flex-col items-center min-h-[calc(100vh-64px)] gap-3 px-4 py-10" style={{ zIndex: 1 }}>
+        /* Match sims have no progress cards/live updates, so without
+           justify-center the few elements clump at the top with a huge
+           empty stadium below - center them vertically instead. The
+           tournament view's taller content keeps flowing from the top. */
+        <div className={`relative flex flex-col items-center min-h-[calc(100vh-64px)] gap-3 px-4 py-10 ${progress ? '' : 'justify-center'}`} style={{ zIndex: 1 }}>
           <div className="text-base font-medium" style={{ color: 'var(--text)' }}>
             {simType === 'tournament' ? 'Simulating tournament…' : 'Simulating match…'}
           </div>
@@ -354,9 +349,21 @@ export function SimulatingPage() {
             </>
           ) : (
             <>
-              <div className="pulse-accent w-16 h-16 rounded-full flex items-center justify-center mt-1"
-                style={{ border: '2px solid var(--accent)' }}>
-                <Spinner size={28} />
+              {/* The original two-ring heartbeat (accent outer ring + spinning
+                  inner ring, accent-tinted fill so the center isn't a dark
+                  hole into the stadium), scaled up to the tournament
+                  ProgressRing's 136px footprint. Same treatment as the draft
+                  room's simulating screen, just bigger. */}
+              <div className="pulse-accent rounded-full mt-1 flex items-center justify-center"
+                style={{ width: 136, height: 136, background: 'var(--accent-tint)', border: '2px solid var(--accent)' }}>
+                <div
+                  className="spin rounded-full"
+                  style={{
+                    width: 56, height: 56,
+                    border: '4px solid var(--accent-tint)',
+                    borderTopColor: 'var(--accent)',
+                  }}
+                />
               </div>
               {queuePosition != null && queuePosition >= 1 ? (
                 <>
@@ -366,7 +373,9 @@ export function SimulatingPage() {
                   <div className="text-xs" style={{ color: 'var(--text-dim)' }}>Only one runs at a time, so results stay fast and predictable.</div>
                 </>
               ) : (
-                <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Running ball-by-ball. Takes 10–30 seconds.</div>
+                <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                  Running ball-by-ball. Takes {simType === 'tournament' ? '10–30' : '5–10'} seconds.
+                </div>
               )}
             </>
           )}

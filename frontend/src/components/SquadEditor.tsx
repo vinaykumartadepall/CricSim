@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowUpDown, X, ArrowUp, ArrowDown, ChevronLeft } from 'lucide-react'
+import { RoleBadge } from '@/components/ui/RoleBadge'
+import { Headshot } from '@/components/ui/Avatar'
 import type { Player, Team, SwapEntry } from '@/types'
 
 const COMPATIBLE: Record<string, string[]> = {
@@ -13,50 +15,6 @@ const COMPATIBLE: Record<string, string[]> = {
 function isCompatible(fromRole: string | null, toRole: string | null): boolean {
   if (!fromRole || !toRole) return true
   return (COMPATIBLE[fromRole] || []).includes(toRole)
-}
-
-function Headshot({ url, name, size = 32 }: { url: string | null; name: string; size?: number }) {
-  const [errored, setErrored] = useState(false)
-  const initials = name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
-  const colors = ['#00E5CC', '#F59E0B', '#0EA5E9', '#8B5CF6', '#EF4444', '#22C55E']
-  const color = colors[name.charCodeAt(0) % colors.length]
-
-  if (url && !errored) {
-    return (
-      <img
-        src={url}
-        alt={name}
-        width={size}
-        height={size}
-        className="rounded-full object-cover flex-shrink-0"
-        style={{ width: size, height: size }}
-        onError={() => setErrored(true)}
-      />
-    )
-  }
-  return (
-    <div
-      className="rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold"
-      style={{ width: size, height: size, background: color + '22', color, border: `1px solid ${color}44` }}
-    >
-      {initials}
-    </div>
-  )
-}
-
-function RoleBadge({ role }: { role: string | null }) {
-  if (!role) return null
-  const styles: Record<string, string> = {
-    'Batter':      'bg-blue-500/15 text-blue-400 border-blue-500/25',
-    'Keeper':      'bg-purple-500/15 text-purple-400 border-purple-500/25',
-    'All-rounder': 'bg-teal-500/15 text-teal-400 border-teal-500/25',
-    'Bowler':      'bg-orange-500/15 text-orange-400 border-orange-500/25',
-  }
-  return (
-    <span className={`text-xs px-1.5 py-0.5 rounded border ${styles[role] || 'bg-gray-500/15 text-gray-400'}`}>
-      {role}
-    </span>
-  )
 }
 
 function OverseasBadge({ faded }: { faded?: boolean }) {
@@ -126,6 +84,16 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
   const swappedOutIds = new Set(swaps.map(s => s.player_out_id))
   const opponents = allTeams.filter(t => t.team_id !== userTeamId)
   const teamsWithSwap = new Set(swaps.map(s => s.from_team_id))
+
+  // game_sessions persists swaps as IDs only, so entries restored via "Try
+  // Again" arrive without the display-only name fields - resolve them from
+  // the rosters instead of trusting the entry.
+  const playerNameById = useMemo(() => {
+    const m = new Map<number, string>()
+    for (const t of allTeams) for (const p of t.players) m.set(p.player_id, p.player_name)
+    for (const p of squad) m.set(p.player_id, p.player_name)
+    return m
+  }, [allTeams, squad])
 
   const activeTeam = opponents.find(t => t.team_id === activeTeamId) ?? opponents[0] ?? null
 
@@ -508,9 +476,9 @@ export function SquadEditor({ squad, allTeams, userTeamId, maxSwaps, swaps, onSw
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
                 style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)' }}
               >
-                <span style={{ color: 'var(--loss)' }}>{s.player_out_name}</span>
+                <span style={{ color: 'var(--loss)' }}>{s.player_out_name ?? playerNameById.get(s.player_out_id) ?? '?'}</span>
                 <span style={{ color: 'var(--text-dim)' }}>→</span>
-                <span style={{ color: 'var(--win)' }}>{s.player_in_name}</span>
+                <span style={{ color: 'var(--win)' }}>{s.player_in_name ?? playerNameById.get(s.player_in_id) ?? '?'}</span>
                 <button onClick={() => removeSwap(s.player_out_id)} style={{ color: 'var(--text-dim)' }}>
                   <X size={10} />
                 </button>

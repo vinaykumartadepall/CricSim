@@ -3,10 +3,11 @@ Tests for GET /multiplayer/players and GET /multiplayer/player-filters
 (api/routes/multiplayer.py) - the player search filters (role, country,
 batting/bowling style) that replaced the old keeper_only-only toggle.
 
-No live DB connection required - get_db_connection is monkeypatched with a
-fake connection/cursor that records executed SQL/params and returns canned
-rows.
+No live DB connection required - db_cursor is monkeypatched with a fake
+cursor that records executed SQL/params and returns canned rows.
 """
+from contextlib import contextmanager
+
 from fastapi.testclient import TestClient
 
 import api.routes.multiplayer as mp_routes
@@ -30,22 +31,18 @@ class _FakeCursor:
         pass
 
 
-class _FakeConn:
-    def __init__(self, cursor):
-        self._cursor = cursor
-
-    def cursor(self):
-        return self._cursor
-
-    def close(self):
-        pass
+def _fake_db_cursor(cur):
+    @contextmanager
+    def _cm(*args, **kwargs):
+        yield cur
+    return _cm
 
 
 class TestSearchPlayers:
 
     def test_applies_role_country_and_style_filters(self, monkeypatch):
         cur = _FakeCursor(rows=[])
-        monkeypatch.setattr(mp_routes, "get_db_connection", lambda *a, **kw: _FakeConn(cur))
+        monkeypatch.setattr(mp_routes, "db_cursor", _fake_db_cursor(cur))
 
         resp = TestClient(app).get(
             "/cricsimapi/multiplayer/players",
@@ -69,7 +66,7 @@ class TestSearchPlayers:
 
     def test_no_filters_omits_filter_clauses(self, monkeypatch):
         cur = _FakeCursor(rows=[])
-        monkeypatch.setattr(mp_routes, "get_db_connection", lambda *a, **kw: _FakeConn(cur))
+        monkeypatch.setattr(mp_routes, "db_cursor", _fake_db_cursor(cur))
 
         resp = TestClient(app).get("/cricsimapi/multiplayer/players", params={"q": "kohli"})
 
@@ -83,7 +80,7 @@ class TestSearchPlayers:
     def test_response_includes_country(self, monkeypatch):
         rows = [(1, "V Kohli", "Batter", "Right-hand bat", None, 253802, False, "India")]
         cur = _FakeCursor(rows=rows)
-        monkeypatch.setattr(mp_routes, "get_db_connection", lambda *a, **kw: _FakeConn(cur))
+        monkeypatch.setattr(mp_routes, "db_cursor", _fake_db_cursor(cur))
 
         resp = TestClient(app).get("/cricsimapi/multiplayer/players", params={"q": "kohli"})
 
@@ -116,7 +113,7 @@ class TestPlayerFilterOptions:
                 return result
 
         cur = _SequencedCursor()
-        monkeypatch.setattr(mp_routes, "get_db_connection", lambda *a, **kw: _FakeConn(cur))
+        monkeypatch.setattr(mp_routes, "db_cursor", _fake_db_cursor(cur))
 
         resp = TestClient(app).get("/cricsimapi/multiplayer/player-filters")
 

@@ -60,9 +60,10 @@ export interface SwapEntry {
   player_out_id: number
   player_in_id: number
   from_team_id: number
-  // display only
-  player_out_name: string
-  player_in_name: string
+  // Display only - absent on entries restored from game_sessions (only IDs
+  // are persisted); SquadEditor resolves missing names from the rosters.
+  player_out_name?: string
+  player_in_name?: string
 }
 
 export interface SimSummary {
@@ -79,6 +80,17 @@ export interface SimSummary {
   user_team_placement?: string | null
   match_id?: number | null
   match_format?: string | null
+}
+
+// Admin data view: SimSummary plus owner/diagnostic fields (admin-only endpoint)
+export interface AdminSimRow extends SimSummary {
+  client_id?: string | null
+  error_message?: string | null
+}
+
+export interface AdminSimListResponse {
+  simulations: AdminSimRow[]
+  total: number
 }
 
 export interface PointsTableRow {

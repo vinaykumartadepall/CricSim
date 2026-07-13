@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom'
 import { Trophy, TrendingUp, Swords, Star, RotateCcw, ChevronRight, ChevronLeft, X, Search, Users } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
 import { ShareButton } from '@/components/ui/ShareButton'
+import { RoleBadge } from '@/components/ui/RoleBadge'
+import { PlayerAvatar } from '@/components/ui/Avatar'
 import { PlayoffBracket } from '@/components/PlayoffBracket'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
@@ -174,46 +176,6 @@ const LB_KEY_TO_API: Record<string, string> = {
 
 const PAGE_SIZE = 50
 
-// ── Player avatar ─────────────────────────────────────────────────────────────
-
-function PlayerAvatar({ name, size = 44 }: { name: string; size?: number }) {
-  const initials = name.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase()
-  const COLORS = ['#0EA5E9', '#F97316', '#22C55E', '#F59E0B', '#8B5CF6', '#EF4444', '#EC4899', '#14B8A6']
-  const color = COLORS[name.charCodeAt(0) % COLORS.length]
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      background: `${color}1A`, color, border: `1.5px solid ${color}55`,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: Math.round(size * 0.36), fontWeight: 700, flexShrink: 0, letterSpacing: '-0.5px',
-    }}>
-      {initials}
-    </div>
-  )
-}
-
-// ── Role badge ────────────────────────────────────────────────────────────────
-
-function RoleBadge({ role }: { role: string | null }) {
-  if (!role) return null
-  const r = role.toLowerCase()
-  const [bg, color] =
-    r.includes('bowl') ? ['rgba(239,68,68,0.12)', '#ef4444'] :
-    r.includes('all')  ? ['rgba(14,165,233,0.12)', '#0ea5e9'] :
-    r.includes('keep') ? ['rgba(245,158,11,0.12)', 'var(--score)'] :
-                         ['rgba(34,197,94,0.12)', '#22c55e']
-  const label =
-    r.includes('bowl') ? 'BWL' :
-    r.includes('all')  ? 'AR' :
-    r.includes('keep') ? 'WK' : 'BAT'
-  return (
-    <span className="text-[10px] px-1 py-px rounded font-semibold shrink-0"
-      style={{ background: bg, color }}>
-      {label}
-    </span>
-  )
-}
-
 // ── Team XI preview panel ─────────────────────────────────────────────────────
 
 type LineupPlayer = {
@@ -274,7 +236,7 @@ function TeamPreviewPanel({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{p.player_name}</span>
-                  <RoleBadge role={p.player_role} />
+                  <RoleBadge role={p.player_role} compact />
                 </div>
                 <div className="flex items-center gap-2 mt-0.5" style={{ fontSize: 11, color: 'var(--text-dim)' }}>
                   <span>{p.runs} runs</span>
@@ -632,7 +594,8 @@ export function ResultsPage() {
         setLeaderboards(lb)
         setMatches(m)
         // Pre-fetch lineups for team preview on points-table click
-        api.getLineups(simId!).then(l => { if (!cancelled) setLineupTeams(l.teams) }).catch(() => {/* non-critical */})
+        api.getLineups(simId!).then(l => { if (!cancelled) setLineupTeams(l.teams) })
+          .catch(err => console.warn('Team lineups unavailable (non-critical)', err))
       } catch { /* transient error - user can refresh */ }
     }
     checkAndLoad()

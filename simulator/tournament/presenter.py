@@ -17,6 +17,10 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from simulator.presentation.colors import rgb, bg, bold, dim, hdr, sep, section_hdr
+from simulator.tournament.leaderboards import (
+    MIN_BALLS_FOR_BOWLING_RATE_BOARDS,
+    MIN_RUNS_FOR_BATTING_RATE_BOARDS,
+)
 
 if TYPE_CHECKING:
     from simulator.tournament.config import TournamentConfig, TeamConfig
@@ -91,11 +95,11 @@ class Presenter:
         self._batting_table("Highest Individual Scores",
                              boards.highest_score(10),
                              ["HS", "Runs", "Inn", "SR"])
-        self._batting_table("Best Batting Average (min 3 dismissals)",
-                             boards.best_batting_average(min_innings=3, top_n=10),
+        self._batting_table(f"Best Batting Average (min {MIN_RUNS_FOR_BATTING_RATE_BOARDS} runs)",
+                             boards.best_batting_average(top_n=10),
                              ["Avg", "Runs", "Inn", "SR"])
-        self._batting_table("Best Strike Rate (min 50 balls)",
-                             boards.best_strike_rate(min_balls=50, top_n=10),
+        self._batting_table(f"Best Strike Rate (min {MIN_RUNS_FOR_BATTING_RATE_BOARDS} runs)",
+                             boards.best_strike_rate(top_n=10),
                              ["SR", "Runs", "Balls"])
         self._batting_table("Most Sixes", boards.most_sixes(10), ["6s", "Runs", "SR"])
         self._batting_table("Most Fours", boards.most_fours(10), ["4s", "Runs", "SR"])
@@ -103,11 +107,11 @@ class Presenter:
         self._bowling_table("Most Wickets",
                              boards.most_wickets(10),
                              ["Wkts", "Runs", "Overs", "Avg", "Eco", "BB"])
-        self._bowling_table("Best Bowling Average (min 5 wickets)",
-                             boards.best_bowling_average(min_wickets=5, top_n=10),
+        self._bowling_table(f"Best Bowling Average (min {MIN_BALLS_FOR_BOWLING_RATE_BOARDS} balls)",
+                             boards.best_bowling_average(top_n=10),
                              ["Avg", "Wkts", "Runs", "Eco"])
-        self._bowling_table("Best Economy (min 10 overs)",
-                             boards.best_economy(min_balls=60, top_n=10),
+        self._bowling_table(f"Best Economy (min {MIN_BALLS_FOR_BOWLING_RATE_BOARDS} balls)",
+                             boards.best_economy(top_n=10),
                              ["Eco", "Wkts", "Overs", "Avg"])
 
     def _batting_table(self, title: str, rows: List["BatterStats"], cols: List[str]) -> None:

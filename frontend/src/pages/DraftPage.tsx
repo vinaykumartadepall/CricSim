@@ -7,6 +7,9 @@ import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { FilterDropdown } from '@/components/ui/FilterDropdown'
 import { ShareButton } from '@/components/ui/ShareButton'
+import { FormatBadge } from '@/components/ui/FormatBadge'
+import { RoleBadge } from '@/components/ui/RoleBadge'
+import { Headshot } from '@/components/ui/Avatar'
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import type { MultiplayerPlayer, PlayerFilterOptions, RoomState } from '@/types'
 
@@ -24,75 +27,12 @@ const SEARCH_DEBOUNCE_MS = 300
 const PICK_TIMER_TOTAL   = 60
 const PING_INTERVAL_MS   = 30_000
 
-// Same palette as FunModePage/ChallengeModePage/CustomModePage/SimCard's
-// FormatBadge - match format was only ever shown as plain text here, with
-// no color at all to distinguish T20/ODI/Test.
-const FORMAT_BADGE_STYLES: Record<string, { bg: string; color: string }> = {
-  T20:  { bg: 'rgba(59,130,246,0.1)', color: 'var(--accent)' },
-  ODI:  { bg: 'rgba(14,165,233,0.1)', color: '#0ea5e9' },
-  Test: { bg: 'rgba(245,158,11,0.1)', color: 'var(--score)' },
-}
-
-function FormatBadge({ format }: { format?: string | null }) {
-  if (!format) return null
-  const s = FORMAT_BADGE_STYLES[format] ?? { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }
-  return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold" style={{ background: s.bg, color: s.color }}>
-      {format}
-    </span>
-  )
-}
-
-// ── Avatar ────────────────────────────────────────────────────────────────────
-
-const AVATAR_COLORS = ['#00E5CC', '#F59E0B', '#0EA5E9', '#8B5CF6', '#EF4444', '#22C55E']
-
-function Headshot({ url, name, size = 32 }: { url: string | null | undefined; name: string | null | undefined; size?: number }) {
-  const [errored, setErrored] = useState(false)
-  const safeName = name || '?'
-  const initials = safeName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
-  const color = AVATAR_COLORS[safeName.charCodeAt(0) % AVATAR_COLORS.length]
-  if (url && !errored) {
-    return (
-      <img src={url} alt={safeName} width={size} height={size}
-        className="rounded-full object-cover flex-shrink-0"
-        style={{ width: size, height: size }}
-        onError={() => setErrored(true)}
-      />
-    )
-  }
-  return (
-    <div className="rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold"
-      style={{ width: size, height: size, background: `${color}22`, color, border: `1px solid ${color}44` }}>
-      {initials}
-    </div>
-  )
-}
-
-// ── Role badge ────────────────────────────────────────────────────────────────
-
-function RoleBadge({ role }: { role: string | null | undefined }) {
-  if (!role) return null
-  const styles: Record<string, { bg: string; color: string }> = {
-    'Batter':      { bg: 'rgba(59,130,246,0.12)',   color: 'var(--accent)' },
-    'Bowler':      { bg: 'rgba(249,115,22,0.12)',  color: '#f97316' },
-    'All-rounder': { bg: 'rgba(14,165,233,0.12)',  color: '#0ea5e9' },
-    'Keeper':      { bg: 'rgba(245,158,11,0.12)',   color: 'var(--score)' },
-  }
-  const s = styles[role] ?? { bg: 'rgba(255,255,255,0.08)', color: 'var(--text-muted)' }
-  return (
-    <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0" style={{ background: s.bg, color: s.color }}>
-      {role}
-    </span>
-  )
-}
-
 // ── Copy button ───────────────────────────────────────────────────────────────
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
   function copy() {
-    navigator.clipboard.writeText(text).catch(() => {})
+    navigator.clipboard.writeText(text).catch(err => console.warn('Clipboard copy failed', err))
     setCopied(true); setTimeout(() => setCopied(false), 1800)
   }
   return (
@@ -1098,7 +1038,7 @@ export function DraftPage() {
           <div>
             <div className="text-xl font-bold mb-2" style={{ color: 'var(--text)' }}>Simulating…</div>
             <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-              Running ball-by-ball. Takes 10–30 seconds.
+              Running ball-by-ball. Takes {room.mode === '1v1' ? '5–10' : '10–30'} seconds.
             </div>
           </div>
         </div>

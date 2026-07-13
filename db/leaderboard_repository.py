@@ -9,6 +9,11 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import List, Tuple
 
+from simulator.tournament.leaderboards import (
+    MIN_BALLS_FOR_BOWLING_RATE_BOARDS,
+    MIN_RUNS_FOR_BATTING_RATE_BOARDS,
+)
+
 # ── Sort-column whitelists (prevent SQL injection via column-name interpolation) ──
 
 _BATTING_SORT = {
@@ -156,7 +161,8 @@ class LeaderboardRepository:
         # runs - a single big hit can otherwise top the board. Qualification
         # thresholds only apply to these two; counting stats (most runs/sixes/
         # fours) have no such distortion and are left unfiltered.
-        qualify = "WHERE runs >= 50" if leaderboard in ('best-batting-average', 'best-strike-rate') else ""
+        qualify = (f"WHERE runs >= {MIN_RUNS_FOR_BATTING_RATE_BOARDS}"
+                   if leaderboard in ('best-batting-average', 'best-strike-rate') else "")
         sql = f"""
         WITH {_INNING_BATTING_CTE}, {_BATTING_AGG_CTE}
         SELECT *, COUNT(*) OVER () AS total_count
@@ -213,7 +219,8 @@ class LeaderboardRepository:
         sort_col, sort_dir = _BOWLING_SORT[leaderboard]
         # Same reasoning as batting_aggregate's qualify: economy/average off a
         # handful of balls is noise, so only these two rate stats get a floor.
-        qualify = "WHERE total_balls >= 30" if leaderboard in ('best-bowling-average', 'best-economy') else ""
+        qualify = (f"WHERE total_balls >= {MIN_BALLS_FOR_BOWLING_RATE_BOARDS}"
+                   if leaderboard in ('best-bowling-average', 'best-economy') else "")
         sql = f"""
         WITH {_INNING_BOWLING_CTE}
         SELECT

@@ -7,27 +7,14 @@ import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import { SimulationTypeToggle } from '@/components/ui/SimulationTypeToggle'
+import { FormatBadge } from '@/components/ui/FormatBadge'
+import { BackButton } from '@/components/ui/BackButton'
+import { ConfirmRow } from '@/components/ui/ConfirmRow'
 import { SquadEditor } from '@/components/SquadEditor'
 import { sortTournamentNames } from '@/lib/sortTournamentNames'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest } from '@/types'
 
 type Step = 'tournament' | 'season' | 'team' | 'squad' | 'confirm'
-
-const FORMAT_BADGE_STYLES: Record<string, { bg: string; color: string }> = {
-  T20:  { bg: 'rgba(59,130,246,0.1)',  color: 'var(--accent)' },
-  ODI:  { bg: 'rgba(14,165,233,0.1)', color: '#0ea5e9' },
-  Test: { bg: 'rgba(245,158,11,0.1)', color: 'var(--score)' },
-}
-
-function FormatBadge({ format }: { format?: string | null }) {
-  if (!format) return null
-  const s = FORMAT_BADGE_STYLES[format] ?? { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-dim)' }
-  return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold self-start" style={{ background: s.bg, color: s.color }}>
-      {format}
-    </span>
-  )
-}
 
 
 const FUN_STEP_SLIDE: Partial<Record<Step, number>> = {
@@ -71,7 +58,7 @@ export function FunModePage() {
   useEffect(() => {
     api.getSimHistoryNameCounts(clientId)
       .then(data => setNameCounts(new Map(data.map(r => [r.name, r]))))
-      .catch(() => {/* non-critical */})
+      .catch(err => console.warn('Sim-history name counts unavailable (non-critical)', err))
   }, [clientId])
 
   // Keeps the URL as the durable record of "where am I" (season + team + step)
@@ -150,7 +137,7 @@ export function FunModePage() {
             }
           })
       })
-      .catch(() => {})
+      .catch(err => console.warn('Failed to restore previous run for Try Again', err))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -183,7 +170,7 @@ export function FunModePage() {
         else if (team) setStep('squad')
         else setStep('team')
       })
-    }).catch(() => {})
+    }).catch(err => console.warn('Failed to restore build from URL context', err))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -233,7 +220,7 @@ export function FunModePage() {
     if (ids.length > 0) {
       api.getSimHistorySeasonCounts(clientId, ids)
         .then(data => setSeasonCounts(new Map(data.map(r => [r.tournament_id, r]))))
-        .catch(() => {/* non-critical */})
+        .catch(err => console.warn('Sim-history season counts unavailable (non-critical)', err))
     }
   }
 
@@ -403,7 +390,7 @@ export function FunModePage() {
                     <div className="flex flex-col gap-0.5">
                       <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{name}</span>
                       <div className="flex items-center gap-1.5">
-                        <FormatBadge format={grouped[name][0]?.format} />
+                        <FormatBadge format={grouped[name][0]?.format} className="self-start" />
                         {hist && (
                           <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-dim)' }}>
                             {hist.completed}/{hist.total} complete
@@ -449,7 +436,7 @@ export function FunModePage() {
                   <div className="flex flex-col gap-0.5">
                     <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{s.season} Season</span>
                     <div className="flex items-center gap-1.5">
-                      <FormatBadge format={s.format} />
+                      <FormatBadge format={s.format} className="self-start" />
                       {total > 0 && (
                         <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-dim)' }}>
                           {completed}/{total} complete
@@ -566,15 +553,15 @@ export function FunModePage() {
           <div className="text-xl font-semibold mb-5" style={{ color: 'var(--text)' }}>Ready to simulate</div>
 
           <div className="card p-5 mb-6 space-y-3">
-            <Row label="Tournament" value={`${tournamentName} ${selectedSeason?.season}`} />
-            <Row label="Team" value={selectedTeam?.team_name ?? 'No preference'} />
+            <ConfirmRow label="Tournament" value={`${tournamentName} ${selectedSeason?.season}`} />
+            <ConfirmRow label="Team" value={selectedTeam?.team_name ?? 'No preference'} />
             {selectedTeam && (
-              <Row
+              <ConfirmRow
                 label="Trades"
                 value={swaps.length === 0 ? 'None' : `${swaps.length} trade${swaps.length !== 1 ? 's' : ''}`}
               />
             )}
-            <Row label="Mode" value="Fun Mode" accent />
+            <ConfirmRow label="Mode" value="Fun Mode" accentColor="var(--accent)" />
           </div>
 
           <div className="mb-6">
@@ -602,25 +589,3 @@ export function FunModePage() {
   )
 }
 
-function BackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      className="flex items-center gap-1 text-sm mb-5"
-      style={{ color: 'var(--text-muted)' }}
-      onClick={onClick}
-    >
-      <ChevronLeft size={14} /> Back
-    </button>
-  )
-}
-
-function Row({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{label}</span>
-      <span className="text-sm font-medium" style={{ color: accent ? 'var(--accent)' : 'var(--text)' }}>
-        {value}
-      </span>
-    </div>
-  )
-}

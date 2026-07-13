@@ -571,6 +571,8 @@ def _format_commentary_text(
                 dismissal = f"caught by {outcome_player}, bowled {bowler}"
             else:
                 dismissal = f"caught and bowled {bowler}"
+        elif kind in ("caught and bowled", "c and b"):
+            dismissal = f"caught and bowled {bowler}"
         elif kind == "bowled":
             dismissal = f"bowled by {bowler}"
         elif kind == "lbw":

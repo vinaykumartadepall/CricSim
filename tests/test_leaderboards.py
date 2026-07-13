@@ -211,3 +211,41 @@ def test_bowler_economy():
 def test_bowler_best_figures_string():
     s = BowlerStats(1, "B", "T", best_wickets=3, best_runs=22)
     assert s.best_figures == "3/22"
+
+# ── Qualification thresholds (shared with SQL leaderboards) ────────────────────
+
+def test_rate_board_thresholds_match_product_values():
+    # 50 runs / 30 balls are the product-facing floors; the SQL leaderboards in
+    # db/leaderboard_repository.py interpolate these same constants.
+    from simulator.tournament.leaderboards import (
+        MIN_BALLS_FOR_BOWLING_RATE_BOARDS,
+        MIN_RUNS_FOR_BATTING_RATE_BOARDS,
+    )
+    assert MIN_RUNS_FOR_BATTING_RATE_BOARDS == 50
+    assert MIN_BALLS_FOR_BOWLING_RATE_BOARDS == 30
+
+
+def test_batting_rate_boards_require_50_runs_by_default():
+    lb = TournamentLeaderboards()
+    p1 = _make_player(1, "Cameo")     # 49 runs - below floor
+    p2 = _make_player(2, "Anchor")    # 50 runs - qualifies
+    ip1 = _make_inning_player(1, "Cameo",  runs=49, balls=20)
+    ip2 = _make_inning_player(2, "Anchor", runs=50, balls=60)
+    m = _make_match([p1, p2], [], [_make_inning([ip1, ip2], [])])
+    lb.add_match(m, "TeamA", "TeamB")
+
+    for board in (lb.best_batting_average(), lb.best_strike_rate()):
+        assert [s.player_id for s in board] == [2]
+
+
+def test_bowling_rate_boards_require_30_balls_by_default():
+    lb = TournamentLeaderboards()
+    p1 = _make_player(1, "PartTimer")  # 29 balls - below floor
+    p2 = _make_player(2, "Frontline")  # 30 balls - qualifies
+    bp1 = _make_inning_player(1, "PartTimer", balls_bowled=29, runs_conceded=10, wickets=2)
+    bp2 = _make_inning_player(2, "Frontline", balls_bowled=30, runs_conceded=40, wickets=1)
+    m = _make_match([], [p1, p2], [_make_inning([], [bp1, bp2])])
+    lb.add_match(m, "TeamA", "TeamB")
+
+    for board in (lb.best_bowling_average(), lb.best_economy()):
+        assert [s.player_id for s in board] == [2]

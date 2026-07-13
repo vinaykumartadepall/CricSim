@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { ChevronLeft, ChevronDown, ChevronUp, Users } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
 import { ShareButton } from '@/components/ui/ShareButton'
+import { PlayerAvatar } from '@/components/ui/Avatar'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
 import type { Scorecard, Innings } from '@/types'
@@ -80,34 +81,6 @@ interface Commentary {
   match_format: string | null
   overs_per_innings: number | null
   deliveries: DeliveryItem[]
-}
-
-// ── Player avatar (initials fallback - scorecard has no headshot_url) ────────
-
-function PlayerAvatar({ name, url, size = 40 }: { name: string; url?: string | null; size?: number }) {
-  const [imgError, setImgError] = useState(false)
-  const initials = name.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase()
-  const COLORS = ['#0EA5E9', '#F97316', '#22C55E', '#F59E0B', '#8B5CF6', '#EF4444', '#EC4899', '#14B8A6']
-  const color = COLORS[name.charCodeAt(0) % COLORS.length]
-  if (url && !imgError) {
-    return (
-      <img
-        src={url} alt={name}
-        onError={() => setImgError(true)}
-        style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-      />
-    )
-  }
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      background: `${color}1A`, color, border: `1.5px solid ${color}55`,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: Math.round(size * 0.36), fontWeight: 700, flexShrink: 0, letterSpacing: '-0.5px',
-    }}>
-      {initials}
-    </div>
-  )
 }
 
 // ── Per-innings display context (no hardcoded inning numbers in card) ─────────
@@ -942,7 +915,10 @@ export function MatchDetailPage() {
     const clientId = getClientId()
     Promise.all([
       api.getMatchScorecard(simId, mid, clientId).catch(() => api.getSimScorecard(simId, clientId)),
-      api.getMatchCommentary(simId, mid).catch(() => api.getSimCommentary(simId)).catch(() => null),
+      api.getMatchCommentary(simId, mid).catch(() => api.getSimCommentary(simId)).catch(err => {
+        console.warn('Commentary unavailable for this match', err)
+        return null
+      }),
     ]).then(([sc, comm]) => {
       setScorecard(sc as Scorecard)
       if (comm) setCommentary(comm as unknown as Commentary)

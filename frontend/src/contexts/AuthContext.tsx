@@ -104,9 +104,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setDisplayName(nameToUse)
         // Migrate anonymous history in the background
         if (prevAnonId && prevAnonId !== u.id) {
-          api.linkAnonymous(prevAnonId).catch(() => {})
+          api.linkAnonymous(prevAnonId).catch(err =>
+            console.warn('Failed to link anonymous simulations to signed-in account', err))
         }
-      } catch {
+      } catch (err) {
+        console.warn('Failed to upsert auth profile (display name kept locally)', err)
         setDisplayName(nameToUse)
       }
     }

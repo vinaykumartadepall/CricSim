@@ -70,7 +70,8 @@ export function HomePage() {
   }
 
   useEffect(() => {
-    api.getTotalSimulations().then(d => setTotal(d.total)).catch(() => {})
+    api.getTotalSimulations().then(d => setTotal(d.total))
+      .catch(err => console.warn('Total simulations count unavailable (non-critical)', err))
   }, [])
 
   const seasonList = useMemo(() => {
