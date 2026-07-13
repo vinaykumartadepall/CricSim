@@ -1,4 +1,4 @@
-import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse } from '@/types'
+import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse, AdminSimListResponse } from '@/types'
 import { supabase } from '@/lib/supabase'
 
 const BASE = '/cricsimapi'
@@ -48,10 +48,10 @@ async function authPost<T>(path: string, body: unknown): Promise<T> {
   return res.json()
 }
 
-async function put<T>(path: string, body: unknown): Promise<T> {
+async function authPut<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(body),
   })
   if (!res.ok) {
@@ -195,18 +195,22 @@ export const api = {
     get<RoomState>(`/multiplayer/rooms/${roomId}`),
 
   // ── Admin endpoints (ops-only page, not linked from main nav) ───────────────
+  // Require a Supabase JWT belonging to a user in the backend's ADMIN_USER_IDS.
 
   getAdminSettings: () =>
-    get<AdminSettings>('/admin/settings'),
+    authGet<AdminSettings>('/admin/settings'),
 
   setLogLevel: (level: string) =>
-    put<{ level: string }>('/admin/log-level', { level }),
+    authPut<{ level: string }>('/admin/log-level', { level }),
 
   setCacheStrategy: (strategy: string) =>
-    put<AdminCacheStrategyResponse>('/admin/cache-strategy', { strategy }),
+    authPut<AdminCacheStrategyResponse>('/admin/cache-strategy', { strategy }),
 
   setSimulationDefaults: (body: { outcome_strategy?: string; bowling_strategy?: string }) =>
-    put<AdminSimulationDefaultsResponse>('/admin/simulation-defaults', body),
+    authPut<AdminSimulationDefaultsResponse>('/admin/simulation-defaults', body),
+
+  getAdminSimulations: (limit = 50, offset = 0) =>
+    authGet<AdminSimListResponse>(`/admin/data/simulations?limit=${limit}&offset=${offset}`),
 }
 
 export type { SwapEntry }

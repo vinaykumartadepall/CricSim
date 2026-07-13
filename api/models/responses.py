@@ -28,6 +28,19 @@ class SimSummaryItem(BaseModel):
     match_format: Optional[str] = None
 
 
+# ── /admin/data ────────────────────────────────────────────────────────────────
+
+class AdminSimRow(SimSummaryItem):
+    """SimSummaryItem plus owner/diagnostic fields only the admin view returns."""
+    client_id: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+class AdminSimListResponse(BaseModel):
+    simulations: List[AdminSimRow]
+    total: int
+
+
 # ── /result ────────────────────────────────────────────────────────────────────
 
 class MatchResultResponse(BaseModel):

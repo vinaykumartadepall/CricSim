@@ -550,8 +550,22 @@ class SimulationRepository:
         row = self._dict_cur.fetchone()
         return dict(row) if row else None
 
-    def list_simulations(self, limit: int = 50, offset: int = 0, client_id: str | None = None) -> List[dict]:
-        """Return enriched simulation summaries for the home page cards."""
+    def list_simulations(self, limit: int = 50, offset: int = 0, client_id: str | None = None,
+                         admin_view: bool = False) -> List[dict]:
+        """Return enriched simulation summaries for the home page cards.
+
+        admin_view=True (admin data endpoint only): additionally returns each
+        sim's owner client_id, error_message and a total_count window column,
+        includes failed simulations, and resolves the game session against the
+        sim's own owner instead of the caller. Combined with client_id=None it
+        lists every user's simulations - the public route must always pass a
+        concrete client_id.
+        """
+        admin_cols = (
+            ",\n s.client_id, s.error_message, COUNT(*) OVER() AS total_count"
+            if admin_view else ""
+        )
+        failed_filter = "" if admin_view else "AND s.status != 'failed'"
         self._dict_cur.execute(
             f"""
             SELECT
@@ -576,17 +590,18 @@ class SimulationRepository:
                     SELECT m.match_id FROM simulation.matches m WHERE m.sim_id = s.sim_id LIMIT 1
                 ) END                                      AS match_id,
                 COALESCE(t.format, s.config->>'match_format') AS match_format
+                {admin_cols}
             FROM simulation.simulations s
             LEFT JOIN simulation.tournaments t   ON t.sim_id   = s.sim_id
             LEFT JOIN simulation.game_sessions gs ON gs.sim_id  = s.sim_id
-                                                 AND gs.client_id = %s
+                                                 AND gs.client_id = COALESCE(%s, s.client_id)
             LEFT JOIN simulation.teams        ut  ON ut.team_id = gs.user_team_id
             {_FINAL_LATERAL}
             LEFT JOIN simulation.teams wt ON wt.team_id = mf.winner_id
             {_PLAYOFF_LATERAL}
             {_MATCH_LATERAL}
             WHERE (%s IS NULL OR s.client_id = %s OR %s = ANY(s.participant_ids))
-              AND s.status != 'failed'
+              {failed_filter}
             ORDER BY s.created_at DESC
             LIMIT %s OFFSET %s
             """,

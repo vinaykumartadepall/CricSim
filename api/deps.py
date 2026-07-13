@@ -5,7 +5,9 @@ from typing import Optional
 
 import jwt as pyjwt
 from jwt import PyJWKClient
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
+
+from simulator.logger import get_logger
 
 # Module-level singleton - fetches JWKS once, then caches signing keys.
 # PyJWKClient automatically re-fetches when it encounters an unknown kid.
@@ -49,4 +51,22 @@ def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
     user_id: str | None = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Token missing sub claim")
+    return user_id
+
+
+def _admin_user_ids() -> set:
+    # Read per-request (cheap) so tests can set the env var without reloads.
+    return set(filter(None, (os.getenv("ADMIN_USER_IDS") or "").split(",")))
+
+
+def require_admin_user(user_id: str = Depends(get_current_user_id)) -> str:
+    """
+    FastAPI dependency for admin routes: the verified JWT's user must be listed
+    in ADMIN_USER_IDS (comma-separated Supabase user UUIDs). Fails closed - an
+    unset/empty env var means nobody has admin access, so a deploy that drops
+    the var disables admin routes instead of opening them.
+    """
+    if user_id not in _admin_user_ids():
+        get_logger().warning("Rejected admin access attempt by user %s", user_id)
+        raise HTTPException(status_code=403, detail="Forbidden")
     return user_id

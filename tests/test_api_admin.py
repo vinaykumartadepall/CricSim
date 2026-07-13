@@ -4,7 +4,14 @@ Tests for api/routes/admin.py using FastAPI's TestClient.
 No live DB connection required - these routes only touch in-process state
 (simulator.logger's level, db.stats_repository's cache strategy,
 simulator.admin_settings' simulation defaults), none of which need Postgres.
+
+Admin routes require a verified Supabase JWT belonging to a user listed in
+ADMIN_USER_IDS (api/deps.py::require_admin_user). The client fixture bypasses
+the JWT-verification step via dependency_overrides and grants the test user
+admin rights through the env var, which the guard reads per-request.
 """
+import os
+
 import pytest
 
 import db.stats_repository as sr_mod
@@ -13,15 +20,28 @@ from fastapi.testclient import TestClient
 from simulator.admin_settings import get_admin_settings
 from simulator.logger import get_current_log_level, set_log_level
 
+from api.deps import get_current_user_id
 from api.main import app
+
+_TEST_ADMIN_ID = "test-admin-uuid"
 
 
 @pytest.fixture(scope="module")
 def client():
     # Use as a context manager so FastAPI's lifespan (configure_logger, which
     # attaches the RotatingFileHandler that /admin/log-level reads/writes) runs.
-    with TestClient(app) as c:
-        yield c
+    prev_env = os.environ.get("ADMIN_USER_IDS")
+    os.environ["ADMIN_USER_IDS"] = _TEST_ADMIN_ID
+    app.dependency_overrides[get_current_user_id] = lambda: _TEST_ADMIN_ID
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        app.dependency_overrides.pop(get_current_user_id, None)
+        if prev_env is None:
+            os.environ.pop("ADMIN_USER_IDS", None)
+        else:
+            os.environ["ADMIN_USER_IDS"] = prev_env
 
 
 class TestLogLevelRoute:
@@ -134,3 +154,49 @@ class TestDualMount:
         assert bare.status_code == 200
         assert prefixed.status_code == 200
         assert bare.json() == prefixed.json()
+
+
+class TestAdminGuard:
+    """require_admin_user (api/deps.py): a verified JWT alone is not enough -
+    the user must be listed in ADMIN_USER_IDS, and an unset env var locks
+    everyone out (fail closed) rather than opening the routes."""
+
+    def test_no_token_is_401(self, client):
+        # Remove the override so the real JWT dependency runs; without an
+        # Authorization header it must 401 before any admin check.
+        saved = app.dependency_overrides.pop(get_current_user_id)
+        try:
+            assert client.get("/admin/settings").status_code == 401
+        finally:
+            app.dependency_overrides[get_current_user_id] = saved
+
+    def test_non_admin_user_is_403_on_all_mounts(self, client):
+        app.dependency_overrides[get_current_user_id] = lambda: "not-the-admin"
+        try:
+            assert client.get("/admin/settings").status_code == 403
+            assert client.get("/cricsimapi/admin/settings").status_code == 403
+            # admin_squads router is guarded too (it has a destructive DELETE);
+            # the 403 fires in the dependency, before the route touches the DB.
+            assert client.get("/admin/squads/tournaments").status_code == 403
+        finally:
+            app.dependency_overrides[get_current_user_id] = lambda: _TEST_ADMIN_ID
+
+    def test_admin_user_is_allowed(self, client):
+        assert client.get("/admin/settings").status_code == 200
+
+    def test_unset_env_fails_closed_even_for_valid_user(self, client):
+        prev = os.environ.pop("ADMIN_USER_IDS")
+        try:
+            assert client.get("/admin/settings").status_code == 403
+        finally:
+            os.environ["ADMIN_USER_IDS"] = prev
+
+    def test_non_admin_cannot_mutate_settings(self, client):
+        app.dependency_overrides[get_current_user_id] = lambda: "not-the-admin"
+        try:
+            before = get_current_log_level()
+            resp = client.put("/admin/log-level", json={"level": "ERROR"})
+            assert resp.status_code == 403
+            assert get_current_log_level() == before
+        finally:
+            app.dependency_overrides[get_current_user_id] = lambda: _TEST_ADMIN_ID

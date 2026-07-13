@@ -127,6 +127,7 @@ Environment variables (see `.env` locally; not committed):
 | `DATABASE_URL` | Full Postgres connection string; takes precedence if set |
 | `DB_NAME` / `DB_USER` / `DB_PASS` / `DB_HOST` / `DB_PORT` | Fallback individual connection params if `DATABASE_URL` is unset |
 | `SUPABASE_URL` | Supabase project URL, used to verify JWTs via JWKS |
+| `ADMIN_USER_IDS` | Comma-separated Supabase user UUIDs allowed to call `/admin/*` endpoints. Unset = admin routes disabled for everyone (fail closed) |
 | `SUPABASE_DATABASE_URL` | Connection string for the Supabase-hosted `profiles` table (falls back to `DATABASE_URL`) |
 | `CORS_ORIGINS` | Comma-separated extra allowed origins (dev defaults already include the Vite dev server) |
 | `LOG_LEVEL` | Console log level (default: a custom `CONSOLE` level) |

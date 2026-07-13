@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, List, Optional, Union
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.job_queue import job_queue
@@ -28,7 +28,7 @@ from api.models.responses import (
     TournamentResultResponse,
 )
 from api.worker import get_tournament_progress, run_match_job, run_tournament_job
-from db.database import get_db_connection
+from db.database import db_cursor, get_db_connection
 from db.simulation_repository import SimulationRepository, _parse_win
 from simulator.serializers.match import get_commentary, get_match_result, get_scorecard, get_tournament_result
 
@@ -142,14 +142,12 @@ def create_tournament_from_id(body: TournamentFromIdRequest):
 
     # 3. Rate-limit: max 2 concurrent running simulations per client
     if body.client_id:
-        conn2 = get_db_connection()
-        cur2  = conn2.cursor()
-        cur2.execute(
-            "SELECT COUNT(*) FROM simulation.simulations WHERE client_id = %s AND status IN ('pending','running')",
-            (body.client_id,),
-        )
-        active = cur2.fetchone()[0]
-        cur2.close(); conn2.close()
+        with db_cursor() as cur2:
+            cur2.execute(
+                "SELECT COUNT(*) FROM simulation.simulations WHERE client_id = %s AND status IN ('pending','running')",
+                (body.client_id,),
+            )
+            active = cur2.fetchone()[0]
         if active >= 2:
             raise HTTPException(status_code=429, detail="Too many active simulations. Wait for your current simulation to finish.")
 
@@ -200,7 +198,9 @@ def get_total_simulations():
 # ── GET  (no trailing slash - avoids 307 CORS redirect) ──────────────────────
 
 @router.get("", response_model=List[SimSummaryItem])
-def list_simulations(limit: int = 5, offset: int = 0, client_id: Optional[str] = None):
+def list_simulations(limit: int = 5, offset: int = 0, client_id: str = Query(...)):
+    # client_id is required: the repo treats None as "all users", which is
+    # reserved for the guarded admin data view (api/routes/admin_data.py).
     repo = SimulationRepository()
     try:
         rows = repo.list_simulations(limit=limit, offset=offset, client_id=client_id)

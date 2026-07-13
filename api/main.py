@@ -20,12 +20,14 @@ import time
 from contextlib import asynccontextmanager
 
 import psutil
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from api.deps import require_admin_user
 from api.job_queue import job_queue
 from api.routes.admin import router as admin_router
+from api.routes.admin_data import router as admin_data_router
 from api.routes.admin_squads import router as admin_squads_router
 from api.routes.auth import router as auth_router
 from api.routes.leaderboards import router as lb_router
@@ -163,13 +165,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(admin_router)
+# Every admin route requires a verified Supabase JWT belonging to a user in
+# ADMIN_USER_IDS - these endpoints mutate global server state (and admin/squads
+# has a destructive DELETE), and they were publicly reachable before this guard.
+_admin_guard = [Depends(require_admin_user)]
+app.include_router(admin_router, dependencies=_admin_guard)
 # Also mount under /cricsimapi - every other route the frontend calls goes through
 # this prefix (nginx proxies it in production), whereas bare /admin/* is only used
 # for direct ops access (curl/SSH). Registering both keeps the new Admin page
 # reachable from the browser without touching how /admin/* has always been used.
-app.include_router(admin_router, prefix="/cricsimapi")
-app.include_router(admin_squads_router)
+app.include_router(admin_router, prefix="/cricsimapi", dependencies=_admin_guard)
+app.include_router(admin_squads_router, dependencies=_admin_guard)
+app.include_router(admin_data_router, dependencies=_admin_guard)
+app.include_router(admin_data_router, prefix="/cricsimapi", dependencies=_admin_guard)
 app.include_router(auth_router)
 app.include_router(lov_router)
 app.include_router(sim_router)
