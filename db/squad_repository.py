@@ -225,6 +225,24 @@ class SquadRepository:
         base["playoffs"]        = config.get("playoffs", {})
         return base
 
+    def search_history_venues(self, q: str = "", limit: int = 10) -> list[dict[str, Any]]:
+        """Venue LOV for the tournament editor - names must come from
+        history.venues or resolve_venue finds nothing at runtime and the match
+        silently plays without venue context stats."""
+        self.cur.execute(
+            """
+            SELECT v.name, v.city, v.country, COUNT(m.match_id) AS matches
+            FROM history.venues v
+            LEFT JOIN history.matches m ON m.venue_id = v.venue_id
+            WHERE v.name ILIKE %s OR v.city ILIKE %s
+            GROUP BY v.venue_id, v.name, v.city, v.country
+            ORDER BY COUNT(m.match_id) DESC, v.name
+            LIMIT %s
+            """,
+            (f"%{q}%", f"%{q}%", limit),
+        )
+        return [dict(r) for r in self.cur.fetchall()]
+
     # ── Write ──────────────────────────────────────────────────────────────────
 
     def _load_config(self, tournament_id: int) -> dict:
@@ -357,6 +375,19 @@ class SquadRepository:
             prev = (v.get("previous_name") or "").strip()
             if prev and prev != name:
                 renames[prev] = name
+
+        # Names must exist in history.venues - resolve_venue matches by exact
+        # name at runtime and silently plays without venue stats otherwise.
+        names = [v["name"] for v in clean]
+        self.cur.execute("SELECT name FROM history.venues WHERE name = ANY(%s)", (names,))
+        known = {r["name"] for r in self.cur.fetchall()}
+        unknown = [n for n in names if n not in known]
+        if unknown:
+            raise ValueError(
+                f"Unknown venue(s): {', '.join(unknown)}. "
+                "Pick venues from the list - names must match history.venues "
+                "or matches there get no venue stats."
+            )
 
         config = self._load_config(tournament_id)
         config["venues"] = clean

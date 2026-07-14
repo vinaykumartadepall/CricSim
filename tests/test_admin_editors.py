@@ -23,15 +23,17 @@ from db.squad_repository import SquadRepository
 class _FakeCursor:
     """Answers 'SELECT config ...' with the canned config; records all queries."""
 
-    def __init__(self, config=None, fetchone_results=None):
+    def __init__(self, config=None, fetchone_results=None, known_venues=None):
         self._config = config
         self._queue = list(fetchone_results or [])
+        self._known_venues = known_venues  # None = every requested venue exists
         self.executed = []          # [(query, params)]
         self.rowcount = 1
 
     def execute(self, query, params=None):
         self.executed.append((query, params))
         self._last_query = query
+        self._last_params = params
 
     def fetchone(self):
         if "SELECT config" in self._last_query:
@@ -39,6 +41,14 @@ class _FakeCursor:
         if self._queue:
             return self._queue.pop(0)
         return {"?": 1}
+
+    def fetchall(self):
+        if "FROM history.venues" in self._last_query:
+            requested = self._last_params[0]
+            known = requested if self._known_venues is None else \
+                [n for n in requested if n in self._known_venues]
+            return [{"name": n} for n in known]
+        return []
 
     def queries(self, fragment):
         return [q for q, _ in self.executed if fragment in q]
@@ -144,6 +154,16 @@ class TestVenues:
         repo = _squad_repo(_config())
         with pytest.raises(ValueError, match="non-empty name"):
             repo.update_venues(7, [{"name": "  "}])
+
+    def test_venue_missing_from_history_registry_rejected(self):
+        # Names must exist in history.venues - resolve_venue matches by exact
+        # name at runtime and silently drops venue stats otherwise.
+        repo = SquadRepository.__new__(SquadRepository)
+        repo.cur = _FakeCursor(_config(), known_venues={"Chepauk"})
+        repo.conn = MagicMock()
+        with pytest.raises(ValueError, match="Unknown venue"):
+            repo.update_venues(7, [{"name": "Chepauk"}, {"name": "My Backyard"}])
+        assert not repo.cur.queries("UPDATE simulation.tournament_seeded")
 
 
 class TestSchedule:

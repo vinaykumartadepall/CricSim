@@ -131,6 +131,12 @@ def put_team_meta(tournament_id: int, team_id: int, body: TeamMetaRequest):
     return {"updated": updated}
 
 
+@router.get("/venues")
+def search_venues(q: str = "", limit: int = Query(10, le=50)):
+    repo = SquadRepository()
+    return _run(repo, lambda: repo.search_history_venues(q=q, limit=limit))
+
+
 @router.put("/tournaments/{tournament_id}/venues")
 def put_venues(tournament_id: int, body: VenuesRequest):
     repo = SquadRepository()

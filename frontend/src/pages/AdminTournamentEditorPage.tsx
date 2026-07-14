@@ -68,11 +68,33 @@ function VenuesCard({ detail, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
 
+  // Venue-name LOV: names must exist in history.venues (enforced server-side
+  // too) or matches there would play with no venue context stats.
+  const [lovIdx, setLovIdx] = useState<number | null>(null)
+  const [lovResults, setLovResults] = useState<{ name: string; city: string | null; country: string | null }[]>([])
+
+  useEffect(() => {
+    if (lovIdx === null) { setLovResults([]); return }
+    const q = venues[lovIdx]?.name ?? ''
+    const t = setTimeout(() => {
+      api.searchAdminVenues(q)
+        .then(setLovResults)
+        .catch(err => console.warn('Venue search failed', err))
+    }, 250)
+    return () => clearTimeout(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lovIdx, lovIdx !== null ? venues[lovIdx]?.name : ''])
+
   const dirty = JSON.stringify(venues.map(v => [v.name, v.city])) !==
     JSON.stringify(original.map(v => [v.name, v.city ?? '']))
 
   function patch(i: number, field: 'name' | 'city', value: string) {
     setVenues(vs => vs.map((v, j) => (j === i ? { ...v, [field]: value } : v)))
+  }
+
+  function pickVenue(i: number, v: { name: string; city: string | null }) {
+    setVenues(vs => vs.map((entry, j) => (j === i ? { ...entry, name: v.name, city: v.city ?? '' } : entry)))
+    setLovIdx(null)
   }
 
   async function save() {
@@ -88,18 +110,40 @@ function VenuesCard({ detail, onSaved }: {
   }
 
   return (
-    <Section title="Venues" description="Renames cascade into team home grounds; removing a venue clears it from any team using it." error={error}>
+    <Section title="Venues" description="Pick names from the list (they must match the historical venue registry for venue stats to apply). Renames cascade into team home grounds; removing a venue clears it from any team using it." error={error}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {venues.map((v, i) => (
-          <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input style={{ ...adminInputStyle, flex: 2 }} value={v.name} placeholder="Venue name"
-              onChange={e => patch(i, 'name', e.target.value)} />
-            <input style={{ ...adminInputStyle, flex: 1 }} value={v.city} placeholder="City"
-              onChange={e => patch(i, 'city', e.target.value)} />
-            <button onClick={() => setVenues(vs => vs.filter((_, j) => j !== i))}
-              style={{ color: 'var(--text-dim)', flexShrink: 0 }} title="Remove venue">
-              <X size={14} />
-            </button>
+          <div key={i}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input style={{ ...adminInputStyle, flex: 2 }} value={v.name} placeholder="Venue name"
+                onFocus={() => setLovIdx(i)}
+                onChange={e => { patch(i, 'name', e.target.value); setLovIdx(i) }} />
+              <input style={{ ...adminInputStyle, flex: 1 }} value={v.city} placeholder="City"
+                onChange={e => patch(i, 'city', e.target.value)} />
+              <button onClick={() => { setVenues(vs => vs.filter((_, j) => j !== i)); setLovIdx(null) }}
+                style={{ color: 'var(--text-dim)', flexShrink: 0 }} title="Remove venue">
+                <X size={14} />
+              </button>
+            </div>
+            {lovIdx === i && lovResults.length > 0 && (
+              <div style={{
+                margin: '4px 0 4px 0', padding: 4, borderRadius: 8,
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+              }}>
+                {lovResults.map(r => (
+                  <button key={r.name} onClick={() => pickVenue(i, r)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                      padding: '5px 8px', borderRadius: 6, cursor: 'pointer', background: 'none', border: 'none',
+                    }}>
+                    <span style={{ fontSize: 12.5, color: 'var(--text)', flex: 1 }}>{r.name}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                      {[r.city, r.country].filter(Boolean).join(', ')}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>

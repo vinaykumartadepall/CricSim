@@ -244,6 +244,10 @@ export const api = {
 
   getAdminCountries: () =>
     authGet<Country[]>('/admin/data/countries'),
+
+  searchAdminVenues: (q: string, limit = 10) =>
+    authGet<{ name: string; city: string | null; country: string | null; matches: number }[]>(
+      `/admin/data/venues?q=${encodeURIComponent(q)}&limit=${limit}`),
 }
 
 export type { SwapEntry }
