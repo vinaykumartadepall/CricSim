@@ -8,12 +8,16 @@ export function Headshot({ url, name, size = 32 }: {
   name?: string | null
   size?: number
 }) {
-  const [errored, setErrored] = useState(false)
+  // Track WHICH url failed, not a boolean: rows keyed by a stable id (e.g. the
+  // traded-out player) reuse this component instance with a new url prop, and
+  // a stuck boolean would keep showing initials for the new player's valid
+  // image (trade drawer bug: swapped-in player's photo never appeared).
+  const [erroredUrl, setErroredUrl] = useState<string | null>(null)
   const safeName = name || '?'
   const initials = safeName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
   const color = AVATAR_COLORS[safeName.charCodeAt(0) % AVATAR_COLORS.length]
 
-  if (url && !errored) {
+  if (url && erroredUrl !== url) {
     return (
       <img
         src={url}
@@ -22,7 +26,7 @@ export function Headshot({ url, name, size = 32 }: {
         height={size}
         className="rounded-full object-cover flex-shrink-0"
         style={{ width: size, height: size }}
-        onError={() => setErrored(true)}
+        onError={() => setErroredUrl(url)}
       />
     )
   }
@@ -44,16 +48,17 @@ export function PlayerAvatar({ name, url, size = 44 }: {
   url?: string | null
   size?: number
 }) {
-  const [imgError, setImgError] = useState(false)
+  // Same per-url error tracking as Headshot (see comment there).
+  const [erroredUrl, setErroredUrl] = useState<string | null>(null)
   const initials = name.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase()
   const color = PLAYER_AVATAR_COLORS[name.charCodeAt(0) % PLAYER_AVATAR_COLORS.length]
 
-  if (url && !imgError) {
+  if (url && erroredUrl !== url) {
     return (
       <img
         src={url}
         alt={name}
-        onError={() => setImgError(true)}
+        onError={() => setErroredUrl(url)}
         style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
       />
     )
