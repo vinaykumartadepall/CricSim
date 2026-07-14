@@ -231,11 +231,12 @@ class SquadRepository:
         silently plays without venue context stats."""
         self.cur.execute(
             """
-            SELECT v.name, v.city, v.country, COUNT(m.match_id) AS matches
+            SELECT v.name, v.city, c.name AS country, COUNT(m.match_id) AS matches
             FROM history.venues v
+            LEFT JOIN history.countries c ON c.country_id = v.country_id
             LEFT JOIN history.matches m ON m.venue_id = v.venue_id
             WHERE v.name ILIKE %s OR v.city ILIKE %s
-            GROUP BY v.venue_id, v.name, v.city, v.country
+            GROUP BY v.venue_id, v.name, v.city, c.name
             ORDER BY COUNT(m.match_id) DESC, v.name
             LIMIT %s
             """,

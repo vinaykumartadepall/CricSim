@@ -79,7 +79,10 @@ function VenuesCard({ detail, onSaved }: {
     const t = setTimeout(() => {
       api.searchAdminVenues(q)
         .then(setLovResults)
-        .catch(err => console.warn('Venue search failed', err))
+        .catch(err => {
+          console.warn('Venue search failed', err)
+          setError(`Venue lookup failed: ${errText(err)}`)
+        })
     }, 250)
     return () => clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -29,7 +29,7 @@ Before marking any task complete, add tests in `tests/`. All tests must run with
 
 ### Process-level singletons
 - `StatsRepository._conn` - single PostgreSQL connection shared across all `StatsRepository()` instances in the process. Never opened again after the first call. Protected by `_conn_lock` (double-checked locking).
-- `_PRECOMPUTED_CACHE` - module-level dict in `db/stats_repository.py`. Populated once at server startup via `StatsRepository.warm_all_caches()`. All cache reads are pure dict lookups after that.
+- `_PRECOMPUTED_CACHE` - module-level dict in `db/stats_repository.py`. Populated lazily on first use - deliberately NOT warmed at API startup, to keep idle RAM low on the 1GB droplet (`warm_all_caches()` exists for manual/offline warming only).
 - `StatsRepository._query_lock` - serialises all DB round-trips (psycopg2 connections are not thread-safe).
 
 ### Log system
@@ -60,7 +60,7 @@ predict_next_ball(match)
 | Table | Purpose |
 |-------|---------|
 | `history.players` | Player registry (player_id, name, gender) |
-| `history.venues` | Venue registry (venue_id, name, city, country) |
+| `history.venues` | Venue registry (venue_id, name, city, country_id) |
 | `history.matches` | Historical match metadata |
 | `history.deliveries` | **11.2M rows - NEVER query at runtime** |
 | `history.player_outcome_stats` | Precomputed per-player distributions by stat_type |
@@ -110,8 +110,11 @@ predict_next_ball(match)
 | `db/stats_repository.py` | All runtime DB queries; singleton connection; `_PRECOMPUTED_CACHE` |
 | `db/precompute.py` | Offline precomputation - the only place allowed to query `history.deliveries` |
 | `api/worker.py` | Background job runners; `_PersistingTournamentEngine` |
-| `api/main.py` | FastAPI app; calls `warm_all_caches()` at startup lifespan |
-| `api/routes/admin.py` | `GET/PUT /admin/log-level` |
+| `api/main.py` | FastAPI app; mounts all routers (admin routers behind `require_admin_user`) |
+| `api/deps.py` | `get_current_user_id` (Supabase JWT verification), `require_admin_user` (ADMIN_USER_IDS guard) |
+| `api/routes/admin.py` | Runtime ops controls: log level, cache strategy, simulation defaults |
+| `api/routes/admin_data.py` | Admin-only cross-user views + tournament/player editors |
+| `db/admin_edits.py` + `db/replay_admin_edits.py` | Admin edit log (`simulation.admin_edits`) and cross-DB export/replay CLI |
 
 ---
 
@@ -175,7 +178,7 @@ Keep entries unpinned unless a specific version is required for compatibility.
 ### Adding a new stat type
 1. Add the precompute query to `db/precompute.py`
 2. Add a cache loading method to `StatsRepository` using `_PRECOMPUTED_CACHE`
-3. Call the new method inside `warm_all_caches()` so it is loaded at startup
+3. Add the new method to `warm_all_caches()` (manual warming); at runtime caches load lazily on first use
 4. Add tests that verify the method returns the correct shape from mock rows (no DB)
 
 ### Adding a new API route
