@@ -1,4 +1,4 @@
-import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse, AdminSimListResponse } from '@/types'
+import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse, AdminSimListResponse, AdminTournamentSummary, AdminTournamentDetail, AdminPlayer, Country } from '@/types'
 import { supabase } from '@/lib/supabase'
 
 const BASE = '/cricsimapi'
@@ -211,6 +211,39 @@ export const api = {
 
   getAdminSimulations: (limit = 50, offset = 0) =>
     authGet<AdminSimListResponse>(`/admin/data/simulations?limit=${limit}&offset=${offset}`),
+
+  getAdminTournaments: (q?: string) =>
+    authGet<AdminTournamentSummary[]>(`/admin/data/tournaments${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+
+  getAdminTournamentDetail: (tournamentId: number) =>
+    authGet<AdminTournamentDetail>(`/admin/data/tournaments/${tournamentId}`),
+
+  putAdminTournamentMeta: (tournamentId: number, body: { tournament_name?: string; format?: string; gender?: string }) =>
+    authPut<{ updated: Record<string, string> }>(`/admin/data/tournaments/${tournamentId}/meta`, body),
+
+  putAdminTeamMeta: (tournamentId: number, teamId: number, body: {
+    name?: string; short_name?: string; primary_color?: string; secondary_color?: string
+    home_venue?: string; clear_home_venue?: boolean
+  }) =>
+    authPut<{ updated: Record<string, string> }>(`/admin/data/tournaments/${tournamentId}/teams/${teamId}/meta`, body),
+
+  putAdminVenues: (tournamentId: number, venues: { name: string; city?: string; previous_name?: string }[]) =>
+    authPut<{ venues: number }>(`/admin/data/tournaments/${tournamentId}/venues`, { venues }),
+
+  putAdminSchedule: (tournamentId: number, body: { schedule?: Record<string, unknown>; playoffs?: Record<string, unknown> }) =>
+    authPut<{ updated: boolean }>(`/admin/data/tournaments/${tournamentId}/schedule`, body),
+
+  putAdminSquad: (tournamentId: number, teamId: number, players: { player_id: number; batting_position: number }[]) =>
+    authPut<{ updated: number }>(`/admin/squads/tournaments/${tournamentId}/teams/${teamId}`, { players }),
+
+  searchAdminPlayers: (q: string, limit = 30) =>
+    authGet<AdminPlayer[]>(`/admin/data/players?q=${encodeURIComponent(q)}&limit=${limit}`),
+
+  putAdminPlayer: (playerId: number, body: Partial<Omit<AdminPlayer, 'player_id' | 'country_name' | 'headshot_url' | 'matches_played'>>) =>
+    authPut<{ updated: Record<string, unknown> }>(`/admin/data/players/${playerId}`, body),
+
+  getAdminCountries: () =>
+    authGet<Country[]>('/admin/data/countries'),
 }
 
 export type { SwapEntry }

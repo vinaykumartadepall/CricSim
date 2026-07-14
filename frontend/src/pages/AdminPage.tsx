@@ -1,75 +1,16 @@
 import { useEffect, useState } from 'react'
-import { ChevronLeft, Check } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/api/client'
+import {
+  ADMIN_SANS, ADMIN_SERIF, AccessDenied, OptionRow, Section, isAuthError,
+} from '@/components/admin/AdminUI'
 import type { AdminSettings } from '@/types'
 
-const SERIF = "'DM Serif Display', Georgia, 'Times New Roman', serif"
-const SANS  = "'DM Sans', system-ui, sans-serif"
+const SERIF = ADMIN_SERIF
+const SANS  = ADMIN_SANS
 
 type FieldKey = 'log_level' | 'cache_strategy' | 'outcome_strategy' | 'bowling_strategy'
-
-function OptionRow({
-  options, active, disabled, onSelect,
-}: {
-  options: string[]
-  active: string
-  disabled: boolean
-  onSelect: (value: string) => void
-}) {
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-      {options.map(opt => {
-        const isActive = opt === active
-        return (
-          <button
-            key={opt}
-            disabled={disabled}
-            onClick={() => onSelect(opt)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', borderRadius: 7,
-              background: isActive ? 'var(--accent-tint)' : 'var(--surface-2)',
-              border: isActive ? '1px solid var(--accent)' : '1px solid var(--border)',
-              color: isActive ? 'var(--accent)' : 'var(--text-muted)',
-              fontSize: 13, fontWeight: isActive ? 600 : 400,
-              cursor: disabled ? 'default' : 'pointer',
-              opacity: disabled ? 0.6 : 1,
-              transition: 'background 0.12s, color 0.12s',
-            }}
-          >
-            {isActive && <Check size={12} />}
-            {opt}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function Section({
-  title, description, children, error,
-}: {
-  title: string
-  description: string
-  children: React.ReactNode
-  error?: string | null
-}) {
-  return (
-    <div style={{
-      padding: '18px 20px', borderRadius: 10,
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      marginBottom: 14,
-    }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>{title}</div>
-      <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 12, lineHeight: 1.5 }}>{description}</div>
-      {children}
-      {error && (
-        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--loss)' }}>{error}</div>
-      )}
-    </div>
-  )
-}
 
 export function AdminPage() {
   const navigate = useNavigate()
@@ -83,9 +24,7 @@ export function AdminPage() {
     api.getAdminSettings()
       .then(setSettings)
       .catch(err => {
-        const msg = String(err instanceof Error ? err.message : err)
-        // 401 = not signed in / token invalid, 403 = signed in but not an admin
-        if (msg.startsWith('401') || msg.startsWith('403') || msg === 'Forbidden') setDenied(true)
+        if (isAuthError(err)) setDenied(true)
         else console.warn('Failed to load admin settings', err)
       })
       .finally(() => setLoading(false))
@@ -158,9 +97,7 @@ export function AdminPage() {
         </div>
 
         {denied ? (
-          <div style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.6 }}>
-            Admin access required. Sign in with the admin account, then reload this page.
-          </div>
+          <AccessDenied />
         ) : loading || !settings ? (
           <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>Loading…</div>
         ) : (
@@ -219,19 +156,28 @@ export function AdminPage() {
 
             <Section
               title="Data"
-              description="Read-only cross-user views for operations."
+              description="Cross-user views and content editors."
             >
-              <button
-                onClick={() => navigate('/site-admin/simulations')}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '7px 14px', borderRadius: 7,
-                  background: 'var(--surface-2)', border: '1px solid var(--border)',
-                  color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer',
-                }}
-              >
-                All simulations →
-              </button>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {[
+                  { label: 'All simulations →', path: '/site-admin/simulations' },
+                  { label: 'Tournament editor →', path: '/site-admin/tournaments' },
+                  { label: 'Player editor →', path: '/site-admin/players' },
+                ].map(link => (
+                  <button
+                    key={link.path}
+                    onClick={() => navigate(link.path)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      padding: '7px 14px', borderRadius: 7,
+                      background: 'var(--surface-2)', border: '1px solid var(--border)',
+                      color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer',
+                    }}
+                  >
+                    {link.label}
+                  </button>
+                ))}
+              </div>
             </Section>
           </>
         )}

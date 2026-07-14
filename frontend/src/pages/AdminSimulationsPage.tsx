@@ -3,10 +3,9 @@ import { ChevronLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/api/client'
 import { FormatBadge } from '@/components/ui/FormatBadge'
+import { ADMIN_SANS as SANS, ADMIN_SERIF as SERIF, AccessDenied, isAuthError } from '@/components/admin/AdminUI'
 import type { AdminSimRow } from '@/types'
 
-const SERIF = "'DM Serif Display', Georgia, 'Times New Roman', serif"
-const SANS  = "'DM Sans', system-ui, sans-serif"
 const PAGE_SIZE = 50
 
 function formatCreated(iso: string): string {
@@ -54,8 +53,7 @@ export function AdminSimulationsPage() {
       setSims(prev => (offset === 0 ? res.simulations : [...prev, ...res.simulations]))
       setTotal(res.total)
     } catch (err) {
-      const msg = String(err instanceof Error ? err.message : err)
-      if (msg.startsWith('401') || msg.startsWith('403') || msg === 'Forbidden') setDenied(true)
+      if (isAuthError(err)) setDenied(true)
       else console.warn('Failed to load admin simulations list', err)
     } finally {
       setLoading(false)
@@ -92,9 +90,7 @@ export function AdminSimulationsPage() {
         </div>
 
         {denied ? (
-          <div style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.6 }}>
-            Admin access required. Sign in with the admin account, then reload this page.
-          </div>
+          <AccessDenied />
         ) : sims.length === 0 ? (
           <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
             {loading ? 'Loading…' : 'No simulations yet.'}

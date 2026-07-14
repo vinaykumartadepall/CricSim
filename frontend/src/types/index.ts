@@ -95,6 +95,60 @@ export interface AdminSimListResponse {
   total: number
 }
 
+// ── Admin editors (tournament config + player metadata) ───────────────────────
+
+export interface AdminTournamentSummary {
+  tournament_id: number
+  name: string
+  season: string
+  team_count: number
+  gender: string | null
+  format: string | null
+}
+
+export interface AdminVenue {
+  name: string
+  city?: string | null
+}
+
+export interface AdminTeamDetail extends Team {
+  primary_color?: string | null
+  secondary_color?: string | null
+  home_venue?: string | null
+}
+
+export interface AdminTournamentDetail {
+  tournament_id: number
+  tournament_name: string
+  format: string
+  gender: string
+  season: string
+  venues: AdminVenue[]
+  schedule: Record<string, unknown>
+  playoffs: Record<string, unknown>
+  teams: AdminTeamDetail[]
+}
+
+export interface AdminPlayer {
+  player_id: number
+  name: string
+  display_name: string | null
+  gender: string | null
+  player_role: string | null
+  batting_style: string | null
+  bowling_style: string | null
+  country_id: number | null
+  country_name: string | null
+  cricinfo_id: number | null
+  headshot_url: string | null
+  matches_played?: number
+}
+
+export interface Country {
+  country_id: number
+  name: string
+}
+
 export interface PointsTableRow {
   team: string
   played: number

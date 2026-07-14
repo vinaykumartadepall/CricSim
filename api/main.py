@@ -176,6 +176,7 @@ app.include_router(admin_router, dependencies=_admin_guard)
 # reachable from the browser without touching how /admin/* has always been used.
 app.include_router(admin_router, prefix="/cricsimapi", dependencies=_admin_guard)
 app.include_router(admin_squads_router, dependencies=_admin_guard)
+app.include_router(admin_squads_router, prefix="/cricsimapi", dependencies=_admin_guard)
 app.include_router(admin_data_router, dependencies=_admin_guard)
 app.include_router(admin_data_router, prefix="/cricsimapi", dependencies=_admin_guard)
 app.include_router(auth_router)

@@ -128,8 +128,14 @@ class TournamentConfig:
 def load_tournament_config(path: str) -> TournamentConfig:
     with open(path, encoding="utf-8") as f:
         raw = json.load(f)
+    return parse_tournament_config(raw)
 
-    venues = [VenueConfig(**v) for v in raw.get("venues", [])]
+
+def parse_tournament_config(raw: dict) -> TournamentConfig:
+    """Parse a raw config document (file contents or the tournament_seeded.config
+    JSONB) into a TournamentConfig. Raises KeyError/TypeError/ValueError on
+    malformed documents - the admin editor uses this as its save-time validator."""
+    venues = [VenueConfig(name=v["name"], city=v.get("city", "")) for v in raw.get("venues", [])]
 
     teams = []
     for t in raw.get("teams", []):

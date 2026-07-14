@@ -21,6 +21,9 @@ import { TitlesPage } from '@/pages/TitlesPage'
 import { ProfilePage } from '@/pages/ProfilePage'
 import { AdminPage } from '@/pages/AdminPage'
 import { AdminSimulationsPage } from '@/pages/AdminSimulationsPage'
+import { AdminTournamentsPage } from '@/pages/AdminTournamentsPage'
+import { AdminTournamentEditorPage } from '@/pages/AdminTournamentEditorPage'
+import { AdminPlayersPage } from '@/pages/AdminPlayersPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { MultiplayerLobbyPage } from '@/pages/MultiplayerLobbyPage'
 import { DraftPage } from '@/pages/DraftPage'
@@ -76,6 +79,9 @@ function AppShell() {
               page before the SPA fallback ever serves it. */}
           <Route path="/site-admin"                           element={<AdminPage />} />
           <Route path="/site-admin/simulations"               element={<AdminSimulationsPage />} />
+          <Route path="/site-admin/tournaments"               element={<AdminTournamentsPage />} />
+          <Route path="/site-admin/tournaments/:tournamentId" element={<AdminTournamentEditorPage />} />
+          <Route path="/site-admin/players"                   element={<AdminPlayersPage />} />
           <Route path="/multiplayer"                         element={<MultiplayerLobbyPage />} />
           <Route path="/multiplayer/draft/:roomId"           element={<DraftPage />} />
           <Route path="/join/:roomId"                        element={<MultiplayerLobbyPage />} />
