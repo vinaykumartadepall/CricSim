@@ -66,6 +66,7 @@ _TEAM_META: dict[str, dict] = {
     "Kings XI Punjab":          {"short_name": "KXIP", "primary_color": "#CE3746", "secondary_color": "#384DC7"},
     "Delhi Daredevils":         {"short_name": "DD",   "primary_color": "#004C97", "secondary_color": "#EF1C25"},
     "Pune Warriors India":      {"short_name": "PWI",  "primary_color": "#5BBDE7", "secondary_color": "#004080"},
+    "Pune Warriors":            {"short_name": "PWI",  "primary_color": "#5BBDE7", "secondary_color": "#004080"},
     "Kochi Tuskers Kerala":     {"short_name": "KTK",  "primary_color": "#F76900", "secondary_color": "#009929"},
     "Rising Pune Supergiant":   {"short_name": "RPS",  "primary_color": "#870E4F", "secondary_color": "#FFFFFF"},
     "Rising Pune Supergiants":  {"short_name": "RPS",  "primary_color": "#870E4F", "secondary_color": "#FFFFFF"},
@@ -194,9 +195,13 @@ def _build_ipl_schedule(cur, tournament_id: int, season: str) -> dict:
     playoffs_cfg = {"format": playoff_fmt, "top_n": 4}
     year = _ipl_first_year(season)
 
+    # neutral_venues=False: the IPL is a home-and-away league, so each team
+    # plays at its home_venue. Relocated seasons (2009 South Africa, 2020/21
+    # UAE) need no special-casing - home_venue is derived per season from that
+    # season's history.matches, so it already points at the designated ground.
     if year < 2022:
         return {
-            "schedule": {"type": "double_round_robin", "neutral_venues": True},
+            "schedule": {"type": "double_round_robin", "neutral_venues": False},
             "playoffs": playoffs_cfg,
         }
 
@@ -208,7 +213,7 @@ def _build_ipl_schedule(cur, tournament_id: int, season: str) -> dict:
             file=sys.stderr,
         )
         return {
-            "schedule": {"type": "double_round_robin", "neutral_venues": True},
+            "schedule": {"type": "double_round_robin", "neutral_venues": False},
             "playoffs": playoffs_cfg,
         }
 
@@ -217,7 +222,7 @@ def _build_ipl_schedule(cur, tournament_id: int, season: str) -> dict:
             "type": "two_group_hybrid",
             "within_matches_per_pair": 1,
             "cross_matches_per_pair": 2,
-            "neutral_venues": True,
+            "neutral_venues": False,
             "groups": groups,
         },
         "playoffs": playoffs_cfg,
@@ -227,8 +232,11 @@ def _build_ipl_schedule(cur, tournament_id: int, season: str) -> dict:
 # ── Non-IPL schedule / playoff configs ────────────────────────────────────────
 
 _NON_IPL_SCHED: dict[str, dict] = {
+    # Franchise leagues are home-and-away: neutral_venues=False so each team
+    # plays at its per-season derived home_venue. Only the World Cups below
+    # keep neutral venue cycling.
     "Big Bash League": {
-        "schedule": {"type": "double_round_robin", "neutral_venues": True},
+        "schedule": {"type": "double_round_robin", "neutral_venues": False},
         "playoffs": {"format": "ipl", "top_n": 4},
     },
     "SA20": {
@@ -236,11 +244,11 @@ _NON_IPL_SCHED: dict[str, dict] = {
         "playoffs": {"format": "semis_final", "top_n": 4},
     },
     "Pakistan Super League": {
-        "schedule": {"type": "double_round_robin", "neutral_venues": True},
+        "schedule": {"type": "double_round_robin", "neutral_venues": False},
         "playoffs": {"format": "semis_final", "top_n": 4},
     },
     "Caribbean Premier League": {
-        "schedule": {"type": "double_round_robin", "neutral_venues": True},
+        "schedule": {"type": "double_round_robin", "neutral_venues": False},
         "playoffs": {"format": "semis_final", "top_n": 4},
     },
     "ICC Cricket World Cup": {
