@@ -30,7 +30,9 @@ from api.models.responses import (
 from api.worker import get_tournament_progress, run_match_job, run_tournament_job
 from db.database import db_cursor, get_db_connection
 from db.simulation_repository import SimulationRepository, _parse_win
-from simulator.serializers.match import get_commentary, get_match_result, get_scorecard, get_tournament_result
+from simulator.serializers.match import (
+    _build_result_description, get_commentary, get_match_result, get_scorecard, get_tournament_result,
+)
 
 import psycopg2.extras
 
@@ -290,7 +292,7 @@ def get_result(sim_id: str, client_id: Optional[str] = None):
                 venue              = _fetch_venue(repo.dict_cursor, sim_id),
                 format             = sim['config'].get('format', 'T20'),
                 winner             = m['winner'],
-                result_description = _build_desc(m),
+                result_description = _build_result_description(m),
                 win_type           = m['win_type'],
                 win_by             = m['win_by'],
             )
@@ -504,7 +506,7 @@ def tournament_matches(sim_id: str):
     finally:
         repo.close()
     for r in rows:
-        r['result'] = _build_desc(r)
+        r['result'] = _build_result_description(r)
     return [TournamentMatchItem(**r) for r in rows]
 
 
@@ -604,22 +606,3 @@ def _fetch_venue(cur, sim_id: str):
     )
     row = cur.fetchone()
     return row['name'] if row else None
-
-
-def _build_desc(m: dict):
-    if m['result'] == 'no result':
-        if m.get('match_format') in ('Test', 'MDM'):
-            return "Match drawn"
-        return "No result"
-    if m['result'] == 'tie':
-        return "Match tied"
-    if m.get('is_super_over') and m['winner']:
-        return f"Match tied · {m['winner']} won Super Over"
-    if m['winner'] and m['win_type'] and m['win_by'] is not None:
-        if m['win_type'] == 'innings':
-            n = m['win_by']
-            return f"{m['winner']} won by an innings and {n} run{'s' if n != 1 else ''}"
-        unit = 'run' if m['win_type'] == 'runs' else 'wicket'
-        plural = 's' if m['win_by'] != 1 else ''
-        return f"{m['winner']} won by {m['win_by']} {unit}{plural}"
-    return None

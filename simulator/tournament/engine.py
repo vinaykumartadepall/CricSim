@@ -46,6 +46,7 @@ from simulator.predictors.factory import (
     resolve_player_by_id,
     resolve_venue,
 )
+from simulator.presentation.tiebreak_text import describe_tiebreak_winner
 from simulator.awards import MatchAwards, TournamentAwards
 from simulator.tournament.config import Fixture, TournamentConfig, load_tournament_config
 from simulator.tournament.leaderboards import TournamentLeaderboards
@@ -204,8 +205,11 @@ class TournamentEngine:
 
             winner, pt_result = self._read_result(match, fixture.home, fixture.away)
 
-            if stage == "playoff" and match.result and match.result.description == "Super Over Tied":
-                winner = self._resolve_playoff_tie(match, fixture)
+            # A knockout fixture must produce a winner - a group-stage tie/draw
+            # is left alone (pt_result records it as a genuine tie/no_result
+            # below), but at playoff stage a None winner needs a tiebreak chain.
+            if stage == "playoff" and match.result and winner is None:
+                winner = self._resolve_undecided_playoff(match, fixture)
 
             summary = match.result.team_innings_summary if match.result else {}
             home_runs,  home_balls = summary.get(fixture.home, (0, 0))
@@ -297,8 +301,80 @@ class TournamentEngine:
         advancing = (fixture.home if self._group_stage_rank(fixture.home) <= self._group_stage_rank(fixture.away)
                      else fixture.away)
         match.result.winner = advancing
-        match.result.description = f"Match tied · Super Over tied · {advancing} advanced due to better group stage finish"
+        match.result.tiebreak_reason = "super_over_tied_rank"
+        match.result.description = f"Match tied · Super Over tied · {describe_tiebreak_winner('group_stage_rank', advancing)}"
         return advancing
+
+    def _resolve_undecided_playoff(self, match: SimulationMatch, fixture: Fixture) -> str:
+        """
+        Dispatch a playoff fixture that finished with no winner (a genuine
+        draw or tie) to the right tiebreak chain for its format. A knockout
+        must always produce a winner:
+          - Limited overs: a tied Super Over falls back to group-stage
+            position (_resolve_playoff_tie - the original mechanism this
+            generalizes).
+          - Any other undecided case (currently: Test draws/ties, which have
+            no Super Over) - first-innings lead, then group-stage position
+            (_resolve_drawn_playoff), mirroring real first-class knockout rules.
+        """
+        if match.result.description == "Super Over Tied":
+            return self._resolve_playoff_tie(match, fixture)
+        return self._resolve_drawn_playoff(match, fixture)
+
+    def _first_innings_runs(self, match: SimulationMatch, team_name: str) -> Optional[int]:
+        """Runs scored by team_name in its first innings. match.innings[0] and
+        [1] are always the two teams' first innings in a Test match (assigned
+        by toss order, not fixture.home/away), regardless of any later
+        follow-on - see TestMatchEngine.simulate."""
+        for inn in match.innings[:2]:
+            if inn.batting_team.name == team_name:
+                return inn.batting_team.total_runs
+        return None
+
+    def _first_innings_lead_winner(
+        self, match: SimulationMatch, home: str, away: str,
+    ) -> Tuple[Optional[str], Optional[int]]:
+        """(leader, lead_margin) by first-innings runs. Returns (None, None) if
+        either team hasn't batted a first innings yet or the scores are also
+        equal (falls through to the group-stage rank step)."""
+        home_runs = self._first_innings_runs(match, home)
+        away_runs = self._first_innings_runs(match, away)
+        if home_runs is None or away_runs is None or home_runs == away_runs:
+            return None, None
+        if home_runs > away_runs:
+            return home, home_runs - away_runs
+        return away, away_runs - home_runs
+
+    def _resolve_drawn_playoff(self, match: SimulationMatch, fixture: Fixture) -> str:
+        """
+        Knockout fallback chain for a genuinely drawn/tied match with no Super
+        Over concept (currently: Test only):
+          1. First-innings lead (mirrors real first-class knockout rules, e.g.
+             Ranji Trophy) - format-specific, so only tried for Test.
+          2. Group-stage finishing position - always resolves (see
+             _group_stage_rank), same mechanism _resolve_playoff_tie uses.
+        Mutates match.result (winner/description/tiebreak_reason) and returns
+        the advancing team name.
+        """
+        winner: Optional[str] = None
+        margin: Optional[int] = None
+        reason = "group_stage_rank"
+
+        if self._config.format == "Test":
+            winner, margin = self._first_innings_lead_winner(match, fixture.home, fixture.away)
+            if winner:
+                reason = "first_innings_lead"
+
+        if winner is None:
+            winner = (fixture.home if self._group_stage_rank(fixture.home) <= self._group_stage_rank(fixture.away)
+                     else fixture.away)
+
+        match.result.winner = winner
+        match.result.tiebreak_reason = reason
+        match.result.tiebreak_margin = margin
+        original = match.result.description
+        match.result.description = f"{original} · {describe_tiebreak_winner(reason, winner)}"
+        return winner
 
     def _resolve_playoff_slot(
         self,

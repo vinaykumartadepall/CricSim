@@ -37,6 +37,9 @@ class _FakeRepo:
     def commit(self):
         self.committed = True
 
+    def rollback(self):
+        pass
+
     def close(self):
         pass
 
@@ -80,5 +83,54 @@ class TestRunSimulationCallsOnSimCreatedEarly:
 
         assert seen_sim_ids == ["sim-123"]
         assert calls == ["run_tournament_job"]
+        assert sim_id == "sim-123"
+        assert match_id is None
+
+
+class TestPostSimBookkeepingFailuresDontFailTheSim:
+    """Once run_match_job / run_tournament_job returns, the simulation has
+    completed - a failure in the bookkeeping after it (game_sessions rows,
+    match_id fetch) must not bubble up to _start_simulation, which would reset
+    the room to 'reordering' and broadcast an error while every player has
+    already navigated to the finished result."""
+
+    def test_1v1_game_sessions_failure_still_returns_sim(self, monkeypatch):
+        monkeypatch.setattr(sim_repo_mod, "SimulationRepository", lambda: _FakeRepo())
+        def boom(*a, **kw):
+            raise RuntimeError("game_sessions insert failed")
+        monkeypatch.setattr(mp_routes, "_save_multiplayer_game_sessions", boom)
+        monkeypatch.setattr(worker_mod, "run_match_job", lambda *a, **kw: None)
+
+        sim_id, match_id = mp_routes._run_simulation(_make_room("1v1", 2), on_sim_created=lambda s: None)
+
+        assert sim_id == "sim-123"
+        assert match_id == 99  # the fetch still ran after the failed save
+
+    def test_1v1_match_id_fetch_failure_still_returns_sim(self, monkeypatch):
+        class _FetchExplodingCursor(_FakeCursor):
+            def execute(self, query, *a, **kw):
+                if "match_id" in query:
+                    raise RuntimeError("connection dropped")
+
+        repo = _FakeRepo()
+        repo.cur = _FetchExplodingCursor()
+        monkeypatch.setattr(sim_repo_mod, "SimulationRepository", lambda: repo)
+        monkeypatch.setattr(mp_routes, "_save_multiplayer_game_sessions", lambda *a, **kw: None)
+        monkeypatch.setattr(worker_mod, "run_match_job", lambda *a, **kw: None)
+
+        sim_id, match_id = mp_routes._run_simulation(_make_room("1v1", 2), on_sim_created=lambda s: None)
+
+        assert sim_id == "sim-123"
+        assert match_id is None  # degraded, not failed
+
+    def test_tournament_game_sessions_failure_still_returns_sim(self, monkeypatch):
+        monkeypatch.setattr(sim_repo_mod, "SimulationRepository", lambda: _FakeRepo())
+        def boom(*a, **kw):
+            raise RuntimeError("game_sessions insert failed")
+        monkeypatch.setattr(mp_routes, "_save_multiplayer_game_sessions", boom)
+        monkeypatch.setattr(worker_mod, "run_tournament_job", lambda *a, **kw: None)
+
+        sim_id, match_id = mp_routes._run_simulation(_make_room("tournament", 4), on_sim_created=lambda s: None)
+
         assert sim_id == "sim-123"
         assert match_id is None

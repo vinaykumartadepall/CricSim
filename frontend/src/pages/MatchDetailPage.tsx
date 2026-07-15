@@ -6,7 +6,8 @@ import { ShareButton } from '@/components/ui/ShareButton'
 import { PlayerAvatar } from '@/components/ui/Avatar'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
-import type { Scorecard, Innings } from '@/types'
+import type { Scorecard, Innings, Commentary, DeliveryItem } from '@/types'
+import { parseMatchResult } from '@/lib/parseResult'
 import { captureViewportImage } from '@/lib/shareScreenshot'
 
 type Tab = 'result' | 'scorecard' | 'commentary'
@@ -44,45 +45,6 @@ function matchShareText(params: MatchOutcomeParams): string {
 
 // Shared by ResultSummaryTab (personalized banner) and the page header
 // (share button) so both read the same result off result_description once.
-function parseMatchResult(desc: string | null) {
-  const soMatch = desc?.match(/^Match tied · (.+) won Super Over$/)
-  const soWinner = soMatch ? soMatch[1].trim() : null
-  const tieMatch = desc?.match(/^Match tied · Super Over tied · (.+) advanced due to better group stage finish$/)
-  const tieWinner = tieMatch ? tieMatch[1].trim() : null
-  const winnerMatch = desc?.match(/^(.+?)\s+won\s+by\s+(.+)$/)
-  const winner = soWinner ?? tieWinner ?? (winnerMatch ? winnerMatch[1].trim() : null)
-  const margin = winnerMatch ? winnerMatch[2].trim() : null
-  return {
-    soWinner, winner, margin,
-    isTied: desc === 'Match tied',
-    isNoResult: desc === 'No result',
-    isDrawn: desc === 'Match drawn',
-  }
-}
-
-interface DeliveryItem {
-  inning_number: number
-  over_ball: string
-  bowler: string
-  batter: string
-  non_striker: string
-  runs_batter: number
-  runs_extras: number
-  outcome_type: string
-  outcome_kind: string | null
-  is_wicket: boolean
-  is_free_hit: boolean
-  commentary_text: string
-}
-
-interface Commentary {
-  match_id: number
-  match_label: string
-  match_format: string | null
-  overs_per_innings: number | null
-  deliveries: DeliveryItem[]
-}
-
 // ── Per-innings display context (no hardcoded inning numbers in card) ─────────
 
 interface InningsCtx {
@@ -709,6 +671,12 @@ function bannerText(desc: string | null): string {
     const soWinner = parts[1] ?? ''
     return `Match tied! ${soWinner}`
   }
+  // Playoff tiebreak (first-innings lead / group-stage rank) - "Match {tied|
+  // drawn} · X advanced ..." - show the advancement, not a bare drawn/tied banner.
+  if (desc.includes(' advanced ')) {
+    const advanced = desc.split('·')[1]?.trim()
+    return advanced ? `${advanced}!` : `${desc}!`
+  }
   if (desc === 'No result') return 'No result'
   if (desc === 'Match tied') return 'Match tied'
   if (desc === 'Match drawn') return 'Match drawn'
@@ -724,7 +692,7 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
   const fielding = computeFielding(scorecard)
   const isTest = scorecard.match_format === 'Test'
   const desc = scorecard.result_description ?? null
-  const { soWinner, winner, margin, isTied, isNoResult, isDrawn } = parseMatchResult(desc)
+  const { soWinner, advancedNote, winner, margin, isTied, isNoResult, isDrawn } = parseMatchResult(desc)
 
   // Only personalize the result if userTeam actually played in this match -
   // otherwise a team that just isn't the winner (e.g. browsing some other
@@ -772,6 +740,8 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
               </div>
               {soWinner ? (
                 <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>Won on Super Over</div>
+              ) : advancedNote ? (
+                <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{advancedNote}</div>
               ) : margin && (
                 <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{winner} won by {margin}</div>
               )}
@@ -783,6 +753,8 @@ function ResultSummaryTab({ scorecard, deliveries, userTeam }: {
               </div>
               {soWinner ? (
                 <div className="text-xs" style={{ color: 'var(--text-dim)' }}>{winner} won on Super Over</div>
+              ) : advancedNote ? (
+                <div className="text-xs" style={{ color: 'var(--text-dim)' }}>{winner} {advancedNote}</div>
               ) : winner && margin && (
                 <div className="text-xs" style={{ color: 'var(--text-dim)' }}>{winner} won by {margin}</div>
               )}
@@ -921,7 +893,7 @@ export function MatchDetailPage() {
       }),
     ]).then(([sc, comm]) => {
       setScorecard(sc as Scorecard)
-      if (comm) setCommentary(comm as unknown as Commentary)
+      if (comm) setCommentary(comm)
     }).catch(() => setError('Scorecard not available'))
       .finally(() => setLoading(false))
   }, [simId, mid])

@@ -11,6 +11,8 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 
 from simulator.entities.rules import MatchRules
+from simulator.presentation.dismissals import commentary_dismissal, scorecard_dismissal
+from simulator.presentation.tiebreak_text import describe_tiebreak_winner
 
 
 # ── Scorecard ──────────────────────────────────────────────────────────────────
@@ -502,6 +504,19 @@ def _build_inning_scorecard(inning_num: int, rows: list, squads: Dict[int, list]
 
 def _build_result_description(row) -> Optional[str]:
     result   = row.get('result') if hasattr(row, 'get') else row['result']
+    winner   = row['winner']
+    win_type = row['win_type']
+    win_by   = row['win_by']
+
+    # A knockout fixture whose genuine outcome was a draw/tie but still has a
+    # winner from TournamentEngine's playoff tiebreak chain - win_type carries
+    # which rule decided it (see db/simulation_repository.py::save_match).
+    # Checked before the plain result branches below, which would otherwise
+    # describe this as a bare "Match drawn"/"Match tied" with no winner.
+    if winner and win_type in ('first_innings_lead', 'group_stage_rank'):
+        prefix = 'Match tied' if result == 'tie' else 'Match drawn'
+        return f"{prefix} · {describe_tiebreak_winner(win_type, winner)}"
+
     if result == 'no result':
         fmt = row.get('match_format') or ''
         if fmt in ('Test', 'MDM'):
@@ -511,11 +526,8 @@ def _build_result_description(row) -> Optional[str]:
         tie_winner = row.get('winner') if hasattr(row, 'get') else row['winner']
         tie_is_so  = bool(row.get('is_super_over'))
         if tie_is_so and tie_winner:
-            return f"Match tied · Super Over tied · {tie_winner} advanced due to better group stage finish"
+            return f"Match tied · Super Over tied · {describe_tiebreak_winner('group_stage_rank', tie_winner)}"
         return "Match tied"
-    winner   = row['winner']
-    win_type = row['win_type']
-    win_by   = row['win_by']
     is_so    = bool(row.get('is_super_over'))
     if is_so and winner:
         return f"Match tied · {winner} won Super Over"
@@ -529,25 +541,9 @@ def _build_result_description(row) -> Optional[str]:
     return None
 
 
-def _dismissal_text(okind: Optional[str], bowler: Optional[str], fielder: Optional[str]) -> str:
-    if not okind:
-        return "out"
-    kind = okind.lower()
-    if kind == 'bowled':
-        return f"b {bowler}" if bowler else "bowled"
-    if kind == 'caught':
-        if fielder and fielder != bowler:
-            return f"c {fielder} b {bowler}"
-        return f"c&b {bowler}" if bowler else "caught"
-    if kind in ('caught and bowled', 'c and b'):
-        return f"c&b {bowler}" if bowler else "caught and bowled"
-    if kind == 'lbw':
-        return f"lbw b {bowler}" if bowler else "lbw"
-    if kind in ('run out', 'runout', 'run_out'):
-        return f"run out ({fielder})" if fielder else "run out"
-    if kind == 'stumped':
-        return f"st {fielder} b {bowler}" if fielder else f"st b {bowler}"
-    return okind
+# One classifier for every dismissal display surface - see the module docstring
+# in simulator/presentation/dismissals.py.
+_dismissal_text = scorecard_dismissal
 
 
 def _balls_to_overs(balls: int) -> str:
@@ -565,24 +561,7 @@ def _format_commentary_text(
     prefix = "Freehit! " if is_free_hit else ""
 
     if outcome_type == "Wicket":
-        kind = (outcome_kind or "out").lower()
-        if kind == "caught":
-            if outcome_player and outcome_player != bowler:
-                dismissal = f"caught by {outcome_player}, bowled {bowler}"
-            else:
-                dismissal = f"caught and bowled {bowler}"
-        elif kind in ("caught and bowled", "c and b"):
-            dismissal = f"caught and bowled {bowler}"
-        elif kind == "bowled":
-            dismissal = f"bowled by {bowler}"
-        elif kind == "lbw":
-            dismissal = f"lbw, bowled {bowler}"
-        elif kind == "stumped":
-            dismissal = f"stumped by {outcome_player or bowler}, bowled {bowler}"
-        elif kind in ("run out", "runout", "run_out"):
-            dismissal = f"run out by {outcome_player or 'fielder'}"
-        else:
-            dismissal = f"{outcome_kind} by {outcome_player or bowler}"
+        dismissal = commentary_dismissal(outcome_kind, bowler, outcome_player)
         return f"{label}  {prefix}WICKET! {batter} is out - {dismissal}"
 
     if outcome_kind and outcome_kind.lower() == "wide":

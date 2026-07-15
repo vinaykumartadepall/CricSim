@@ -32,6 +32,14 @@ class MatchResult:
     # Per-team (runs_scored, balls_faced) used for NRR and points-table calculations.
     team_innings_summary: dict = field(default_factory=dict)
 
+    # Set only by TournamentEngine's playoff tiebreak chain, when a knockout
+    # fixture's genuine outcome was a tie/draw (is_tie/is_no_result above stay
+    # true - the match itself really was drawn) but a winner still had to be
+    # picked to progress the bracket. None for a normal decisive/tie/draw
+    # result. Values: "super_over_tied_rank", "first_innings_lead", "group_stage_rank".
+    tiebreak_reason: Optional[str] = None
+    tiebreak_margin: Optional[int] = None  # numeric margin backing the reason, if any
+
 
 @dataclass
 class SimulationMatch:

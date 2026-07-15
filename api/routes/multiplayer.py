@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 import json as _json
 
 from api.job_queue import job_queue
+from api.multiplayer.venues import venues_for_format
 from api.multiplayer.manager import HOST_RECONNECT_GRACE_S, SQUAD_SIZE, RoomState, draft_manager, _snake_sequence
 from db.database import db_cursor
 from simulator.logger import get_logger
@@ -507,69 +508,6 @@ async def _start_simulation(room: RoomState):
         await draft_manager.broadcast(room, {"type": "error", "data": {"message": f"Simulation failed: {e}"}})
 
 
-_INTERNATIONAL_VENUES: dict[str, list[str]] = {
-    "T20": [
-        "Melbourne Cricket Ground",
-        "Sydney Cricket Ground",
-        "Sher-e-Bangla National Cricket Stadium",
-        "Sylhet International Cricket Stadium",
-        "Wankhede Stadium",
-        "Eden Gardens",
-        "Eden Park",
-        "Sky Stadium",
-        "Gaddafi Stadium",
-        "National Stadium, Karachi",
-        "The Wanderers Stadium",
-        "Newlands",
-        "R Premadasa Stadium",
-        "Pallekele International Cricket Stadium",
-        "Daren Sammy National Cricket Stadium",
-        "Kensington Oval",
-    ],
-    "ODI": [
-        "Sydney Cricket Ground",
-        "Melbourne Cricket Ground",
-        "Sher-e-Bangla National Cricket Stadium",
-        "Zahur Ahmed Chowdhury Stadium, Chattogram",
-        "Narendra Modi Stadium",
-        "M Chinnaswamy Stadium",
-        "Seddon Park",
-        "Eden Park",
-        "Gaddafi Stadium",
-        "National Stadium, Karachi",
-        "SuperSport Park",
-        "The Wanderers Stadium",
-        "R Premadasa Stadium",
-        "Rangiri Dambulla International Stadium",
-        "Kensington Oval",
-        "Queen's Park Oval",
-    ],
-    "Test": [
-        "Adelaide Oval",
-        "Western Australia Cricket Association Ground",
-        "Sher-e-Bangla National Cricket Stadium",
-        "Zahur Ahmed Chowdhury Stadium, Chattogram",
-        "Eden Gardens",
-        "MA Chidambaram Stadium, Chepauk",
-        "Basin Reserve",
-        "Seddon Park",
-        "Rawalpindi Cricket Stadium",
-        "National Stadium, Karachi",
-        "Newlands",
-        "SuperSport Park",
-        "Galle International Stadium",
-        "Sinhalese Sports Club Ground",
-        "Kensington Oval",
-        "Sabina Park, Kingston",
-    ],
-}
-
-
-def _venues_for_format(fmt: str) -> list[dict]:
-    names = _INTERNATIONAL_VENUES.get(fmt, _INTERNATIONAL_VENUES["T20"])
-    return [{"name": n} for n in names]
-
-
 def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> tuple:
     """Build a tournament/match config and kick off the simulation synchronously."""
     from api.worker import run_tournament_job, run_match_job
@@ -599,7 +537,7 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
     repo = SimulationRepository()
     try:
         fmt = room.match_format
-        venues = _venues_for_format(fmt)
+        venues = venues_for_format(fmt)
         if room.mode == "1v1":
             import random
             home, away = members[0], members[1]
@@ -618,15 +556,30 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
             on_sim_created(sim_id)
             run_match_job(sim_id, config)
 
-            # Create one game_session per participant now that simulation.teams rows exist
-            _save_multiplayer_game_sessions(repo, sim_id, team_name_by_client, room.room_id)
-
-            # Fetch the match_id for direct navigation
-            repo.cur.execute(
-                "SELECT match_id FROM simulation.matches WHERE sim_id = %s LIMIT 1", (sim_id,)
-            )
-            row = repo.cur.fetchone()
-            return sim_id, (row[0] if row else None)
+            # The simulation itself has completed at this point - a failure in
+            # the bookkeeping below must not bubble up to _start_simulation,
+            # which would reset the room to "reordering" and broadcast an error
+            # while every player has already navigated to the finished result.
+            # Cost of continuing: missing game_sessions rows (no Return-to-Lobby
+            # or personalization for this sim) - far better than a phantom failure.
+            match_id = None
+            try:
+                # Create one game_session per participant now that simulation.teams rows exist
+                _save_multiplayer_game_sessions(repo, sim_id, team_name_by_client, room.room_id)
+            except Exception:
+                get_logger().exception("Post-sim game_sessions save failed for sim %s (sim completed fine)", sim_id)
+                repo.rollback()
+            try:
+                # Fetch the match_id for direct navigation
+                repo.cur.execute(
+                    "SELECT match_id FROM simulation.matches WHERE sim_id = %s LIMIT 1", (sim_id,)
+                )
+                row = repo.cur.fetchone()
+                match_id = row[0] if row else None
+            except Exception:
+                get_logger().exception("Post-sim match_id fetch failed for sim %s (sim completed fine)", sim_id)
+                repo.rollback()
+            return sim_id, match_id
         else:
             teams = [_team_cfg(m) for m in members]
             n_teams = len(teams)
@@ -657,8 +610,14 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
             on_sim_created(sim_id)
             run_tournament_job(sim_id, config, user_team_name=None)
 
-            # Create one game_session per participant now that simulation.teams rows exist
-            _save_multiplayer_game_sessions(repo, sim_id, team_name_by_client, room.room_id)
+            # Same as the 1v1 branch: the sim completed - bookkeeping failures
+            # must not surface as a failed start to a room nobody is watching.
+            try:
+                # Create one game_session per participant now that simulation.teams rows exist
+                _save_multiplayer_game_sessions(repo, sim_id, team_name_by_client, room.room_id)
+            except Exception:
+                get_logger().exception("Post-sim game_sessions save failed for sim %s (sim completed fine)", sim_id)
+                repo.rollback()
 
             return sim_id, None
     finally:

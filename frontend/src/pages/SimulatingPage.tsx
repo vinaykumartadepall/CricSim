@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { X } from 'lucide-react'
 import { api } from '@/api/client'
+import { parseMatchResult } from '@/lib/parseResult'
 import simulatingBg from '@/assets/simulating.png'
 import teamsIcon from '@/assets/icon-teams.png'
 import matchesIcon from '@/assets/icon-matches.png'
@@ -103,13 +104,9 @@ function StatCard({ icon, label, value }: { icon: string; label: string; value: 
 // correctly falling through to the neutral style below rather than a false
 // win/loss.
 function parseWinner(text: string): string | null {
-  const desc = text.split(' - ')[1] ?? ''
-  const superOver = desc.match(/^Match tied · (.+) won Super Over$/)
-  if (superOver) return superOver[1].trim()
-  const tieAdvance = desc.match(/^Match tied · Super Over tied · (.+) advanced due to better group stage finish$/)
-  if (tieAdvance) return tieAdvance[1].trim()
-  const decisive = desc.match(/^(.+?)\s+won\s+by\s+/)
-  return decisive ? decisive[1].trim() : null
+  // Timeline entries read "Team A vs Team B - <result description>"; the part
+  // after the dash is the same description string parseMatchResult understands.
+  return parseMatchResult(text.split(' - ')[1] ?? '').winner
 }
 
 // Timeline row - a dot + connecting line down to the next entry, matching
