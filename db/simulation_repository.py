@@ -286,6 +286,21 @@ class SimulationRepository:
         else:
             db_result, result_type = 'win', 'normal'
 
+        # A knockout fixture that was genuinely drawn/tied (db_result above is
+        # still 'no result'/'tie' - the match's real outcome is unchanged) but
+        # still produced a winner via TournamentEngine's playoff tiebreak chain
+        # needs its own win_type sentinel, since 'no result'/'tie' rows
+        # normally carry no winner at all - _build_result_description uses
+        # this to reconstruct "X advanced on ..." instead of a bare
+        # "Match drawn"/"Match tied". The pre-existing Super-Over-tied-then-
+        # rank-advance case (is_super_over=True) already has its own encoding
+        # via is_super_over below and is deliberately left untouched here.
+        reason = getattr(result, "tiebreak_reason", None) if result else None
+        if winner_name and reason == "first_innings_lead":
+            win_type, win_by = "first_innings_lead", result.tiebreak_margin
+        elif winner_name and reason == "group_stage_rank" and not sim_match.is_super_over:
+            win_type, win_by = "group_stage_rank", None
+
         self.cur.execute(
             """
             INSERT INTO simulation.matches (
@@ -602,7 +617,13 @@ class SimulationRepository:
             {_MATCH_LATERAL}
             WHERE (%s IS NULL OR s.client_id = %s OR %s = ANY(s.participant_ids))
               {failed_filter}
-            ORDER BY s.created_at DESC
+            -- created_at ties are astronomically unlikely but not impossible
+            -- (batch-seeded rows can share one now()); sim_id (unique PK) as a
+            -- final tiebreaker costs nothing and rules out the same class of
+            -- pagination-duplicate bug fixed in leaderboard_repository.py -
+            -- this query backs the same growing-offset "Load More" pattern on
+            -- the home page, /simulations, and the admin simulations page.
+            ORDER BY s.created_at DESC, s.sim_id
             LIMIT %s OFFSET %s
             """,
             (client_id, client_id, client_id, client_id, limit, offset),

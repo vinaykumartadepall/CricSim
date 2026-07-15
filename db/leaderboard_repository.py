@@ -85,6 +85,10 @@ batting_agg AS (
 
 _INNING_BOWLING_CTE = """
 inning_bowling AS (
+    -- inning_number is selected (not just grouped on) so best_bowling_figures
+    -- can use (bowler_id, match_id, inning_number) as a pagination tiebreaker -
+    -- a bowler can have 2 rows sharing one match_id (2 Test innings), so
+    -- match_id alone doesn't uniquely identify a row.
     SELECT
         d.bowler_id,
         d.match_id,
@@ -106,7 +110,13 @@ inning_bowling AS (
       AND d.bowler_id IS NOT NULL
       AND m.is_super_over = FALSE
     GROUP BY d.bowler_id, d.match_id, d.inning_number, d.bowling_team_id
-),
+)
+"""
+
+# Composed with _INNING_BOWLING_CTE by bowling_aggregate only - best_bowling_figures
+# needs just the raw per-spell rows above, mirroring how batting_aggregate composes
+# _INNING_BATTING_CTE with _BATTING_AGG_CTE separately from highest_score.
+_BOWLING_AGG_CTE = """
 best_bowling AS (
     SELECT DISTINCT ON (bowler_id)
         bowler_id,
@@ -168,7 +178,10 @@ class LeaderboardRepository:
         SELECT *, COUNT(*) OVER () AS total_count
         FROM batting_agg
         {qualify}
-        ORDER BY {sort_col} {sort_dir} NULLS LAST
+        -- Ties on the sort stat (e.g. two batters both averaging 40.00) need a
+        -- deterministic tiebreaker or pagination can duplicate/skip rows -
+        -- batting_agg has exactly one row per batter_id, so it alone suffices.
+        ORDER BY {sort_col} {sort_dir} NULLS LAST, batter_id
         LIMIT %(limit)s OFFSET %(offset)s
         """
         self.cur.execute(sql, {'sim_id': sim_id, 'limit': limit, 'offset': offset})
@@ -203,7 +216,9 @@ class LeaderboardRepository:
         JOIN simulation.teams  ht ON ht.team_id    = m.home_team_id
         JOIN simulation.teams  at ON at.team_id    = m.away_team_id
         LEFT JOIN history.venues v ON v.venue_id   = m.venue_id
-        ORDER BY ib.inning_runs DESC, ib.balls ASC
+        -- Same reasoning as best_bowling_figures: runs/balls ties need a
+        -- deterministic tiebreaker or pagination can duplicate/skip rows.
+        ORDER BY ib.inning_runs DESC, ib.balls ASC, ib.batter_id, ib.match_id, ib.inning_number
         LIMIT %(limit)s OFFSET %(offset)s
         """
         self.cur.execute(sql, {'sim_id': sim_id, 'limit': limit, 'offset': offset})
@@ -222,7 +237,7 @@ class LeaderboardRepository:
         qualify = (f"WHERE total_balls >= {MIN_BALLS_FOR_BOWLING_RATE_BOARDS}"
                    if leaderboard in ('best-bowling-average', 'best-economy') else "")
         sql = f"""
-        WITH {_INNING_BOWLING_CTE}
+        WITH {_INNING_BOWLING_CTE}, {_BOWLING_AGG_CTE}
         SELECT
             player, team, matches, innings, total_balls, runs, wickets, dots,
             economy, average, strike_rate, bb_wickets, bb_runs,
@@ -230,7 +245,9 @@ class LeaderboardRepository:
             COUNT(*) OVER () AS total_count
         FROM bowling_agg
         {qualify}
-        ORDER BY {sort_col} {sort_dir} NULLS LAST
+        -- Same reasoning as batting_aggregate's tiebreaker - bowling_agg has
+        -- exactly one row per bowler_id, so it alone suffices.
+        ORDER BY {sort_col} {sort_dir} NULLS LAST, bowler_id
         LIMIT %(limit)s OFFSET %(offset)s
         """
         self.cur.execute(sql, {'sim_id': sim_id, 'limit': limit, 'offset': offset})
@@ -243,28 +260,8 @@ class LeaderboardRepository:
     def best_bowling_figures(
         self, sim_id: str, limit: int, offset: int
     ) -> Tuple[List[dict], int]:
-        sql = """
-        WITH inning_bowling AS (
-            SELECT
-                d.bowler_id,
-                d.match_id,
-                d.bowling_team_id,
-                COUNT(*) FILTER (
-                    WHERE outcome_kind IS DISTINCT FROM 'Wide'
-                      AND outcome_kind IS DISTINCT FROM 'Noball'
-                )                                                                   AS balls,
-                SUM(d.runs_batter + d.runs_extras)                                  AS runs,
-                SUM(CASE
-                    WHEN d.outcome_type = 'Wicket'
-                     AND (d.outcome_kind IS NULL OR d.outcome_kind != 'run out')
-                    THEN 1 ELSE 0 END)                                              AS wickets
-            FROM simulation.deliveries d
-            JOIN simulation.matches m ON m.match_id = d.match_id
-            WHERE m.sim_id = %(sim_id)s
-              AND d.bowler_id IS NOT NULL
-              AND m.is_super_over = FALSE
-            GROUP BY d.bowler_id, d.match_id, d.inning_number, d.bowling_team_id
-        )
+        sql = f"""
+        WITH {_INNING_BOWLING_CTE}
         SELECT
             COALESCE(hp.display_name, hp.name)                                      AS player,
             st.name                                                                 AS team,
@@ -282,7 +279,13 @@ class LeaderboardRepository:
         JOIN simulation.teams  ht ON ht.team_id    = m.home_team_id
         JOIN simulation.teams  at ON at.team_id    = m.away_team_id
         LEFT JOIN history.venues v ON v.venue_id   = m.venue_id
-        ORDER BY ib.wickets DESC, ib.runs ASC
+        -- wickets/runs ties are common (e.g. many 3/24 spells) - without a
+        -- final deterministic tiebreaker, LIMIT/OFFSET pagination can show
+        -- the same row on two different pages (and skip others), since
+        -- Postgres doesn't guarantee a stable order among tied rows across
+        -- separate query executions. bowler_id/match_id/inning_number
+        -- together uniquely identify one bowling spell.
+        ORDER BY ib.wickets DESC, ib.runs ASC, ib.bowler_id, ib.match_id, ib.inning_number
         LIMIT %(limit)s OFFSET %(offset)s
         """
         self.cur.execute(sql, {'sim_id': sim_id, 'limit': limit, 'offset': offset})
@@ -311,7 +314,10 @@ class LeaderboardRepository:
             FROM simulation.player_awards pa
             LEFT JOIN history.players hp ON hp.player_id = pa.player_id
             WHERE pa.sim_id = %(sim_id)s
-            ORDER BY (pa.batting_pts + pa.bowling_pts + pa.fielding_pts) DESC
+            -- Ties on total points need a deterministic tiebreaker or
+            -- pagination can duplicate/skip rows - award_id (this table's own
+            -- primary key) is guaranteed unique per row.
+            ORDER BY (pa.batting_pts + pa.bowling_pts + pa.fielding_pts) DESC, pa.award_id
             LIMIT %(limit)s OFFSET %(offset)s
             """,
             {'sim_id': sim_id, 'limit': limit, 'offset': offset},
