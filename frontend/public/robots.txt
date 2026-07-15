@@ -1,0 +1,7 @@
+# /site-admin and /cricsimapi are intentionally not listed here. Both are
+# already behind real authentication (Supabase JWT + a server-side admin
+# allowlist) - a Disallow line would only advertise that they exist to
+# anyone reading this file, with no actual protective effect.
+
+User-agent: *
+Allow: /
