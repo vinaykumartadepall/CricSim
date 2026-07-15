@@ -4,6 +4,7 @@ from simulator.entities.match import MatchStatus, MatchResult
 from simulator.entities.team import MatchTeam
 
 _FOLLOW_ON_THRESHOLD = 200
+_GLOBAL_OVERS_CAP    = 450   # Test match limit: 5 days x 90 overs
 
 
 class TestMatchEngine(BaseEngine):
@@ -81,7 +82,7 @@ class TestMatchEngine(BaseEngine):
         inning = self._create_inning(inning_num, batting_team, bowling_team)
         self._set_initial_players()
 
-        remaining_global_overs = 450 - self.match_overs_total
+        remaining_global_overs = _GLOBAL_OVERS_CAP - self.match_overs_total
         sim = InningsSimulator(self.match, self.ball_outcomes, self.logger, self.bowling_strategy)
         overs_played = sim.run(
             max_overs=remaining_global_overs,
@@ -149,7 +150,7 @@ class TestMatchEngine(BaseEngine):
         return self._lead_trail_message()
 
     def _check_match_completed(self) -> bool:
-        return self.match_overs_total >= 450
+        return self.match_overs_total >= _GLOBAL_OVERS_CAP
 
     def _finalize_match(self):
         self.logger.headline("\n=== Match Complete ===")
@@ -199,7 +200,7 @@ class TestMatchEngine(BaseEngine):
                 result = MatchResult(winner=None, description="Match Drawn", is_no_result=True,
                                      team_innings_summary=summary)
         elif len(innings) <= 3:
-            if self.match_overs_total >= 450:
+            if self.match_overs_total >= _GLOBAL_OVERS_CAP:
                 result = MatchResult(winner=None, description="Match Drawn", is_no_result=True,
                                      team_innings_summary=summary)
             else:

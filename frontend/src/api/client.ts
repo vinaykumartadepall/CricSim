@@ -1,4 +1,4 @@
-import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse, AdminSimListResponse, AdminTournamentSummary, AdminTournamentDetail, AdminPlayer, Country } from '@/types'
+import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse, AdminSimListResponse, AdminTournamentSummary, AdminTournamentDetail, AdminPlayer, Country, Commentary } from '@/types'
 import { supabase } from '@/lib/supabase'
 
 const BASE = '/cricsimapi'
@@ -114,12 +114,12 @@ export const api = {
   },
 
   getSimCommentary: (simId: string) =>
-    get<{ innings: { team: string; balls: { over: number; ball: number; text: string }[] }[] }>(
+    get<Commentary>(
       `/simulations/${simId}/commentary`
     ),
 
   getMatchCommentary: (simId: string, matchId: number) =>
-    get<{ innings: { team: string; balls: { over: number; ball: number; text: string }[] }[] }>(
+    get<Commentary>(
       `/simulations/${simId}/matches/${matchId}/commentary`
     ),
 

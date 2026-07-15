@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from enums.constants import ExtraType
 from simulator.entities.inning import Inning
 from simulator.presentation.colors import bg, bold, dim, hdr, rgb, sep
+from simulator.presentation.dismissals import scorecard_dismissal
 
 if TYPE_CHECKING:
     from simulator.entities.match import SimulationMatch
@@ -183,19 +184,9 @@ def _build_dismissal_lookup(inning: Inning) -> dict:
     dismissal: dict = {}
     for d in inning.deliveries:
         if d.is_wicket and d.batter and d.batter.id not in dismissal:
-            kind    = d.wicket_kind or ""
             bowler  = d.bowler.name if d.bowler else ""
             fielder = d.outcome_player.name if d.outcome_player else ""
-            if kind == "caught":
-                dismissal[d.batter.id] = f"c {fielder} b {bowler}" if fielder else f"b {bowler}"
-            elif kind == "stumped":
-                dismissal[d.batter.id] = f"st {fielder} b {bowler}" if fielder else f"b {bowler}"
-            elif kind == "run out":
-                dismissal[d.batter.id] = f"run out ({fielder})" if fielder else "run out"
-            elif kind == "lbw":
-                dismissal[d.batter.id] = f"lbw b {bowler}"
-            else:
-                dismissal[d.batter.id] = f"b {bowler}"
+            dismissal[d.batter.id] = scorecard_dismissal(d.wicket_kind, bowler, fielder)
     return dismissal
 
 

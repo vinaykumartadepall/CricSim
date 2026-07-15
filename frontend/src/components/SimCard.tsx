@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import { FormatBadge } from '@/components/ui/FormatBadge'
 import type { SimSummary } from '@/types'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -71,19 +72,6 @@ function Chip({ bg, color, children }: { bg: string; color: string; children: Re
       {children}
     </span>
   )
-}
-
-// ── Format badge ──────────────────────────────────────────────────────────────
-
-function FormatBadge({ format }: { format: string | null | undefined }) {
-  if (!format) return null
-  const styles: Record<string, { bg: string; color: string }> = {
-    Test: { bg: tint(COLOR.purple, 12), color: COLOR.purple },
-    ODI:  { bg: tint(COLOR.win, 10),    color: COLOR.win },
-    T20:  { bg: tint(COLOR.accent, 10), color: COLOR.accent },
-  }
-  const s = styles[format] ?? { bg: NEUTRAL_BG, color: COLOR.dim }
-  return <Badge bg={s.bg} color={s.color}>{format}</Badge>
 }
 
 // ── Mode badge (row 2) ────────────────────────────────────────────────────────

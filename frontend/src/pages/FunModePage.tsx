@@ -11,6 +11,7 @@ import { FormatBadge } from '@/components/ui/FormatBadge'
 import { BackButton } from '@/components/ui/BackButton'
 import { ConfirmRow } from '@/components/ui/ConfirmRow'
 import { SquadEditor } from '@/components/SquadEditor'
+import { useWizardUrlState } from '@/hooks/useWizardUrlState'
 import { sortTournamentNames } from '@/lib/sortTournamentNames'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest } from '@/types'
 
@@ -26,7 +27,7 @@ const FUN_STEP_SLIDE: Partial<Record<Step, number>> = {
 
 export function FunModePage() {
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const retrySimId = searchParams.get('retrySimId')
   const { clientId } = useAuth()
   const { openHelp } = useHelp()
@@ -61,25 +62,7 @@ export function FunModePage() {
       .catch(err => console.warn('Sim-history name counts unavailable (non-critical)', err))
   }, [clientId])
 
-  // Keeps the URL as the durable record of "where am I" (season + team + step)
-  // so reload/back/forward/history land back in the right place instead of
-  // resetting to step 1 - the same recurring bug class as retrySimId/room_id
-  // elsewhere in the app. Swaps are deliberately NOT included here (kept out
-  // of the URL by design) - retrySimId remains the durable path for those,
-  // since they only exist once a sim has actually been run.
-  function updateUrlParams(patch: Record<string, string | undefined>) {
-    const next = new URLSearchParams(searchParams)
-    for (const [k, v] of Object.entries(patch)) {
-      if (v === undefined) next.delete(k)
-      else next.set(k, v)
-    }
-    setSearchParams(next, { replace: true })
-  }
-
-  function goToStep(newStep: Step, extra?: Record<string, string | undefined>) {
-    setStep(newStep)
-    updateUrlParams({ step: newStep, ...extra })
-  }
+  const { updateUrlParams, goToStep } = useWizardUrlState<Step>(setStep)
 
   // Shared by selectSeason(), the retry flow, and the URL-restore effect below
   // - previously the retry flow fetched squads on its own without this, so

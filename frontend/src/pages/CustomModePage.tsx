@@ -15,6 +15,7 @@ import { Headshot } from '@/components/ui/Avatar'
 import { BackButton } from '@/components/ui/BackButton'
 import { ConfirmRow } from '@/components/ui/ConfirmRow'
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
+import { useWizardUrlState } from '@/hooks/useWizardUrlState'
 import { sortTournamentNames } from '@/lib/sortTournamentNames'
 import type { Tournament, Team, Player, MultiplayerPlayer, PlayerFilterOptions } from '@/types'
 
@@ -328,7 +329,7 @@ function PickPanel({
 
 export function CustomModePage() {
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const { clientId } = useAuth()
   const { openHelp } = useHelp()
 
@@ -352,26 +353,11 @@ export function CustomModePage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
 
-  // Keeps the URL as the durable record of "where am I" (tournament + team +
-  // step) so reload/back/forward/history land back in the right place instead
-  // of resetting to step 1. The squad itself (11 in-progress picks) is
-  // deliberately NOT restored this way - same reasoning as swaps in Fun/
-  // Challenge Mode: it's frequently-mutated, fiddly to serialize, and not
-  // worth the URL noise. Reloading mid-draft restores the right team, with an
-  // empty XI to re-pick, rather than resetting all the way to step 1.
-  function updateUrlParams(patch: Record<string, string | undefined>) {
-    const next = new URLSearchParams(searchParams)
-    for (const [k, v] of Object.entries(patch)) {
-      if (v === undefined) next.delete(k)
-      else next.set(k, v)
-    }
-    setSearchParams(next, { replace: true })
-  }
-
-  function goToStep(newStep: Step, extra?: Record<string, string | undefined>) {
-    setStep(newStep)
-    updateUrlParams({ step: newStep, ...extra })
-  }
+  // The squad itself (11 in-progress picks) is deliberately NOT restored via
+  // the URL - it's frequently-mutated, fiddly to serialize, and not worth the
+  // URL noise. Reloading mid-draft restores the right team, with an empty XI
+  // to re-pick, rather than resetting all the way to step 1.
+  const { updateUrlParams, goToStep } = useWizardUrlState<Step>(setStep)
 
   // URL-driven restore on mount - Custom Mode has no retrySimId/try-again flow
   // (there's nothing to trade), so this is the only restoration path.

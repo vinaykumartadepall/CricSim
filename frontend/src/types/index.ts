@@ -149,6 +149,31 @@ export interface Country {
   name: string
 }
 
+// ── Ball-by-ball commentary (GET /simulations/{id}/commentary and per-match) ──
+
+export interface DeliveryItem {
+  inning_number: number
+  over_ball: string
+  bowler: string
+  batter: string
+  non_striker: string
+  runs_batter: number
+  runs_extras: number
+  outcome_type: string
+  outcome_kind: string | null
+  is_wicket: boolean
+  is_free_hit: boolean
+  commentary_text: string
+}
+
+export interface Commentary {
+  match_id: number
+  match_label: string
+  match_format: string | null
+  overs_per_innings: number | null
+  deliveries: DeliveryItem[]
+}
+
 export interface PointsTableRow {
   team: string
   played: number

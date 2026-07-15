@@ -235,60 +235,27 @@ def run_tournament_job(
 
 
 def _build_tournament_config(raw: dict) -> TournamentConfig:
-    """Convert the API request dict into a TournamentConfig."""
-    from simulator.tournament.config import (
-        TournamentConfig, VenueConfig, TeamConfig as TcTeamConfig,
-        ScheduleConfig, Fixture, PlayoffConfig, ERA_NORMALIZE_ALL,
-    )
+    """Convert the API request dict into a TournamentConfig.
 
-    venues = [VenueConfig(name=v['name'], city=v.get('city', ''))
-              for v in raw.get('venues', [])]
+    Delegates to the shared parse_tournament_config (the same function that
+    loads config files and validates admin edits - one parser, no drift), then
+    applies the worker-only defaults the shared parser deliberately doesn't
+    know about; behavior is pinned by tests/test_worker_config.py:
+    - absent/empty strategies fall back to the admin-configured defaults
+      rather than the parser's static literals
+    - era_normalize_contexts absent/null becomes a fresh COPY of
+      ERA_NORMALIZE_ALL so later mutation can't poison the module constant
+    """
+    from simulator.tournament.config import ERA_NORMALIZE_ALL, parse_tournament_config
 
-    teams = []
-    for t in raw.get('teams', []):
-        teams.append(TcTeamConfig(
-            name=t['name'],
-            short_name=t.get('short_name', t['name'][:3].upper()),
-            players=t.get('players', []),
-            home_venue=t.get('home_venue'),
-            primary_color=t.get('primary_color', '#1E88E5'),
-            secondary_color=t.get('secondary_color', '#FFFFFF'),
-        ))
-
-    raw_sched = raw.get('schedule', {'type': 'round_robin'})
-    if isinstance(raw_sched, list):
-        schedule = [Fixture(home=f['home'], away=f['away'],
-                            venue=f.get('venue'), match_number=i + 1)
-                    for i, f in enumerate(raw_sched)]
-    else:
-        schedule = ScheduleConfig(
-            type=raw_sched.get('type', 'round_robin'),
-            matches_per_pair=raw_sched.get('matches_per_pair', 1),
-            neutral_venues=raw_sched.get('neutral_venues', True),
-            groups=raw_sched.get('groups'),
-            within_matches_per_pair=raw_sched.get('within_matches_per_pair', 1),
-            cross_matches_per_pair=raw_sched.get('cross_matches_per_pair', 2),
-        )
-
-    raw_po = raw.get('playoffs', {'format': 'none'})
-    playoffs = PlayoffConfig(
-        format=raw_po.get('format', 'none'),
-        top_n=raw_po.get('top_n', 4),
-    )
-
-    return TournamentConfig(
-        tournament_name=raw.get('tournament_name', 'Cricket Tournament'),
-        format=raw.get('format', 'T20'),
-        gender=raw.get('gender', 'male'),
-        season=raw.get('season', '2025'),
-        venues=venues,
-        teams=teams,
-        schedule=schedule,
-        playoffs=playoffs,
-        outcome_strategy=raw.get('outcome_strategy') or get_admin_settings().default_outcome_strategy,
-        bowling_strategy=raw.get('bowling_strategy') or get_admin_settings().default_bowling_strategy,
-        era_normalize_contexts=list(ERA_NORMALIZE_ALL) if raw.get('era_normalize_contexts') is None else raw['era_normalize_contexts'],
-    )
+    cfg = parse_tournament_config(raw)
+    if not raw.get('outcome_strategy'):
+        cfg.outcome_strategy = get_admin_settings().default_outcome_strategy
+    if not raw.get('bowling_strategy'):
+        cfg.bowling_strategy = get_admin_settings().default_bowling_strategy
+    if raw.get('era_normalize_contexts') is None:
+        cfg.era_normalize_contexts = list(ERA_NORMALIZE_ALL)
+    return cfg
 
 
 def _cache_leaderboards(repo: SimulationRepository, sim_id: str, tournament_id: int) -> None:
