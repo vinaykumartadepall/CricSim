@@ -12,8 +12,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from api.models.responses import AdminSimListResponse
+from db.identity_repository import IdentityRepository
 from db.player_repository import PlayerRepository
-from db.profile_repository import ProfileRepository
 from db.simulation_repository import SimulationRepository
 from db.squad_repository import SquadRepository
 from simulator.logger import get_logger
@@ -32,19 +32,20 @@ def _run(repo, fn):
 
 
 def _display_names_for(client_ids: set) -> dict:
-    """Profiles live in the separate Supabase DB, so names can't be joined in
-    the main list query - fetch them in one batched lookup instead. Best
-    effort: the list must still render (ids only) if Supabase is unreachable."""
+    """identity_links can't be joined into the main list query (raw
+    client_ids there may be un-resolved historical ids), so fetch usernames
+    in one batched lookup instead. Best effort: the list must still render
+    (ids only) if this lookup fails."""
     if not client_ids:
         return {}
     try:
-        repo = ProfileRepository()
+        repo = IdentityRepository()
         try:
-            return repo.get_display_names(list(client_ids))
+            return repo.get_usernames(list(client_ids))
         finally:
             repo.close()
     except Exception:
-        get_logger().exception("Admin data: profile display-name lookup failed")
+        get_logger().exception("Admin data: identity username lookup failed")
         return {}
 
 

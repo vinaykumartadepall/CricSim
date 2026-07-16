@@ -72,20 +72,21 @@ class _FakeRepo:
         pass
 
 
-class _FakeProfileRepo:
-    """Profiles live in the Supabase DB; only signed-in users have a row."""
+class _FakeIdentityRepo:
+    """identity_links covers anonymous and authenticated ids alike; a row is
+    only missing for an id that's never synced/linked at all."""
 
-    def get_display_names(self, user_ids):
-        assert set(user_ids) == {"someone-else", "another-user"}
-        return {"someone-else": "Ravi"}  # 'another-user' is anonymous - no row
+    def get_usernames(self, client_ids):
+        assert set(client_ids) == {"someone-else", "another-user"}
+        return {"someone-else": "Ravi"}  # 'another-user' has no row yet
 
     def close(self):
         pass
 
 
-class _ExplodingProfileRepo:
+class _ExplodingIdentityRepo:
     def __init__(self):
-        raise RuntimeError("supabase unreachable")
+        raise RuntimeError("db unreachable")
 
 
 @pytest.fixture(scope="module")
@@ -108,7 +109,7 @@ class TestAdminSimulationsList:
 
     def test_returns_all_rows_with_owner_fields_and_total(self, client, monkeypatch):
         monkeypatch.setattr(admin_data_mod, "SimulationRepository", _FakeRepo)
-        monkeypatch.setattr(admin_data_mod, "ProfileRepository", _FakeProfileRepo)
+        monkeypatch.setattr(admin_data_mod, "IdentityRepository", _FakeIdentityRepo)
         resp = client.get("/cricsimapi/admin/data/simulations")
         assert resp.status_code == 200
         body = resp.json()
@@ -116,8 +117,8 @@ class TestAdminSimulationsList:
         assert len(body["simulations"]) == 2
         first, second = body["simulations"]
         assert first["client_id"] == "someone-else"
-        assert first["display_name"] == "Ravi"       # signed-in: profile merged in
-        assert second["display_name"] is None        # anonymous: no profile row
+        assert first["display_name"] == "Ravi"       # username merged in from identity_links
+        assert second["display_name"] is None        # no identity_links row for this id
         assert second["status"] == "failed"
         assert second["error_message"] == "boom"
         # window-count column must not leak into the response rows
@@ -125,13 +126,13 @@ class TestAdminSimulationsList:
 
     def test_reachable_on_bare_mount_too(self, client, monkeypatch):
         monkeypatch.setattr(admin_data_mod, "SimulationRepository", _FakeRepo)
-        monkeypatch.setattr(admin_data_mod, "ProfileRepository", _FakeProfileRepo)
+        monkeypatch.setattr(admin_data_mod, "IdentityRepository", _FakeIdentityRepo)
         assert client.get("/admin/data/simulations").status_code == 200
 
-    def test_supabase_outage_degrades_to_ids_only(self, client, monkeypatch):
-        # Best effort: the list must still render if the profiles DB is down.
+    def test_identity_lookup_failure_degrades_to_ids_only(self, client, monkeypatch):
+        # Best effort: the list must still render even if the username lookup fails.
         monkeypatch.setattr(admin_data_mod, "SimulationRepository", _FakeRepo)
-        monkeypatch.setattr(admin_data_mod, "ProfileRepository", _ExplodingProfileRepo)
+        monkeypatch.setattr(admin_data_mod, "IdentityRepository", _ExplodingIdentityRepo)
         resp = client.get("/cricsimapi/admin/data/simulations")
         assert resp.status_code == 200
         assert all(r["display_name"] is None for r in resp.json()["simulations"])
@@ -172,6 +173,9 @@ class _FakeCursor:
     def fetchall(self):
         return []
 
+    def fetchone(self):
+        return None
+
 
 class TestRepoAdminViewSql:
     """list_simulations builds one shared query; admin_view only widens it."""
@@ -179,6 +183,7 @@ class TestRepoAdminViewSql:
     def _repo_with_fake_cursor(self):
         repo = SimulationRepository.__new__(SimulationRepository)
         repo._dict_cur = _FakeCursor()
+        repo.cur = _FakeCursor()
         return repo
 
     def test_admin_view_adds_owner_columns_and_keeps_failed(self):

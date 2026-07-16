@@ -29,8 +29,11 @@ export function ProfilePage() {
       await updateDisplayName(trimmed)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-    } catch {
-      setError('Failed to save. Please try again.')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : ''
+      setError(message.includes('already taken')
+        ? 'That username is already taken.'
+        : 'Failed to save. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -78,7 +81,7 @@ export function ProfilePage() {
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
-            Display name
+            Username
           </label>
           <span style={{ fontSize: 11, color: trimmedLength >= MAX_NAME_LENGTH ? 'var(--loss)' : 'var(--text-dim)' }}>
             {trimmedLength}/{MAX_NAME_LENGTH}

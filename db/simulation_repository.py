@@ -143,6 +143,29 @@ class SimulationRepository:
         self._dict_cur.close()
         self.conn.close()
 
+    # ── Identity resolution ─────────────────────────────────────────────────────
+
+    def _resolve_client_id(self, raw_id: str | None) -> str | None:
+        """
+        The one call every client_id-consuming method here makes before
+        using it (see db/identity_repository.py::IdentityRepository -
+        simulation.identity_links is the single source of identity for both
+        anonymous and authenticated users). Runs on this repo's own
+        connection/cursor rather than opening a second one, since
+        identity_links lives in the same database.
+        """
+        if raw_id is None:
+            return None
+        self.cur.execute(
+            "SELECT id FROM simulation.identity_links WHERE id = %s OR linked_auth_id = %s",
+            (raw_id, raw_id),
+        )
+        row = self.cur.fetchone()
+        return row[0] if row else raw_id
+
+    def _resolve_client_ids(self, raw_ids: list) -> list:
+        return [self._resolve_client_id(r) for r in raw_ids]
+
     # ── simulation.simulations ─────────────────────────────────────────────────
 
     def create_simulation(
@@ -154,6 +177,8 @@ class SimulationRepository:
         participant_ids: Optional[list] = None,
     ) -> str:
         """Insert a new simulation job row and return its UUID."""
+        client_id = self._resolve_client_id(client_id)
+        resolved_participants = self._resolve_client_ids(participant_ids) if participant_ids else []
         self.cur.execute(
             """
             INSERT INTO simulation.simulations
@@ -161,7 +186,7 @@ class SimulationRepository:
             VALUES (%s, 'pending', %s, %s, %s, %s)
             RETURNING sim_id
             """,
-            (sim_type, json.dumps(config_dict), client_id, mode, participant_ids or []),
+            (sim_type, json.dumps(config_dict), client_id, mode, resolved_participants),
         )
         return str(self.cur.fetchone()[0])
 
@@ -576,6 +601,7 @@ class SimulationRepository:
         lists every user's simulations - the public route must always pass a
         concrete client_id.
         """
+        client_id = self._resolve_client_id(client_id)
         admin_cols = (
             ",\n s.client_id, s.error_message, COUNT(*) OVER() AS total_count"
             if admin_view else ""
@@ -653,6 +679,7 @@ class SimulationRepository:
         the room from sim_id alone, regardless of navigation state, reloads,
         or viewing the result long after the fact from history.
         """
+        client_id = self._resolve_client_id(client_id)
         self.cur.execute(
             """
             INSERT INTO simulation.game_sessions
@@ -676,6 +703,7 @@ class SimulationRepository:
                    don't pass client_id, where there is exactly one row per sim).
         Returns None if no matching row exists.
         """
+        client_id = self._resolve_client_id(client_id)
         try:
             if client_id is not None:
                 self._dict_cur.execute(
@@ -806,6 +834,7 @@ class SimulationRepository:
         With    tournament_ids  → per tournament-id counts   (Step 2).
         mode='challenge': totals only count underdog (win_pct < 0.33) team×season combos.
         """
+        client_id = self._resolve_client_id(client_id)
         if tournament_ids is None:
             if mode == 'challenge':
                 self._dict_cur.execute(
@@ -1010,6 +1039,7 @@ class SimulationRepository:
         which differ from history.teams IDs returned by the squads endpoint.
         mode: when provided, only considers simulations with that mode.
         """
+        client_id = self._resolve_client_id(client_id)
         self._dict_cur.execute(
             f"""
             WITH ranked AS (
@@ -1039,45 +1069,6 @@ class SimulationRepository:
             (client_id, tournament_id, mode, mode),
         )
         return [dict(r) for r in self._dict_cur.fetchall()]
-
-
-    # ── User profiles ──────────────────────────────────────────────────────────
-
-    def get_profile(self, user_id: str) -> dict | None:
-        """Returns {user_id, display_name} or None if not found."""
-        self._dict_cur.execute(
-            "SELECT user_id, display_name FROM simulation.profiles WHERE user_id = %s",
-            (user_id,),
-        )
-        row = self._dict_cur.fetchone()
-        return dict(row) if row else None
-
-    def upsert_profile(self, user_id: str, display_name: str, anonymous_id: str | None = None) -> dict:
-        """Creates or updates a user profile. Returns {user_id, display_name}."""
-        self._dict_cur.execute(
-            """
-            INSERT INTO simulation.profiles (user_id, display_name, anonymous_id)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (user_id) DO UPDATE
-                SET display_name = EXCLUDED.display_name,
-                    updated_at   = now()
-            RETURNING user_id, display_name
-            """,
-            (user_id, display_name, anonymous_id),
-        )
-        return dict(self._dict_cur.fetchone())
-
-    def link_anonymous(self, user_id: str, anonymous_id: str) -> int:
-        """Migrates all simulations from anonymous_id → user_id. Returns row count updated."""
-        self.cur.execute(
-            """
-            UPDATE simulation.simulations
-            SET client_id = %s
-            WHERE client_id = %s AND client_id != %s
-            """,
-            (user_id, anonymous_id, user_id),
-        )
-        return self.cur.rowcount
 
 
 # ── Private helpers ────────────────────────────────────────────────────────────

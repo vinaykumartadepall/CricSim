@@ -15,6 +15,8 @@ def _make_repo(rows):
     repo = SimulationRepository.__new__(SimulationRepository)
     repo._dict_cur = MagicMock()
     repo._dict_cur.fetchall.return_value = rows
+    repo.cur = MagicMock()
+    repo.cur.fetchone.return_value = None  # no identity_links row -> client_id resolves to itself
     return repo
 
 

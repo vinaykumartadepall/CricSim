@@ -60,8 +60,10 @@ def make_query_logging_cursor(base_cursor_cls):
 # Falls back to individual DB_* vars for local dev without a URL.
 _DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# Supabase DB - stores only the profiles table.
-# Falls back to main connection if not set (e.g. local dev).
+# Supabase DB - historically stored the profiles table, now superseded by
+# simulation.identity_links in the main DB (see db/identity_repository.py).
+# Retained only for the one-time copy script (db/copy_profiles_to_identity_links.py)
+# reading the old simulation.profiles rows. Falls back to main connection if not set.
 _SUPABASE_DATABASE_URL = os.environ.get('SUPABASE_DATABASE_URL')
 
 DB_NAME = os.environ.get('DB_NAME', 'cricket_db')
@@ -71,7 +73,9 @@ DB_HOST = os.environ.get('DB_HOST', 'localhost')
 DB_PORT = os.environ.get('DB_PORT', '5432')
 
 def get_supabase_connection(autocommit=True):
-    """Connection to Supabase DB (profiles table only). Falls back to main DB if SUPABASE_DATABASE_URL is not set."""
+    """Connection to the Supabase DB. Only used by the one-time profiles
+    copy script now - runtime code reads identity via IdentityRepository on
+    the main DB instead. Falls back to main DB if SUPABASE_DATABASE_URL is not set."""
     url = _SUPABASE_DATABASE_URL or _DATABASE_URL
     if url:
         conn = psycopg2.connect(url)

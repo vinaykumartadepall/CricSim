@@ -61,6 +61,30 @@ async function authPut<T>(path: string, body: unknown): Promise<T> {
   return res.json()
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { detail?: string }).detail || `${res.status} ${res.statusText}`)
+  }
+  return res.json()
+}
+
+// No response body (204) - identity/sync-anonymous is fire-and-forget, so a
+// plain res.json() would throw on the empty body.
+async function postNoContent(path: string, body: unknown): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+}
+
 export const api = {
   getTournaments: (q?: string) =>
     get<Tournament[]>(`/lov/tournaments${q ? `?q=${encodeURIComponent(q)}` : ''}`),
@@ -160,16 +184,20 @@ export const api = {
     return get<SimHistoryTeamBest[]>(`/sim-history/best?${params}`)
   },
 
-  // ── Auth endpoints (require Supabase JWT) ──────────────────────────────────
+  // ── Identity endpoints (simulation.identity_links) ─────────────────────────
 
-  getAuthProfile: () =>
-    authGet<{ user_id: string; display_name: string }>('/auth/profile'),
+  syncAnonymousIdentity: (client_id: string, username: string) =>
+    postNoContent('/identity/sync-anonymous', { client_id, username }),
 
-  upsertAuthProfile: (display_name: string) =>
-    authPost<{ user_id: string; display_name: string }>('/auth/profile', { display_name }),
+  // Requires a Supabase JWT - called once per sign-in; the server resolves
+  // the auth id from the token itself, not from the body.
+  linkIdentity: (client_id: string, fallback_username: string) =>
+    authPost<{ canonical_id: string; username: string }>('/identity/link', {
+      client_id, fallback_username,
+    }),
 
-  linkAnonymous: (anonymous_id: string) =>
-    authPost<{ migrated: number }>('/auth/link-anonymous', { anonymous_id }),
+  setUsername: (client_id: string, username: string) =>
+    put<{ canonical_id: string; username: string }>('/identity/username', { client_id, username }),
 
   // ── Multiplayer endpoints ──────────────────────────────────────────────────
 

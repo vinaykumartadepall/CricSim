@@ -29,7 +29,7 @@ from api.job_queue import job_queue
 from api.routes.admin import router as admin_router
 from api.routes.admin_data import router as admin_data_router
 from api.routes.admin_squads import router as admin_squads_router
-from api.routes.auth import router as auth_router
+from api.routes.identity import router as identity_router
 from api.routes.leaderboards import router as lb_router
 from api.routes.lov import router as lov_router
 from api.routes.multiplayer import router as multiplayer_router
@@ -179,7 +179,7 @@ app.include_router(admin_squads_router, dependencies=_admin_guard)
 app.include_router(admin_squads_router, prefix="/cricsimapi", dependencies=_admin_guard)
 app.include_router(admin_data_router, dependencies=_admin_guard)
 app.include_router(admin_data_router, prefix="/cricsimapi", dependencies=_admin_guard)
-app.include_router(auth_router)
+app.include_router(identity_router)
 app.include_router(lov_router)
 app.include_router(sim_router)
 app.include_router(lb_router)

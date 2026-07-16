@@ -33,7 +33,7 @@ class SimSummaryItem(BaseModel):
 class AdminSimRow(SimSummaryItem):
     """SimSummaryItem plus owner/diagnostic fields only the admin view returns."""
     client_id: Optional[str] = None
-    display_name: Optional[str] = None  # from Supabase profiles; None for anonymous users
+    display_name: Optional[str] = None  # from simulation.identity_links; None if never synced
     error_message: Optional[str] = None
 
 
