@@ -23,6 +23,9 @@ When you find an existing duplication and consolidate it into one implementation
 ### 3. Write tests for every new feature or fix
 Before marking any task complete, add tests in `tests/`. All tests must run without a database connection - mock or bypass it at the class level (see test patterns below).
 
+### 4. Keep `db/schema.sql` in sync with `db/migrations/`
+`db/schema.sql` is the single "current full schema" reference - it's what `db/database.py::initialize_schema()` runs to set up a fresh database, and it's what anyone reading the codebase treats as ground truth for what tables exist. Every migration that adds/alters a table in the **main app DB** (not the old Supabase-only `profiles` table, which never belonged here) must also be reflected in `schema.sql` in the same change - not as a follow-up. This drifted twice already (migrations 030 and 031 both landed without a `schema.sql` update) before being caught and backfilled; don't let it happen a third time.
+
 ---
 
 ## Architecture Overview
@@ -51,6 +54,11 @@ predict_next_ball(match)
 
 ### Tournament persistence
 `_PersistingTournamentEngine` (in `api/worker.py`) batches DB commits every 20 matches (`_DB_BATCH_SIZE = 20`). A final commit flushes the remainder after `engine.run()` returns.
+
+### Identity system - resolve, don't migrate
+`simulation.identity_links` (`db/identity_repository.py::IdentityRepository`) is the single source of identity for both anonymous and authenticated users, with a real, enforced, case-insensitive unique username. Every `client_id`-consuming method resolves it through `resolve_client_id`/`link_account` first (see `SimulationRepository._resolve_client_id`), rather than mutating historical `client_id`/`participant_ids`/`game_sessions`/`rooms` columns when someone signs in. That "resolve, don't migrate" pattern is deliberate: it means no per-table migration logic is ever needed again when a new client_id-bearing table is added - the old `link_anonymous` approach broke exactly this way (it updated `simulations.client_id` on sign-in but missed `participant_ids`/`game_sessions.client_id`/`rooms.host_id`/`room_members.client_id`, leaving some multiplayer participants stuck showing as spectators; see `db/diagnose_legacy_identity_gaps.py`, which is read-only precisely because that gap turned out to be unrepairable after the fact - there was no stored mapping from an old anon id to the auth id it became).
+
+Never re-add a second identity/profile store, and never mutate historical `client_id` columns in place on sign-in - route any new identity-touching code through `IdentityRepository` instead.
 
 ---
 
@@ -87,6 +95,10 @@ predict_next_ball(match)
 | `simulation.match_players` | Player participation per match |
 | `simulation.player_awards` | POTM/POTT results |
 | `simulation.leaderboard_cache` | Precomputed top-10 snapshots |
+| `simulation.game_sessions` | Per-participant UI/team context for a sim (fun/challenge mode, swaps) |
+| `simulation.rooms` / `simulation.room_members` | Live multiplayer draft rooms and their rosters |
+| `simulation.admin_edits` | Audit log of admin UI edits; synced across DBs via `db/replay_admin_edits.py` |
+| `simulation.identity_links` | Single source of identity for anonymous + authenticated users (unique username, resolve-don't-migrate design - see `db/identity_repository.py`). Replaces the old Supabase-hosted `simulation.profiles` table entirely. |
 
 ---
 
@@ -115,6 +127,9 @@ predict_next_ball(match)
 | `api/routes/admin.py` | Runtime ops controls: log level, cache strategy, simulation defaults |
 | `api/routes/admin_data.py` | Admin-only cross-user views + tournament/player editors |
 | `db/admin_edits.py` + `db/replay_admin_edits.py` | Admin edit log (`simulation.admin_edits`) and cross-DB export/replay CLI |
+| `db/identity_repository.py` | `IdentityRepository` - single source of anon+auth identity (`simulation.identity_links`); `resolve_client_id`/`link_account`/`sync_anonymous`/username |
+| `api/routes/identity.py` | `/cricsimapi/identity/*` - anon sync, sign-in link, username get/set |
+| `db/schema.sql` | Full current schema for the main app DB - keep in sync with `db/migrations/*.sql` (Critical Rule #4) |
 
 ---
 
@@ -153,6 +168,12 @@ pytest tests/ -k "logger or singleton"   # filter
 - Any change to `MatchRules` - pure functions are easy to unit-test
 - Any new strategy logic - pass minimal mock match/repo objects
 - Any new API route - use `fastapi.testclient.TestClient`
+
+---
+
+## UI Conventions
+
+- User-facing copy says **"trade"**, never "swap" (e.g. squad edits, multiplayer draft actions). `swap` is still fine as an internal variable/function name - this is about text a player actually reads, not code.
 
 ---
 

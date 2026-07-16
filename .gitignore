@@ -39,7 +39,9 @@ skills-lock.json
 # IDE
 .vscode/
 .agents/
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/**
 
 # Python
 __pycache__/

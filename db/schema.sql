@@ -522,3 +522,33 @@ CREATE TABLE IF NOT EXISTS simulation.room_members (
     joined_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (room_id, client_id)
 );
+
+-- Audit log of admin UI edits (tournament configs, player metadata).
+-- Every admin PUT appends one row; db/replay_admin_edits.py syncs these
+-- between databases idempotently via edit_id.
+CREATE TABLE IF NOT EXISTS simulation.admin_edits (
+    edit_id     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    edited_at   timestamptz NOT NULL DEFAULT now(),
+    entity_type text NOT NULL,
+    entity_id   text NOT NULL,
+    payload     jsonb NOT NULL
+);
+CREATE INDEX IF NOT EXISTS admin_edits_edited_at_idx ON simulation.admin_edits (edited_at);
+
+-- Single source of identity for both anonymous and authenticated users -
+-- see db/identity_repository.py. Replaces the Supabase-hosted
+-- simulation.profiles table. id is the canonical identity's own client_id
+-- (an anonymous UUID, or a Supabase auth user id if there was no prior
+-- anonymous history); linked_auth_id is set exactly once, the first time
+-- this identity's owner signs in with a Google account.
+CREATE TABLE IF NOT EXISTS simulation.identity_links (
+    id             TEXT        PRIMARY KEY,
+    username       TEXT        NOT NULL,
+    is_anonymous   BOOLEAN     NOT NULL DEFAULT TRUE,
+    linked_auth_id TEXT        UNIQUE,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Case-insensitive uniqueness: "Rahul" and "rahul" collide.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_links_username_lower
+    ON simulation.identity_links (lower(username));

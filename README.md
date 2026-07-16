@@ -14,7 +14,7 @@ A ball-by-ball cricket match and tournament simulator backed by historical Crics
 - **Leaderboards** - batting (runs, average, strike rate, sixes, fours) and bowling (wickets, economy, average)
 - **Player-of-the-Match / Player-of-the-Tournament** - fantasy-points scoring
 - **Web UI** - Fun Mode, Challenge Mode, Custom Mode drafting, live multiplayer draft rooms, match/tournament results with worm charts and scorecards
-- **Supabase auth** - optional sign-in to save a profile and link anonymous history to an account; simulate/tournament endpoints stay open without login
+- **Supabase auth** - optional Google sign-in; identity (anonymous and authenticated alike) lives in `simulation.identity_links` with a globally unique username; simulate/tournament endpoints stay open without login
 - **Pluggable strategy architecture** - swap outcome prediction or bowling selection independently; extend via abstract factory
 
 ---
@@ -63,15 +63,17 @@ cricket-simulator/
 │       ├── lov.py              # /cricsimapi/lov/* - tournaments, squads, underdogs (list-of-values)
 │       ├── sim_history.py     # /cricsimapi/sim-history/* - aggregate stats across past sims
 │       ├── multiplayer.py     # /cricsimapi/multiplayer/* - WebSocket draft rooms
-│       ├── auth.py            # /cricsimapi/auth/* - Supabase profile + anonymous-account linking
-│       ├── admin.py           # /admin/log-level - runtime log level control
+│       ├── identity.py        # /cricsimapi/identity/* - anon sync, sign-in link, username
+│       ├── admin.py           # /admin/* - runtime ops (log level, cache strategy, defaults)
+│       ├── admin_data.py      # /admin/data/* - read-only cross-user views + tournament/player editors
 │       └── admin_squads.py    # /admin/squads/* - squad editing tools
 ├── db/
 │   ├── stats_repository.py  # All simulation-runtime queries; singleton connection; lazy _PRECOMPUTED_CACHE
 │   ├── simulation_repository.py  # Writes to simulation.* tables
+│   ├── identity_repository.py    # simulation.identity_links - single source of anon+auth identity
 │   ├── precompute.py        # Offline precomputation - the only place allowed to query history.deliveries
 │   ├── database.py          # Connection helpers (DATABASE_URL / DB_* env vars)
-│   └── schema.sql
+│   └── schema.sql           # Full current schema - keep in sync with db/migrations/*.sql (see CLAUDE.md)
 ├── frontend/
 │   ├── src/pages/          # HomePage, ResultsPage, MatchDetailPage, DraftPage, CustomModePage, …
 │   ├── src/components/     # Shared UI (SimCard, SquadEditor, PlayoffBracket, …)
@@ -128,7 +130,7 @@ Environment variables (see `.env` locally; not committed):
 | `DB_NAME` / `DB_USER` / `DB_PASS` / `DB_HOST` / `DB_PORT` | Fallback individual connection params if `DATABASE_URL` is unset |
 | `SUPABASE_URL` | Supabase project URL, used to verify JWTs via JWKS |
 | `ADMIN_USER_IDS` | Comma-separated Supabase user UUIDs allowed to call `/admin/*` endpoints. Unset = admin routes disabled for everyone (fail closed) |
-| `SUPABASE_DATABASE_URL` | Connection string for the Supabase-hosted `profiles` table (falls back to `DATABASE_URL`) |
+| `SUPABASE_DATABASE_URL` | Only used by the one-time `db/copy_profiles_to_identity_links.py` script, to read the legacy Supabase-hosted `profiles` table (falls back to `DATABASE_URL`) |
 | `CORS_ORIGINS` | Comma-separated extra allowed origins (dev defaults already include the Vite dev server) |
 | `LOG_LEVEL` | Console log level (default: a custom `CONSOLE` level) |
 | `LOW_RAM_THRESHOLD_MB` | RAM threshold below which the stats cache is evicted (default `250`) |
@@ -261,7 +263,9 @@ cd frontend && npm run dev
 | `GET`  | `/simulations/{sim_id}/matches/{match_id}/scorecard` | Per-match scorecard (tournaments) |
 | `GET`  | `/simulations/{sim_id}/leaderboards` | Batting/bowling leaderboard dashboard |
 | `GET`  | `/lov/tournaments` | List available historical tournaments to simulate |
-| `GET`/`POST` | `/auth/profile` | Get/set the signed-in user's display name |
+| `POST` | `/identity/sync-anonymous` | Passive background sync of an anonymous session's username |
+| `POST` | `/identity/link` | Resolve/create the canonical identity for a sign-in (requires JWT) |
+| `PUT`  | `/identity/username` | Rename (anonymous or authenticated) |
 | `POST` | `/multiplayer/rooms` | Create a live draft room |
 | `GET`  | `/admin/log-level` | Current `simulation.log` level |
 | `PUT`  | `/admin/log-level` | Switch level at runtime (`DEBUG`/`INFO`/`WARNING`/`ERROR`) |
@@ -279,9 +283,11 @@ Log files are written to `logs/` (created automatically):
 
 Every line includes `[sim_id/m{match_id}]` context - concurrent simulations are identifiable. No per-match files are written.
 
-Switch level at runtime without restarting:
+Switch level at runtime without restarting (requires a Supabase JWT for a user listed in `ADMIN_USER_IDS` - see `api/deps.py::require_admin_user`):
 ```bash
-curl -X PUT http://localhost:8000/admin/log-level -H 'Content-Type: application/json' -d '{"level":"DEBUG"}'
+curl -X PUT http://localhost:8000/admin/log-level \
+  -H 'Content-Type: application/json' -H 'Authorization: Bearer <jwt>' \
+  -d '{"level":"DEBUG"}'
 ```
 
 ---
