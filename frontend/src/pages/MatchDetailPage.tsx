@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronDown, ChevronUp, Users } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
 import { ShareButton } from '@/components/ui/ShareButton'
 import { PlayerAvatar } from '@/components/ui/Avatar'
+import { FormatBadge } from '@/components/ui/FormatBadge'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
 import type { Scorecard, Innings, Commentary, DeliveryItem } from '@/types'
@@ -967,10 +968,13 @@ export function MatchDetailPage() {
         : 'mb-4 grid grid-cols-[1fr_auto] gap-x-3 gap-y-3'
       }>
         <div
-          className={scorecard.room_id ? 'text-base font-semibold md:col-start-1 md:row-start-1' : 'text-base font-semibold col-start-1 row-start-1'}
+          className={scorecard.room_id
+            ? 'text-base font-semibold md:col-start-1 md:row-start-1 flex items-center gap-2'
+            : 'text-base font-semibold col-start-1 row-start-1 flex items-center gap-2'}
           style={{ color: 'var(--text)' }}
         >
           {scorecard.home_team} vs {scorecard.away_team}
+          <FormatBadge format={scorecard.match_format} />
         </div>
         <div
           className={scorecard.room_id ? 'text-xs md:col-start-1 md:row-start-2 md:col-span-2' : 'text-xs col-start-1 row-start-2 col-span-2'}

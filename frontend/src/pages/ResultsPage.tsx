@@ -6,6 +6,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { ShareButton } from '@/components/ui/ShareButton'
 import { RoleBadge } from '@/components/ui/RoleBadge'
 import { PlayerAvatar } from '@/components/ui/Avatar'
+import { FormatBadge } from '@/components/ui/FormatBadge'
 import { PlayoffBracket } from '@/components/PlayoffBracket'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
@@ -743,9 +744,11 @@ export function ResultsPage() {
             style={{ border: `0.1px solid ${theme.border}`, background: theme.bg }}>
             <div className="flex items-start gap-3 px-4 py-3">
               <span className="text-2xl shrink-0 leading-none" style={{ marginTop: 4 }}>{theme.icon}</span>
-              <div className="flex flex-col md:flex-row md:items-center gap-3 flex-1 min-w-0">
+              <div className="flex flex-col md:flex-row md:items-center flex-1 min-w-0">
                 <div className="flex-1 min-w-0">
-                  <div className="text-base font-bold leading-tight" style={{ color: theme.color }}>{theme.headline}</div>
+                  <div className="text-base font-bold leading-tight flex items-center gap-2" style={{ color: theme.color }}>
+                    {theme.headline}
+                  </div>
                   <div className="text-xs mt-0.5" style={{ color: 'var(--text)', lineHeight: 1.5 }}>
                     {theme.sub && <span>{theme.sub}</span>}
                     {result.tournament_name && (
@@ -753,6 +756,7 @@ export function ResultsPage() {
                         {theme.sub ? ' · ' : ''}{result.tournament_name}{result.season && result.mode !== 'multiplayer' ? ` ${result.season}` : ''} · {result.total_matches} matches
                       </span>
                     )}
+                    <FormatBadge format={result.format} className="ml-1.5" />
                   </div>
                   {secondaryLine && (
                     <div className="text-xs mt-1" style={{ color: placement === 'Winner' ? 'var(--text-dim)' : 'var(--score)' }}>{secondaryLine}</div>

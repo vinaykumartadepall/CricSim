@@ -190,6 +190,7 @@ export interface TournamentResult {
   status: string
   tournament_name: string | null
   season: string | null
+  format: string | null
   winner: string | null
   runner_up: string | null
   total_matches: number
