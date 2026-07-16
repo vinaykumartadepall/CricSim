@@ -14,6 +14,7 @@ from simulator.admin_settings import (
     get_admin_settings,
     set_default_bowling_strategy,
     set_default_outcome_strategy,
+    set_leaderboards_enabled,
 )
 from simulator.predictors.factory import BowlingStrategyFactory, OutcomeStrategyFactory
 
@@ -62,6 +63,45 @@ class TestAdminSettings:
 
     def test_get_admin_settings_returns_same_singleton(self):
         assert get_admin_settings() is get_admin_settings()
+
+
+class TestLeaderboardsEnabledSetting:
+
+    def setup_method(self):
+        self._original = get_admin_settings().leaderboards_enabled
+
+    def teardown_method(self):
+        get_admin_settings().leaderboards_enabled = self._original
+
+    def test_defaults_to_false(self, monkeypatch):
+        monkeypatch.delenv("LEADERBOARDS_ENABLED", raising=False)
+        assert AdminSettings().leaderboards_enabled is False
+
+    def test_set_leaderboards_enabled_false(self):
+        set_leaderboards_enabled(False)
+        assert get_admin_settings().leaderboards_enabled is False
+
+    def test_set_leaderboards_enabled_true(self):
+        set_leaderboards_enabled(False)
+        set_leaderboards_enabled(True)
+        assert get_admin_settings().leaderboards_enabled is True
+
+
+class TestLeaderboardsEnabledEnvDefault:
+
+    def test_uses_env_var_when_truthy(self, monkeypatch):
+        for value in ("1", "true", "True", "yes", "on"):
+            monkeypatch.setenv("LEADERBOARDS_ENABLED", value)
+            assert AdminSettings().leaderboards_enabled is True
+
+    def test_uses_env_var_when_falsy(self, monkeypatch):
+        for value in ("0", "false", "False", "no", "off"):
+            monkeypatch.setenv("LEADERBOARDS_ENABLED", value)
+            assert AdminSettings().leaderboards_enabled is False
+
+    def test_falls_back_to_false_when_unset(self, monkeypatch):
+        monkeypatch.delenv("LEADERBOARDS_ENABLED", raising=False)
+        assert AdminSettings().leaderboards_enabled is False
 
 
 class TestAdminSettingsEnvDefaults:

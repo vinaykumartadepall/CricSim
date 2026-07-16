@@ -8,12 +8,13 @@ import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import { SimulationTypeToggle } from '@/components/ui/SimulationTypeToggle'
 import { FormatBadge } from '@/components/ui/FormatBadge'
+import { PlacementBadge } from '@/components/ui/PlacementBadge'
 import { BackButton } from '@/components/ui/BackButton'
 import { ConfirmRow } from '@/components/ui/ConfirmRow'
 import { SquadEditor } from '@/components/SquadEditor'
 import { useWizardUrlState } from '@/hooks/useWizardUrlState'
 import { sortTournamentNames } from '@/lib/sortTournamentNames'
-import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistoryTeamBest } from '@/types'
+import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistoryTeamBest, MyTeamRankItem } from '@/types'
 
 
 type Step = 'pick_tournament' | 'pick_team_season' | 'squad' | 'confirm'
@@ -72,6 +73,7 @@ export function ChallengeModePage() {
   const [nameCounts, setNameCounts] = useState<Map<string, SimHistoryNameCount>>(new Map())
   // keyed by `${team_name}-${tournament_id}`
   const [teamBest, setTeamBest] = useState<Map<string, SimHistoryTeamBest>>(new Map())
+  const [teamRanks, setTeamRanks] = useState<Map<string, MyTeamRankItem>>(new Map())
 
   // Confirm
   const { clientId } = useAuth()
@@ -88,6 +90,7 @@ export function ChallengeModePage() {
     setLoadingUnderdogs(true)
     setUnderdogError('')
     setTeamBest(new Map())
+    setTeamRanks(new Map())
     return api.getUnderdogs(name)
       .then(data => {
         setUnderdogs(data)
@@ -96,6 +99,17 @@ export function ChallengeModePage() {
           return data
         }
         const uniqueTids = [...new Set(data.map(e => e.tournament_id))]
+        Promise.all(
+          uniqueTids.map(tid =>
+            api.getMyChallengeRanks(clientId, tid, 'challenge')
+              .then(rows => rows.map(r => ({ ...r, tournament_id: tid })))
+              .catch(() => [] as (MyTeamRankItem & { tournament_id: number })[])
+          )
+        ).then(results => {
+          const map = new Map<string, MyTeamRankItem>()
+          results.flat().forEach(r => map.set(`${r.team_name}-${r.tournament_id}`, r))
+          setTeamRanks(map)
+        })
         return Promise.all(
           uniqueTids.map(tid =>
             api.getSimHistoryBest(clientId, tid, 'challenge')
@@ -465,12 +479,11 @@ export function ChallengeModePage() {
                     {(() => {
                       const best = teamBest.get(`${entry.team_name}-${entry.tournament_id}`)
                       if (best) return (
-                        <div style={{ fontSize: 11 }}>
-                          <span style={{ color: 'var(--text-dim)' }}>Best: </span>
-                          <span style={{ color: 'var(--text-dim)', fontWeight: 500 }}>
-                            {best.best_placement}
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <PlacementBadge placement={best.best_placement} />
+                          <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                            {best.swap_count} trade{best.swap_count !== 1 ? 's' : ''}
                           </span>
-                          <span style={{ color: 'var(--text-dim)' }}>, {best.swap_count} trade{best.swap_count !== 1 ? 's' : ''}</span>
                         </div>
                       )
                       return <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Not played</div>
@@ -484,6 +497,15 @@ export function ChallengeModePage() {
                       {(entry.win_pct * 100).toFixed(0)}%
                     </div>
                     <div className="text-xs" style={{ color: 'var(--text-dim)' }}>win rate</div>
+                    {(() => {
+                      const myRank = teamRanks.get(`${entry.team_name}-${entry.tournament_id}`)
+                      if (!myRank) return null
+                      return (
+                        <div className="text-xs font-semibold mt-1" style={{ color: 'var(--accent)' }}>
+                          #{myRank.rank}
+                        </div>
+                      )
+                    })()}
                   </div>
                 </button>
               ))}

@@ -80,6 +80,37 @@ export function OptionRow({
   )
 }
 
+export function Switch({ checked, disabled, onChange }: {
+  checked: boolean
+  disabled?: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      style={{
+        width: 40, height: 22, borderRadius: 999, position: 'relative', flexShrink: 0,
+        background: checked ? 'var(--accent)' : 'var(--surface-2)',
+        border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+        padding: 0,
+        transition: 'background 0.15s, border-color 0.15s',
+      }}
+    >
+      <span style={{
+        position: 'absolute', top: 2, left: checked ? 19 : 2,
+        width: 16, height: 16, borderRadius: '50%',
+        background: checked ? '#fff' : 'var(--text-dim)',
+        transition: 'left 0.15s',
+      }} />
+    </button>
+  )
+}
+
 export const adminInputStyle: React.CSSProperties = {
   padding: '7px 10px', borderRadius: 7, fontSize: 13,
   background: 'var(--surface-2)', border: '1px solid var(--border)',

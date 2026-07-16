@@ -8,12 +8,13 @@ import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import { SimulationTypeToggle } from '@/components/ui/SimulationTypeToggle'
 import { FormatBadge } from '@/components/ui/FormatBadge'
+import { PlacementBadge } from '@/components/ui/PlacementBadge'
 import { BackButton } from '@/components/ui/BackButton'
 import { ConfirmRow } from '@/components/ui/ConfirmRow'
 import { SquadEditor } from '@/components/SquadEditor'
 import { useWizardUrlState } from '@/hooks/useWizardUrlState'
 import { sortTournamentNames } from '@/lib/sortTournamentNames'
-import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest } from '@/types'
+import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MyTeamRankItem } from '@/types'
 
 type Step = 'tournament' | 'season' | 'team' | 'squad' | 'confirm'
 
@@ -54,6 +55,7 @@ export function FunModePage() {
   const [nameCounts, setNameCounts] = useState<Map<string, SimHistoryNameCount>>(new Map())
   const [seasonCounts, setSeasonCounts] = useState<Map<number, SimHistorySeasonCount>>(new Map())
   const [teamBest, setTeamBest] = useState<Map<string, SimHistoryTeamBest>>(new Map())
+  const [teamRanks, setTeamRanks] = useState<Map<string, MyTeamRankItem>>(new Map())
 
   // Fetch name-level counts on mount
   useEffect(() => {
@@ -72,13 +74,16 @@ export function FunModePage() {
     setLoadingTeams(true)
     setAllTeams([])
     setTeamBest(new Map())
+    setTeamRanks(new Map())
     return Promise.all([
       api.getTournamentSquads(tournamentId),
       api.getSimHistoryBest(clientId, tournamentId, 'fun').catch(() => [] as SimHistoryTeamBest[]),
-    ]).then(([squadsData, bestData]) => {
+      api.getMyChallengeRanks(clientId, tournamentId, 'fun').catch(() => [] as MyTeamRankItem[]),
+    ]).then(([squadsData, bestData, rankData]) => {
       const teams = squadsData.teams || []
       setAllTeams(teams)
       setTeamBest(new Map(bestData.map(r => [r.team_name, r])))
+      setTeamRanks(new Map(rankData.map(r => [r.team_name, r])))
       return teams
     }).catch(() => {
       setAllTeams([])
@@ -449,28 +454,35 @@ export function FunModePage() {
             <div className="flex justify-center py-8"><Spinner /></div>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-2 mb-3">
+              <div className="flex flex-col gap-2 mb-3">
                 {allTeams.map(team => {
                   const best = teamBest.get(team.team_name)
+                  const myRank = teamRanks.get(team.team_name)
                   return (
                     <button
                       key={team.team_id}
                       onClick={() => selectTeam(team)}
-                      className="card-sm px-3 py-3 cursor-pointer text-left transition-all"
+                      className="card-sm flex items-center justify-between px-4 py-3 cursor-pointer text-left transition-all"
                       onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'}
                       onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}
                     >
-                      <div className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{team.team_name}</div>
-                      {best ? (
-                        <div style={{ fontSize: 11, marginTop: 3 }}>
-                          <span style={{ color: 'var(--text-dim)' }}>Best: </span>
-                          <span style={{ color: 'var(--text-dim)', fontWeight: 500 }}>
-                            {best.best_placement}
-                          </span>
-                          <span style={{ color: 'var(--text-dim)' }}>, {best.swap_count} trade{best.swap_count !== 1 ? 's' : ''}</span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{team.team_name}</div>
+                        {best ? (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <PlacementBadge placement={best.best_placement} />
+                            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                              {best.swap_count} trade{best.swap_count !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 3 }}>Not played</div>
+                        )}
+                      </div>
+                      {myRank && (
+                        <div className="text-right shrink-0 ml-3">
+                          <div className="text-sm font-semibold" style={{ color: 'var(--accent)' }}>#{myRank.rank}</div>
                         </div>
-                      ) : (
-                        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 3 }}>Not played</div>
                       )}
                     </button>
                   )

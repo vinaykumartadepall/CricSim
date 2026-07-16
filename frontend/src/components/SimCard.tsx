@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { FormatBadge } from '@/components/ui/FormatBadge'
+import { PlacementBadge } from '@/components/ui/PlacementBadge'
 import type { SimSummary } from '@/types'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -33,8 +34,6 @@ const COLOR = {
   win:    'var(--win)',
   loss:   'var(--loss)',
   dim:    'var(--text-dim)',
-  silver: '#C0C0C0',
-  bronze: '#CD7F32',
   purple: '#a855f7',
   violet: '#8B5CF6',
 } as const
@@ -92,20 +91,6 @@ function ModeBadge({ mode, simulationType }: {
 
 // ── Right-side chip: result OR spectator OR status ────────────────────────────
 
-// Full medal ladder: gold (winner) > silver (runner-up) > bronze (playoffs)
-// > muted gray (no notable result) - a warm-toned podium metaphor that fits
-// the app's own dark warm surfaces, rather than an unrelated purple that
-// doesn't tie into any theme color. All three medal tiers use the same dark,
-// near-opaque background treatment (color mixed into the app's own surface
-// tone) rather than a light wash, per the provided reference mockups.
-const PLACEMENT: Record<string, { bg: string; color: string; prefix?: string }> = {
-  'Winner':      { bg: darkTint(COLOR.gold, 30),   color: COLOR.gold,   prefix: '🏆 ' },
-  'Runner-up':   { bg: darkTint(COLOR.silver, 20), color: COLOR.silver, prefix: '🥈 ' },
-  'Playoffs':    { bg: darkTint(COLOR.bronze, 22), color: COLOR.bronze                },
-  'Loser':       { bg: NEUTRAL_BG,                 color: COLOR.dim                   },
-  'Group stage': { bg: NEUTRAL_BG,                 color: COLOR.dim                   },
-}
-
 function RightChip({ sim }: { sim: SimSummary }) {
   // Non-completed states.
   if (sim.status === 'failed') {
@@ -120,8 +105,7 @@ function RightChip({ sim }: { sim: SimSummary }) {
 
   // Completed + placement
   if (sim.user_team_placement) {
-    const s = PLACEMENT[sim.user_team_placement] ?? PLACEMENT['Group stage']
-    return <Chip bg={s.bg} color={s.color}>{(s.prefix ?? '')}{sim.user_team_placement}</Chip>
+    return <PlacementBadge placement={sim.user_team_placement} />
   }
 
   // Completed + no user team = spectator

@@ -7,6 +7,7 @@ import { ShareButton } from '@/components/ui/ShareButton'
 import { RoleBadge } from '@/components/ui/RoleBadge'
 import { PlayerAvatar } from '@/components/ui/Avatar'
 import { FormatBadge } from '@/components/ui/FormatBadge'
+import { PlacementBadge, RankBadge } from '@/components/ui/PlacementBadge'
 import { PlayoffBracket } from '@/components/PlayoffBracket'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
@@ -15,7 +16,7 @@ import { captureViewportImage } from '@/lib/shareScreenshot'
 import { opaqueTint } from '@/lib/colorTint'
 import type {
   TournamentResult, LeaderboardsDashboard,
-  MatchItem,
+  MatchItem, ChallengeLeaderboardEntry,
 } from '@/types'
 
 type Tab = 'standings' | 'leaderboards' | 'matches'
@@ -475,6 +476,116 @@ function LeaderboardModal({
   )
 }
 
+// ── Challenge leaderboard modal (global, cross-user, same tournament+team+mode) ─
+// A different feature from LeaderboardModal above (that one is in-tournament
+// batting/bowling stats) - named distinctly to avoid the collision.
+
+function ChallengeLeaderboardModal({
+  tournamentId, teamName, mode, onClose,
+}: {
+  tournamentId: number
+  teamName: string
+  mode: string
+  onClose: () => void
+}) {
+  const [entries, setEntries] = useState<ChallengeLeaderboardEntry[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useBodyScrollLock(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    api.getChallengeLeaderboard(getClientId(), tournamentId, teamName, mode)
+      .then(r => { if (!cancelled) { setEntries(r.entries); setTotal(r.total_entrants) } })
+      .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load the leaderboard.") })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [tournamentId, teamName, mode])
+
+  const you = entries.find(e => e.is_you)
+
+  return createPortal(
+    <>
+      <div onClick={onClose}
+        style={{ position: 'fixed', inset: 0, zIndex: 160, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(3px)' }} />
+      <div style={{
+        position: 'fixed', left: '50%', top: '5vh', transform: 'translateX(-50%)',
+        width: 'min(520px, 96vw)', maxHeight: '90vh', zIndex: 161,
+        display: 'flex', flexDirection: 'column',
+        background: 'var(--bg)', borderRadius: 12, border: '1px solid var(--border)',
+        overflow: 'hidden', animation: 'fadeIn 150ms ease',
+      }}>
+        <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0"
+          style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{teamName}</div>
+            <div className="text-xs" style={{ color: 'var(--text-dim)' }}>
+              {total} {total === 1 ? 'entrant' : 'entrants'} · {mode === 'challenge' ? 'Challenge' : 'Fun'} mode
+            </div>
+          </div>
+          <button onClick={onClose} style={{ color: 'var(--text-muted)', flexShrink: 0 }}><X size={16} /></button>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-12"><Spinner /></div>
+        ) : error ? (
+          <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-dim)' }}>{error}</div>
+        ) : entries.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-dim)' }}>No entrants yet.</div>
+        ) : (
+          <>
+            {you && you.rank !== 1 && (
+              <div className="flex items-center gap-3 mx-4 mt-3 mb-1 px-3 py-2.5 rounded-lg flex-shrink-0"
+                style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid var(--accent)' }}>
+                <RankBadge rank={you.rank} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>Your rank</div>
+                  <div className="text-sm font-medium truncate" style={{ color: 'var(--accent)' }}>{you.username}</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <PlacementBadge placement={you.best_placement} />
+                  <div className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
+                    {you.swap_count} trade{you.swap_count !== 1 ? 's' : ''} · {(you.win_pct * 100).toFixed(0)}% wins
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto px-4 pb-4 pt-1">
+              {entries.map(e => (
+                <div key={e.client_id}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1.5"
+                  style={{
+                    background: e.is_you ? 'rgba(59,130,246,0.07)' : 'transparent',
+                    boxShadow: e.is_you ? 'inset 2px 0 0 var(--accent)' : undefined,
+                  }}>
+                  <RankBadge rank={e.rank} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate flex items-center gap-1.5" style={{ color: e.is_you ? 'var(--accent)' : 'var(--text)' }}>
+                      {e.username}
+                      {e.is_you && (
+                        <span className="text-xs px-1.5 py-px rounded font-semibold" style={{ background: 'rgba(59,130,246,0.12)', color: 'var(--accent)' }}>You</span>
+                      )}
+                    </div>
+                    <div className="text-xs" style={{ color: 'var(--text-dim)' }}>
+                      {e.swap_count} trade{e.swap_count !== 1 ? 's' : ''} · {(e.win_pct * 100).toFixed(0)}% wins
+                    </div>
+                  </div>
+                  <PlacementBadge placement={e.best_placement} />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </>,
+    document.body
+  )
+}
+
 // ── Stat card ────────────────────────────────────────────────────────────────
 
 function StatCard({
@@ -555,6 +666,11 @@ export function ResultsPage() {
 
   const [tab, setTab] = useState<Tab>((locState.tab as Tab) ?? 'standings')
   const [activeLb, setActiveLb] = useState<string | null>(null)
+  const [showChallengeLb, setShowChallengeLb] = useState(false)
+  // Defaults closed (fail-safe) until the admin kill switch is confirmed on -
+  // avoids flashing a button that then has to disappear, and matches this
+  // being an emergency-disable feature rather than an opt-in one.
+  const [leaderboardsEnabled, setLeaderboardsEnabled] = useState(false)
   const [myTeamOnly, setMyTeamOnly] = useState(false)
   const [standingsSubTab, setStandingsSubTab] = useState<'playoffs' | 'table'>('playoffs')
   const standingsDefaultSet = useRef(false)
@@ -568,6 +684,12 @@ export function ResultsPage() {
       navigate(location.pathname, { replace: true, state: {} })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    api.getLeaderboardsEnabled()
+      .then(r => setLeaderboardsEnabled(r.enabled))
+      .catch(() => setLeaderboardsEnabled(false))
   }, [])
 
   useEffect(() => {
@@ -649,6 +771,10 @@ export function ResultsPage() {
     ((leaderboards as unknown as Record<string, unknown>)?.[key] as Record<string, unknown>[]) ?? []
 
   const canTryAgain = !!(result?.mode && result?.source_tournament_id)
+  const canViewChallengeLeaderboard = leaderboardsEnabled && !!(
+    result?.source_tournament_id && result?.user_team_name &&
+    (result?.mode === 'challenge' || result?.mode === 'fun')
+  )
 
   // Team preview panel data
   const previewTeamData = previewTeam ? lineupTeams.find(t => t.team_name === previewTeam) : null
@@ -661,6 +787,16 @@ export function ResultsPage() {
           simId={simId!}
           lbKey={activeLb}
           onClose={() => setActiveLb(null)}
+        />
+      )}
+
+      {/* Challenge leaderboard modal */}
+      {showChallengeLb && result?.source_tournament_id && result?.user_team_name && result?.mode && (
+        <ChallengeLeaderboardModal
+          tournamentId={result.source_tournament_id}
+          teamName={result.user_team_name}
+          mode={result.mode}
+          onClose={() => setShowChallengeLb(false)}
         />
       )}
 
@@ -762,7 +898,7 @@ export function ResultsPage() {
                     <div className="text-xs mt-1" style={{ color: placement === 'Winner' ? 'var(--text-dim)' : 'var(--score)' }}>{secondaryLine}</div>
                   )}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 mt-3 md:mt-0 flex-wrap">
                   {result.room_id && (
                     <button
                       className="btn-outline flex items-center gap-1.5 text-xs"
@@ -784,6 +920,15 @@ export function ResultsPage() {
                       onClick={() => navigate(`/${result!.mode}?retrySimId=${result!.sim_id}`)}
                     >
                       <RotateCcw size={12} /> Try again
+                    </button>
+                  )}
+                  {canViewChallengeLeaderboard && (
+                    <button
+                      className="btn-outline flex items-center gap-1.5 text-xs"
+                      style={buttonStyle}
+                      onClick={() => setShowChallengeLb(true)}
+                    >
+                      <Trophy size={12} /> Leaderboard
                     </button>
                   )}
                   <ShareButton

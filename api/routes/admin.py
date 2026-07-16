@@ -10,6 +10,7 @@ from simulator.admin_settings import (
     get_admin_settings,
     set_default_bowling_strategy,
     set_default_outcome_strategy,
+    set_leaderboards_enabled,
 )
 from simulator.logger import get_current_log_level, set_log_level
 from simulator.predictors.factory import BowlingStrategyFactory, OutcomeStrategyFactory
@@ -132,6 +133,31 @@ def put_simulation_defaults(body: SimulationDefaultsRequest):
     return _simulation_defaults_response()
 
 
+class LeaderboardsEnabledRequest(BaseModel):
+    enabled: bool
+
+
+class LeaderboardsEnabledResponse(BaseModel):
+    enabled: bool
+
+
+@router.get("/leaderboards-enabled", response_model=LeaderboardsEnabledResponse)
+def get_leaderboards_enabled():
+    """Whether the global challenge leaderboard (/cricsimapi/sim-history/{leaderboard,my-ranks}) is live."""
+    return LeaderboardsEnabledResponse(enabled=get_admin_settings().leaderboards_enabled)
+
+
+@router.put("/leaderboards-enabled", response_model=LeaderboardsEnabledResponse)
+def put_leaderboards_enabled(body: LeaderboardsEnabledRequest):
+    """
+    Kill switch: instantly disables the global challenge leaderboard for
+    everyone (both the leaderboard modal and the "your rank" hints on the
+    team-selection screens) without a redeploy.
+    """
+    set_leaderboards_enabled(body.enabled)
+    return LeaderboardsEnabledResponse(enabled=body.enabled)
+
+
 class AdminSettingsResponse(BaseModel):
     log_level: str
     cache_strategy: str
@@ -140,6 +166,7 @@ class AdminSettingsResponse(BaseModel):
     bowling_strategy: str
     available_outcome_strategies: List[str]
     available_bowling_strategies: List[str]
+    leaderboards_enabled: bool
 
 
 @router.get("/settings", response_model=AdminSettingsResponse)
@@ -154,4 +181,5 @@ def get_all_settings():
         bowling_strategy=s.default_bowling_strategy,
         available_outcome_strategies=OutcomeStrategyFactory.available_names(),
         available_bowling_strategies=BowlingStrategyFactory.available_names(),
+        leaderboards_enabled=s.leaderboards_enabled,
     )

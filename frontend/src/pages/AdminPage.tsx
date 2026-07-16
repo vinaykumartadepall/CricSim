@@ -3,14 +3,14 @@ import { ChevronLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/api/client'
 import {
-  ADMIN_SANS, ADMIN_SERIF, AccessDenied, OptionRow, Section, isAuthError,
+  ADMIN_SANS, ADMIN_SERIF, AccessDenied, OptionRow, Section, Switch, isAuthError,
 } from '@/components/admin/AdminUI'
 import type { AdminSettings } from '@/types'
 
 const SERIF = ADMIN_SERIF
 const SANS  = ADMIN_SANS
 
-type FieldKey = 'log_level' | 'cache_strategy' | 'outcome_strategy' | 'bowling_strategy'
+type FieldKey = 'log_level' | 'cache_strategy' | 'outcome_strategy' | 'bowling_strategy' | 'leaderboards_enabled'
 
 export function AdminPage() {
   const navigate = useNavigate()
@@ -73,6 +73,18 @@ export function AdminPage() {
       setSettings(s => s && { ...s, bowling_strategy: res.bowling_strategy })
     } catch {
       setErrors(e => ({ ...e, bowling_strategy: 'Failed to update bowling strategy' }))
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  async function updateLeaderboardsEnabled(enabled: boolean) {
+    setSaving('leaderboards_enabled'); setErrors(e => ({ ...e, leaderboards_enabled: undefined }))
+    try {
+      const res = await api.setLeaderboardsEnabled(enabled)
+      setSettings(s => s && { ...s, leaderboards_enabled: res.enabled })
+    } catch {
+      setErrors(e => ({ ...e, leaderboards_enabled: 'Failed to update leaderboards toggle' }))
     } finally {
       setSaving(null)
     }
@@ -152,6 +164,23 @@ export function AdminPage() {
                 disabled={saving === 'bowling_strategy'}
                 onSelect={updateBowlingStrategy}
               />
+            </Section>
+
+            <Section
+              title="Global challenge leaderboard"
+              description="Cross-user ranking on tournament results and the team-selection screens. Disabling is a kill switch - it takes effect immediately for everyone, without a redeploy, if the feature ever needs to be turned off in a hurry."
+              error={errors.leaderboards_enabled}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Switch
+                  checked={settings.leaderboards_enabled}
+                  disabled={saving === 'leaderboards_enabled'}
+                  onChange={updateLeaderboardsEnabled}
+                />
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  {settings.leaderboards_enabled ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
             </Section>
 
             <Section

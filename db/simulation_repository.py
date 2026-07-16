@@ -114,6 +114,19 @@ _PLACEMENT_RANK = """
     END
 """
 
+_WIN_PCT_LATERAL = """
+    LEFT JOIN LATERAL (
+        SELECT
+            COUNT(*) FILTER (WHERE m5.winner_id = gs.user_team_id) AS wins,
+            COUNT(*) AS played
+        FROM simulation.matches m5
+        WHERE m5.sim_id = s.sim_id
+          AND (m5.home_team_id = gs.user_team_id OR m5.away_team_id = gs.user_team_id)
+    ) wp ON true
+"""
+
+_WIN_PCT_EXPR = "CASE WHEN wp.played > 0 THEN wp.wins::float / wp.played ELSE 0 END"
+
 
 _LoggingCursor     = make_query_logging_cursor(psycopg2.extensions.cursor)
 _LoggingDictCursor = make_query_logging_cursor(psycopg2.extras.RealDictCursor)
@@ -1067,6 +1080,118 @@ class SimulationRepository:
             ORDER BY team_name, placement_rank ASC, swap_count ASC
             """,
             (client_id, tournament_id, mode, mode),
+        )
+        return [dict(r) for r in self._dict_cur.fetchall()]
+
+    def get_challenge_leaderboard(
+        self,
+        client_id: str,
+        tournament_id: int,
+        team_name: str,
+        mode: str,
+    ) -> list[dict]:
+        """
+        Every user's single best attempt at this exact tournament+team combo,
+        scoped to one mode. Tiebreak chain: placement -> fewest swaps -> highest
+        win% in that run. RANK() (not ROW_NUMBER/DENSE_RANK) so ties share a
+        rank and the next rank skips accordingly (1,1,1,4,5,5,7,...).
+        """
+        resolved_client_id = self._resolve_client_id(client_id)
+        self._dict_cur.execute(
+            f"""
+            WITH ranked AS (
+                SELECT
+                    gs.client_id                              AS client_id,
+                    COALESCE(JSONB_ARRAY_LENGTH(gs.swaps), 0) AS swap_count,
+                    s.sim_id,
+                    {_PLACEMENT_CASE}                    AS best_placement,
+                    {_PLACEMENT_RANK}                    AS placement_rank,
+                    {_WIN_PCT_EXPR}                       AS win_pct
+                FROM simulation.game_sessions gs
+                JOIN simulation.simulations s  ON s.sim_id    = gs.sim_id
+                JOIN simulation.teams       st ON st.team_id  = gs.user_team_id
+                {_FINAL_LATERAL}
+                {_PLAYOFF_LATERAL}
+                {_MATCH_LATERAL}
+                {_WIN_PCT_LATERAL}
+                WHERE s.status = 'completed'
+                  AND gs.source_tournament_id = %s
+                  AND gs.user_team_id IS NOT NULL
+                  AND st.name = %s
+                  AND gs.mode = %s
+            ),
+            best_per_user AS (
+                SELECT DISTINCT ON (client_id)
+                    client_id, best_placement, swap_count, win_pct, sim_id, placement_rank
+                FROM ranked
+                ORDER BY client_id, placement_rank ASC, swap_count ASC, win_pct DESC
+            )
+            SELECT
+                client_id, best_placement, swap_count, win_pct, sim_id,
+                (client_id = %s)                                                        AS is_you,
+                RANK() OVER (ORDER BY placement_rank ASC, swap_count ASC, win_pct DESC) AS rank
+            FROM best_per_user
+            ORDER BY rank ASC, client_id ASC
+            """,
+            (tournament_id, team_name, mode, resolved_client_id),
+        )
+        return [dict(r) for r in self._dict_cur.fetchall()]
+
+    def get_my_challenge_ranks(
+        self,
+        client_id: str,
+        tournament_id: int,
+        mode: str,
+    ) -> list[dict]:
+        """
+        For every team the requester has attempted in this tournament+mode,
+        their rank within THAT team's own global leaderboard (ranked against
+        every user who attempted that team, not just the requester) - the
+        batched, per-tournament sibling of get_challenge_leaderboard, scoped
+        down to one user's rows so the team-selection screens can show "your
+        rank" per team in a single round trip.
+        """
+        resolved_client_id = self._resolve_client_id(client_id)
+        self._dict_cur.execute(
+            f"""
+            WITH ranked AS (
+                SELECT
+                    st.name                                   AS team_name,
+                    gs.client_id                              AS client_id,
+                    COALESCE(JSONB_ARRAY_LENGTH(gs.swaps), 0) AS swap_count,
+                    s.sim_id,
+                    {_PLACEMENT_CASE}                    AS best_placement,
+                    {_PLACEMENT_RANK}                    AS placement_rank,
+                    {_WIN_PCT_EXPR}                       AS win_pct
+                FROM simulation.game_sessions gs
+                JOIN simulation.simulations s  ON s.sim_id    = gs.sim_id
+                JOIN simulation.teams       st ON st.team_id  = gs.user_team_id
+                {_FINAL_LATERAL}
+                {_PLAYOFF_LATERAL}
+                {_MATCH_LATERAL}
+                {_WIN_PCT_LATERAL}
+                WHERE s.status = 'completed'
+                  AND gs.source_tournament_id = %s
+                  AND gs.user_team_id IS NOT NULL
+                  AND gs.mode = %s
+            ),
+            best_per_user_team AS (
+                SELECT DISTINCT ON (team_name, client_id)
+                    team_name, client_id, best_placement, swap_count, win_pct, placement_rank, sim_id
+                FROM ranked
+                ORDER BY team_name, client_id, placement_rank ASC, swap_count ASC, win_pct DESC
+            ),
+            ranked_per_team AS (
+                SELECT *,
+                    RANK()  OVER (PARTITION BY team_name ORDER BY placement_rank ASC, swap_count ASC, win_pct DESC) AS rank,
+                    COUNT(*) OVER (PARTITION BY team_name)                                                          AS total_entrants
+                FROM best_per_user_team
+            )
+            SELECT team_name, rank, total_entrants, best_placement, swap_count, win_pct
+            FROM ranked_per_team
+            WHERE client_id = %s
+            """,
+            (tournament_id, mode, resolved_client_id),
         )
         return [dict(r) for r in self._dict_cur.fetchall()]
 

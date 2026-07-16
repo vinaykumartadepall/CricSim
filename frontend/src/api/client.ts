@@ -1,4 +1,4 @@
-import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse, AdminSimListResponse, AdminTournamentSummary, AdminTournamentDetail, AdminPlayer, Country, Commentary } from '@/types'
+import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, ChallengeLeaderboardResponse, MyTeamRankItem, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse, LeaderboardsEnabledResponse, AdminSimListResponse, AdminTournamentSummary, AdminTournamentDetail, AdminPlayer, Country, Commentary } from '@/types'
 import { supabase } from '@/lib/supabase'
 
 const BASE = '/cricsimapi'
@@ -12,7 +12,10 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`)
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { detail?: string }).detail || `${res.status} ${res.statusText}`)
+  }
   return res.json()
 }
 
@@ -184,6 +187,19 @@ export const api = {
     return get<SimHistoryTeamBest[]>(`/sim-history/best?${params}`)
   },
 
+  getChallengeLeaderboard: (clientId: string, tournamentId: number, teamName: string, mode: string) => {
+    const params = new URLSearchParams({ client_id: clientId, tournament_id: String(tournamentId), team_name: teamName, mode })
+    return get<ChallengeLeaderboardResponse>(`/sim-history/leaderboard?${params}`)
+  },
+
+  getMyChallengeRanks: (clientId: string, tournamentId: number, mode: string) => {
+    const params = new URLSearchParams({ client_id: clientId, tournament_id: String(tournamentId), mode })
+    return get<MyTeamRankItem[]>(`/sim-history/my-ranks?${params}`)
+  },
+
+  getLeaderboardsEnabled: () =>
+    get<LeaderboardsEnabledResponse>('/sim-history/leaderboards-enabled'),
+
   // ── Identity endpoints (simulation.identity_links) ─────────────────────────
 
   syncAnonymousIdentity: (client_id: string, username: string) =>
@@ -236,6 +252,9 @@ export const api = {
 
   setSimulationDefaults: (body: { outcome_strategy?: string; bowling_strategy?: string }) =>
     authPut<AdminSimulationDefaultsResponse>('/admin/simulation-defaults', body),
+
+  setLeaderboardsEnabled: (enabled: boolean) =>
+    authPut<LeaderboardsEnabledResponse>('/admin/leaderboards-enabled', { enabled }),
 
   getAdminSimulations: (limit = 50, offset = 0) =>
     authGet<AdminSimListResponse>(`/admin/data/simulations?limit=${limit}&offset=${offset}`),

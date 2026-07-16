@@ -12,11 +12,10 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from api.models.responses import AdminSimListResponse
-from db.identity_repository import IdentityRepository
+from api.routes._identity_lookup import display_names_for as _display_names_for
 from db.player_repository import PlayerRepository
 from db.simulation_repository import SimulationRepository
 from db.squad_repository import SquadRepository
-from simulator.logger import get_logger
 
 router = APIRouter(prefix="/admin/data", tags=["admin-data"])
 
@@ -29,24 +28,6 @@ def _run(repo, fn):
         raise HTTPException(status_code=422, detail=str(e))
     finally:
         repo.close()
-
-
-def _display_names_for(client_ids: set) -> dict:
-    """identity_links can't be joined into the main list query (raw
-    client_ids there may be un-resolved historical ids), so fetch usernames
-    in one batched lookup instead. Best effort: the list must still render
-    (ids only) if this lookup fails."""
-    if not client_ids:
-        return {}
-    try:
-        repo = IdentityRepository()
-        try:
-            return repo.get_usernames(list(client_ids))
-        finally:
-            repo.close()
-    except Exception:
-        get_logger().exception("Admin data: identity username lookup failed")
-        return {}
 
 
 @router.get("/simulations", response_model=AdminSimListResponse)

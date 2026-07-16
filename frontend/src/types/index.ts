@@ -53,6 +53,31 @@ export interface SimHistoryTeamBest {
   sim_id: string
 }
 
+export interface ChallengeLeaderboardEntry {
+  rank: number
+  client_id: string
+  username: string
+  is_you: boolean
+  best_placement: string
+  swap_count: number
+  win_pct: number
+  sim_id: string
+}
+
+export interface ChallengeLeaderboardResponse {
+  entries: ChallengeLeaderboardEntry[]
+  total_entrants: number
+}
+
+export interface MyTeamRankItem {
+  team_name: string
+  rank: number
+  total_entrants: number
+  best_placement: string
+  swap_count: number
+  win_pct: number
+}
+
 export type SimMode = 'fun' | 'challenge'
 export type Theme = 'ember-amber' | 'ember-emerald' | 'ember-crimson' | 'ember-ice'
 
@@ -454,6 +479,11 @@ export interface AdminSettings {
   bowling_strategy: string
   available_outcome_strategies: string[]
   available_bowling_strategies: string[]
+  leaderboards_enabled: boolean
+}
+
+export interface LeaderboardsEnabledResponse {
+  enabled: boolean
 }
 
 export interface AdminCacheStrategyResponse {

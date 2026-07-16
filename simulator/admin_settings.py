@@ -28,6 +28,13 @@ def _env_default(env_var: str, valid_names: list, fallback: str) -> str:
     return fallback
 
 
+def _env_bool_default(env_var: str, fallback: bool) -> bool:
+    value = os.getenv(env_var)
+    if value is None:
+        return fallback
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass
 class AdminSettings:
     default_outcome_strategy: str = field(default_factory=lambda: _env_default(
@@ -35,6 +42,14 @@ class AdminSettings:
     ))
     default_bowling_strategy: str = field(default_factory=lambda: _env_default(
         "DEFAULT_BOWLING_STRATEGY", BowlingStrategyFactory.available_names(), "historical"
+    ))
+    # Feature flag for the global challenge leaderboard (api/routes/sim_history.py's
+    # /leaderboard and /my-ranks) - defaults OFF (opt-in) on an unconfigured
+    # server, so a fresh restart/redeploy never silently re-exposes it; an
+    # admin must explicitly enable it via the admin UI, or LEADERBOARDS_ENABLED=true
+    # can be set in the environment to start enabled.
+    leaderboards_enabled: bool = field(default_factory=lambda: _env_bool_default(
+        "LEADERBOARDS_ENABLED", False
     ))
 
 
@@ -57,3 +72,7 @@ def set_default_bowling_strategy(name: str) -> None:
     if name not in valid:
         raise ValueError(f"Unknown bowling strategy {name!r}. Choose from {valid}.")
     _settings.default_bowling_strategy = name
+
+
+def set_leaderboards_enabled(enabled: bool) -> None:
+    _settings.leaderboards_enabled = enabled

@@ -13,6 +13,7 @@ import pytest
 
 from fastapi.testclient import TestClient
 
+import api.routes._identity_lookup as identity_lookup_mod
 import api.routes.admin_data as admin_data_mod
 from api.deps import get_current_user_id
 from api.main import app
@@ -109,7 +110,7 @@ class TestAdminSimulationsList:
 
     def test_returns_all_rows_with_owner_fields_and_total(self, client, monkeypatch):
         monkeypatch.setattr(admin_data_mod, "SimulationRepository", _FakeRepo)
-        monkeypatch.setattr(admin_data_mod, "IdentityRepository", _FakeIdentityRepo)
+        monkeypatch.setattr(identity_lookup_mod, "IdentityRepository", _FakeIdentityRepo)
         resp = client.get("/cricsimapi/admin/data/simulations")
         assert resp.status_code == 200
         body = resp.json()
@@ -126,13 +127,13 @@ class TestAdminSimulationsList:
 
     def test_reachable_on_bare_mount_too(self, client, monkeypatch):
         monkeypatch.setattr(admin_data_mod, "SimulationRepository", _FakeRepo)
-        monkeypatch.setattr(admin_data_mod, "IdentityRepository", _FakeIdentityRepo)
+        monkeypatch.setattr(identity_lookup_mod, "IdentityRepository", _FakeIdentityRepo)
         assert client.get("/admin/data/simulations").status_code == 200
 
     def test_identity_lookup_failure_degrades_to_ids_only(self, client, monkeypatch):
         # Best effort: the list must still render even if the username lookup fails.
         monkeypatch.setattr(admin_data_mod, "SimulationRepository", _FakeRepo)
-        monkeypatch.setattr(admin_data_mod, "IdentityRepository", _ExplodingIdentityRepo)
+        monkeypatch.setattr(identity_lookup_mod, "IdentityRepository", _ExplodingIdentityRepo)
         resp = client.get("/cricsimapi/admin/data/simulations")
         assert resp.status_code == 200
         assert all(r["display_name"] is None for r in resp.json()["simulations"])

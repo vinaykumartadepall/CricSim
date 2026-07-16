@@ -129,6 +129,34 @@ class TestSimulationDefaultsRoute:
         assert resp.status_code == 422
 
 
+class TestLeaderboardsEnabledRoute:
+
+    def setup_method(self):
+        self._original = get_admin_settings().leaderboards_enabled
+
+    def teardown_method(self):
+        get_admin_settings().leaderboards_enabled = self._original
+
+    def test_get_returns_current_state(self, client):
+        get_admin_settings().leaderboards_enabled = True
+        resp = client.get("/admin/leaderboards-enabled")
+        assert resp.status_code == 200
+        assert resp.json() == {"enabled": True}
+
+    def test_put_disables(self, client):
+        resp = client.put("/admin/leaderboards-enabled", json={"enabled": False})
+        assert resp.status_code == 200
+        assert resp.json() == {"enabled": False}
+        assert get_admin_settings().leaderboards_enabled is False
+
+    def test_put_re_enables(self, client):
+        client.put("/admin/leaderboards-enabled", json={"enabled": False})
+        resp = client.put("/admin/leaderboards-enabled", json={"enabled": True})
+        assert resp.status_code == 200
+        assert resp.json() == {"enabled": True}
+        assert get_admin_settings().leaderboards_enabled is True
+
+
 class TestConsolidatedSettingsRoute:
 
     def test_get_settings_includes_everything(self, client):
@@ -139,6 +167,7 @@ class TestConsolidatedSettingsRoute:
             "log_level", "cache_strategy", "available_cache_strategies",
             "outcome_strategy", "bowling_strategy",
             "available_outcome_strategies", "available_bowling_strategies",
+            "leaderboards_enabled",
         ):
             assert key in body
 
