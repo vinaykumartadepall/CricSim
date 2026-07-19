@@ -44,8 +44,12 @@ class ChallengeLeaderboardEntry(BaseModel):
 
 
 class ChallengeLeaderboardResponse(BaseModel):
+    you: Optional[ChallengeLeaderboardEntry] = None
     entries: List[ChallengeLeaderboardEntry]
     total_entrants: int
+
+
+MAX_LEADERBOARD_ROWS = 100
 
 
 class MyTeamRankItem(BaseModel):
@@ -66,9 +70,12 @@ def sim_history_counts(
     client_id: str = Query(...),
     tournament_ids: Optional[str] = Query(None, description="Comma-separated tournament IDs for season-level counts"),
     mode: Optional[str] = Query(None, description="Filter completed counts by mode (e.g. 'challenge', 'fun')"),
+    name_query: Optional[str] = Query(None, description="Case-insensitive substring filter on tournament name, for Step 1 only - mirrors /lov/tournaments' q param"),
 ):
     """
-    Without tournament_ids → per tournament-name counts (Step 1).
+    Without tournament_ids → per tournament-name counts (Step 1), optionally
+    scoped to name_query so this only returns counts for what the tournament
+    picker's search box is actually showing.
     With    tournament_ids → per tournament-id counts   (Step 2).
     """
     ids: list[int] | None = None
@@ -80,7 +87,7 @@ def sim_history_counts(
 
     repo = SimulationRepository()
     try:
-        rows = repo.get_sim_history_counts(client_id, ids, mode)
+        rows = repo.get_sim_history_counts(client_id, ids, mode, name_query if ids is None else None)
     finally:
         repo.close()
 
@@ -122,30 +129,49 @@ def challenge_leaderboard(
     tournament_id: int = Query(...),
     team_name: str = Query(...),
     mode: str = Query(..., description="Must match the mode of the viewed result: 'challenge' or 'fun'"),
+    limit: int = Query(10, ge=1, le=MAX_LEADERBOARD_ROWS),
+    offset: int = Query(0, ge=0),
 ):
-    """Every user's best attempt at this tournament+team combo, same mode only."""
+    """
+    Every user's best attempt at this tournament+team combo, same mode only.
+    Paginated - nobody browses past the top 100 regardless of how many pages
+    they request; the caller's own best attempt (`you`) is always included,
+    even when it falls outside the requested page.
+    """
     if not get_admin_settings().leaderboards_enabled:
         raise HTTPException(status_code=503, detail="Leaderboards are temporarily disabled")
     if mode not in ("challenge", "fun"):
         raise HTTPException(status_code=422, detail="mode must be 'challenge' or 'fun'")
+    if offset >= MAX_LEADERBOARD_ROWS:
+        raise HTTPException(status_code=422, detail=f"offset must be less than {MAX_LEADERBOARD_ROWS}")
+    limit = min(limit, MAX_LEADERBOARD_ROWS - offset)
 
     repo = SimulationRepository()
     try:
-        rows = repo.get_challenge_leaderboard(client_id, tournament_id, team_name, mode)
+        result = repo.get_challenge_leaderboard(client_id, tournament_id, team_name, mode, limit, offset)
     finally:
         repo.close()
 
-    names = _display_names_for({r["client_id"] for r in rows if r.get("client_id")})
-    entries = [
-        ChallengeLeaderboardEntry(
+    rows = result["entries"]
+    you_row = result["you"]
+    ids = {r["client_id"] for r in rows if r.get("client_id")}
+    if you_row:
+        ids.add(you_row["client_id"])
+    names = _display_names_for(ids)
+
+    def _to_entry(r: dict) -> ChallengeLeaderboardEntry:
+        return ChallengeLeaderboardEntry(
             rank=r["rank"], client_id=r["client_id"],
             username=names.get(r["client_id"]) or "Anonymous Player",
             is_you=r["is_you"], best_placement=r["best_placement"],
             swap_count=r["swap_count"], win_pct=r["win_pct"], sim_id=str(r["sim_id"]),
         )
-        for r in rows
-    ]
-    return ChallengeLeaderboardResponse(entries=entries, total_entrants=len(entries))
+
+    return ChallengeLeaderboardResponse(
+        you=_to_entry(you_row) if you_row else None,
+        entries=[_to_entry(r) for r in rows],
+        total_entrants=result["total_entrants"],
+    )
 
 
 @router.get("/my-ranks", response_model=List[MyTeamRankItem])

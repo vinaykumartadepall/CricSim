@@ -6,7 +6,7 @@ import { useHelp } from '@/contexts/HelpContext'
 import { useSidebar } from '@/contexts/SidebarContext'
 import logoUrl from '@/assets/logo.png'
 
-const SERIF = "'DM Serif Display', Georgia, 'Times New Roman', serif"
+const LOGO_SANS = "'DM Sans', system-ui, sans-serif"
 
 export function Header() {
   const { displayName, isLoggedIn, signOut, openAuthModal, authReady } = useAuth()
@@ -34,8 +34,8 @@ export function Header() {
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
       }}
     >
-      <div className="flex items-center justify-between px-6 py-4"
-        style={{ maxWidth: 960, margin: '0 auto' }}
+      <div className="flex items-center justify-between py-4"
+        style={{ maxWidth: 960, margin: '0 auto', paddingLeft: 12, paddingRight: 24 }}
       >
       <div className="flex items-center gap-3">
         <button
@@ -51,9 +51,11 @@ export function Header() {
           <Menu size={18} />
         </button>
         <Link to="/" className="flex items-center gap-1 no-underline" style={{ whiteSpace: 'nowrap' }}>
-          <img src={logoUrl} alt="" style={{ width: 24, height: 26, flexShrink: 0, objectFit: 'contain' }} />
-          <span style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 400, letterSpacing: '0.01em' }}>
-            Cric<span style={{ color: 'var(--accent)' }}>Sim</span>
+          {/* Icon height matched to the 2-line wordmark's rendered height (18 * 1.05 * 2 = 37.8px) so they read as one lockup, not two disconnected pieces. */}
+          <img src={logoUrl} alt="" style={{ width: 34, height: 38, flexShrink: 0, objectFit: 'contain' }} />
+          <span style={{ fontFamily: LOGO_SANS, fontSize: 18, fontWeight: 800, letterSpacing: 0, lineHeight: 1.05 }}>
+            <div style={{ color: 'var(--text)' }}>Cric</div>
+            <div style={{ color: 'var(--accent)' }}>Simulator</div>
           </span>
         </Link>
       </div>

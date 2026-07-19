@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, TrendingDown, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, TrendingDown, Search, Globe, Trophy } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
@@ -8,10 +8,11 @@ import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
 import { Spinner } from '@/components/ui/Spinner'
 import { SimulationTypeToggle } from '@/components/ui/SimulationTypeToggle'
 import { FormatBadge } from '@/components/ui/FormatBadge'
-import { PlacementBadge } from '@/components/ui/PlacementBadge'
+import { PlacementBadge, medalColor } from '@/components/ui/PlacementBadge'
 import { BackButton } from '@/components/ui/BackButton'
 import { ConfirmRow } from '@/components/ui/ConfirmRow'
 import { SquadEditor } from '@/components/SquadEditor'
+import { ChallengeLeaderboardModal } from '@/components/ChallengeLeaderboardModal'
 import { useWizardUrlState } from '@/hooks/useWizardUrlState'
 import { sortTournamentNames } from '@/lib/sortTournamentNames'
 import type { Tournament, Team, SwapEntry, SimHistoryNameCount, SimHistoryTeamBest, MyTeamRankItem } from '@/types'
@@ -75,10 +76,32 @@ export function ChallengeModePage() {
   const [teamBest, setTeamBest] = useState<Map<string, SimHistoryTeamBest>>(new Map())
   const [teamRanks, setTeamRanks] = useState<Map<string, MyTeamRankItem>>(new Map())
 
+  // Leaderboard preview - lets you see a team's global leaderboard before
+  // ever picking it. The pick_team_season step's button navigates to a real
+  // page (LeaderboardPage) since it needs to browse many teams first - a
+  // popup stacked on this wizard's own flow didn't read well there. The
+  // squad step already has one specific team+tournament though (no browsing
+  // needed), so its button reuses the plain single-leaderboard popup - same
+  // shape ResultsPage already uses.
+  const [leaderboardsEnabled, setLeaderboardsEnabled] = useState(false)
+  const [showSquadLeaderboard, setShowSquadLeaderboard] = useState(false)
+
+  useEffect(() => {
+    api.getLeaderboardsEnabled()
+      .then(r => setLeaderboardsEnabled(r.enabled))
+      .catch(() => setLeaderboardsEnabled(false))
+  }, [])
+
   // Confirm
-  const { clientId } = useAuth()
+  const { clientId, authReady } = useAuth()
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
+
+  // Set when a retry/URL restore couldn't fully recover the previous build
+  // (fetch failure, or the previously-picked team/tournament no longer
+  // resolves) - shown as a banner rather than silently landing somewhere
+  // unexplained.
+  const [restoreNotice, setRestoreNotice] = useState('')
 
   const { updateUrlParams, goToStep } = useWizardUrlState<Step>(setStep)
 
@@ -151,66 +174,128 @@ export function ChallengeModePage() {
       .finally(() => setLoadingSquad(false))
   }
 
+  // Unified restore path - both the retry flow (?retrySimId=) and the plain
+  // URL-restore (name/tournament_id/team_id/step surviving in the URL after
+  // a reload or back-navigation) fetch through this one awaited function, so
+  // there's exactly one place that decides which step to land on and exactly
+  // one failure path - instead of several independent fire-and-forget chains
+  // that could each silently do nothing (this file's history of one-off
+  // patches, e.g. the loadUnderdogs/teamBest comment above, came from
+  // exactly that shape).
+  async function restoreTo(
+    target: { name: string; tournamentId?: number; teamId?: number; season?: string; urlStep?: string | null; swaps?: SwapEntry[] },
+    isCancelled: () => boolean,
+  ) {
+    setSelectedName(target.name)
+    const underdogs = await loadUnderdogs(target.name)
+    if (isCancelled()) return
+
+    if (!target.tournamentId || !target.teamId) {
+      // Only the tournament name is restorable (or nothing deeper resolved) -
+      // land on the team/season list, which now has its data loaded.
+      setStep('pick_team_season')
+      updateUrlParams({ retrySimId: undefined, name: target.name, tournament_id: undefined, team_id: undefined, step: 'pick_team_season' })
+      return
+    }
+
+    const tournamentId = target.tournamentId
+    const teamId = target.teamId
+    const team = await loadTeamForTournament(tournamentId, teamId)
+    if (isCancelled()) return
+    if (!team) {
+      setRestoreNotice('That team pick is no longer available - pick again below.')
+      setStep('pick_team_season')
+      updateUrlParams({ retrySimId: undefined, name: target.name, tournament_id: undefined, team_id: undefined, step: 'pick_team_season' })
+      return
+    }
+
+    const entry = underdogs.find(e => e.tournament_id === tournamentId && e.team_id === teamId)
+    setSelectedEntry(entry ?? {
+      tournament_id: tournamentId, team_id: team.team_id, team_name: team.team_name,
+      season: target.season ?? '', wins: 0, total_matches: 0, win_pct: 0,
+    })
+    if (target.swaps) setSwaps(target.swaps)
+    const finalStep = target.urlStep === 'pick_team_season' ? 'pick_team_season' : target.urlStep === 'confirm' ? 'confirm' : 'squad'
+    setStep(finalStep)
+    // retrySimId is cleared here (not in a follow-up call after restoreTo
+    // returns) so it lands in the same URL update as the restored step/team
+    // params, instead of racing a stale searchParams closure that could
+    // clobber what this call just set.
+    updateUrlParams({
+      retrySimId: undefined, name: target.name, tournament_id: String(tournamentId), team_id: String(teamId), step: finalStep,
+    })
+  }
+
   // Try-again resume flow - driven by a URL query param (?retrySimId=) and a
   // fresh fetch of that session, rather than router state carried in memory,
   // so this also works when landing here from a historical sim (My
   // Simulations) or after a reload of this very page, not just immediately
-  // after finishing a fresh run.
+  // after finishing a fresh run. Gated on authReady so it always resolves
+  // history with the final client_id, never a stale pre-link anon one.
   useEffect(() => {
-    if (!retrySimId) return
+    if (!retrySimId || !authReady) return
+    let cancelled = false
     api.getSimResult(retrySimId, clientId)
       .then(result => {
-        if (!result?.source_tournament_id || !result?.user_team_name) return
-        setSelectedName(result.tournament_name ?? '')
-        setSelectedEntry({
-          tournament_id: result.source_tournament_id,
-          team_id: result.user_team_id ?? 0,
-          team_name: result.user_team_name ?? '',
-          season: result.season ?? '',
-          wins: 0, total_matches: 0, win_pct: 0,
-        })
-        loadUnderdogs(result.tournament_name ?? '')
-        return loadTeamForTournament(result.source_tournament_id, result.user_team_id ?? null)
-          .then(team => {
-            if (team) {
-              setSwaps(result.swaps ?? [])
-              setStep('squad')
-              updateUrlParams({ tournament_id: String(result.source_tournament_id), team_id: String(team.team_id), step: 'squad' })
-            }
-          })
+        if (cancelled) return undefined
+        if (!result?.source_tournament_id || !result?.user_team_name) {
+          throw new Error('Incomplete sim result for retry')
+        }
+        return restoreTo({
+          name: result.tournament_name ?? '',
+          tournamentId: result.source_tournament_id,
+          teamId: result.user_team_id ?? undefined,
+          season: result.season ?? undefined,
+          urlStep: 'squad',
+          swaps: result.swaps ?? [],
+        }, () => cancelled)
       })
-      .catch(err => console.warn('Failed to restore previous run for Try Again', err))
+      .catch(err => {
+        if (cancelled) return
+        console.warn('Failed to restore previous run for Try Again', err)
+        setRestoreNotice("Couldn't restore your last attempt - pick a tournament to start again.")
+      })
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [authReady])
 
-  // URL-driven restore for a fresh (not-yet-simulated) build - covers the case
-  // retrySimId doesn't: reloading or navigating back mid-build, before any sim
-  // has ever been created. Only fires when retrySimId isn't in play, since
-  // that flow is authoritative (it also restores swaps, which this can't).
+  // URL-driven restore for a fresh (not-yet-simulated) build, or for a reload
+  // / back-navigation mid-build - covers every step from pick_team_season
+  // onward. Only fires when retrySimId isn't in play, since that flow is
+  // authoritative (it also restores swaps, which this can't).
   useEffect(() => {
-    if (retrySimId) return
+    if (retrySimId || !authReady) return
+    const name = searchParams.get('name')
     const urlTournamentId = searchParams.get('tournament_id')
     const urlTeamId = searchParams.get('team_id')
-    if (!urlTournamentId || !urlTeamId) return
-    const tid = Number(urlTournamentId)
-    const teamId = Number(urlTeamId)
     const urlStep = searchParams.get('step')
-    api.getTournaments().then(all => {
-      const t = all.find(x => x.tournament_id === tid)
-      if (!t) return
-      setSelectedName(t.name)
-      loadUnderdogs(t.name)
-      return loadTeamForTournament(tid, teamId).then(team => {
-        if (!team) return
-        setSelectedEntry({
-          tournament_id: tid, team_id: team.team_id, team_name: team.team_name,
-          season: t.season, wins: 0, total_matches: 0, win_pct: 0,
-        })
-        setStep(urlStep === 'confirm' ? 'confirm' : 'squad')
-      })
-    }).catch(err => console.warn('Failed to restore build from URL context', err))
+    if (!name && !urlTournamentId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        let resolvedName = name
+        if (!resolvedName) {
+          const all = await api.getTournaments()
+          if (cancelled) return
+          const t = all.find(x => x.tournament_id === Number(urlTournamentId))
+          if (!t) throw new Error('Tournament not found for restore')
+          resolvedName = t.name
+        }
+        await restoreTo({
+          name: resolvedName,
+          tournamentId: urlTournamentId ? Number(urlTournamentId) : undefined,
+          teamId: urlTeamId ? Number(urlTeamId) : undefined,
+          urlStep,
+        }, () => cancelled)
+      } catch (err) {
+        if (cancelled) return
+        console.warn('Failed to restore build from URL context', err)
+        setRestoreNotice("Couldn't restore your previous session - pick a tournament to start again.")
+      }
+    })()
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [authReady])
 
   useEffect(() => {
     setLoadingTournaments(true)
@@ -221,10 +306,10 @@ export function ChallengeModePage() {
   }, [search])
 
   useEffect(() => {
-    api.getSimHistoryNameCounts(clientId, 'challenge')
+    api.getSimHistoryNameCounts(clientId, 'challenge', search || undefined)
       .then(data => setNameCounts(new Map(data.map(r => [r.name, r]))))
       .catch(err => console.warn('Sim-history name counts unavailable (non-critical)', err))
-  }, [clientId])
+  }, [clientId, search])
 
   // Group by name for step 1 (same pattern as FunModePage)
   const grouped = allTournaments.reduce<Record<string, Tournament[]>>((acc, t) => {
@@ -235,22 +320,24 @@ export function ChallengeModePage() {
   const uniqueNames = sortTournamentNames(Object.keys(grouped))
 
   function pickName(name: string) {
+    setRestoreNotice('')
     setSelectedName(name)
     setSelectedEntry(null)
     setAllTeams([])
     setSelectedTeam(null)
     setSwaps([])
     setStep('pick_team_season')
-    updateUrlParams({ tournament_id: undefined, team_id: undefined, step: 'pick_team_season' })
+    updateUrlParams({ name, tournament_id: undefined, team_id: undefined, step: 'pick_team_season' })
     loadUnderdogs(name)
   }
 
   function pickEntry(entry: UnderdogEntry) {
+    setRestoreNotice('')
     setSelectedEntry(entry)
     setSwaps([])
     setSelectedTeam(null)
     setStep('squad')
-    updateUrlParams({ tournament_id: String(entry.tournament_id), team_id: String(entry.team_id), step: 'squad' })
+    updateUrlParams({ name: selectedName, tournament_id: String(entry.tournament_id), team_id: String(entry.team_id), step: 'squad' })
     loadTeamForTournament(entry.tournament_id, entry.team_id).then(team => {
       if (!team) {
         // Squad fetch failed or team not found in the tournament's squads -
@@ -369,6 +456,15 @@ export function ChallengeModePage() {
         ))}
       </div>
 
+      {restoreNotice && (
+        <div className="text-sm mb-5 px-3 py-2 rounded-lg flex items-center justify-between gap-3"
+          style={{ background: 'rgba(239,68,68,0.1)', color: 'var(--loss)' }}
+        >
+          <span>{restoreNotice}</span>
+          <button onClick={() => setRestoreNotice('')} style={{ color: 'var(--loss)', flexShrink: 0 }}>✕</button>
+        </div>
+      )}
+
       {/* Step 1: Pick tournament name */}
       {step === 'pick_tournament' && (
         <div className="fade-in">
@@ -397,7 +493,7 @@ export function ChallengeModePage() {
           {loadingTournaments ? (
             <div className="flex justify-center py-8"><Spinner /></div>
           ) : (
-            <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto">
+            <div className="flex flex-col gap-2">
               {uniqueNames.map(name => {
                 const hist = nameCounts.get(name)
                 return (
@@ -442,14 +538,26 @@ export function ChallengeModePage() {
       {step === 'pick_team_season' && (
         <div className="fade-in">
           <BackButton onClick={() => goToStep('pick_tournament')} />
-          <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>
-            Pick your underdog
+
+          <div className="flex items-start justify-between gap-3 mb-1">
+            <div className="text-xl font-semibold" style={{ color: 'var(--text)' }}>
+              Pick your underdog
+            </div>
+            {leaderboardsEnabled && (
+              <button
+                onClick={() => navigate(`/leaderboard?mode=challenge&name=${encodeURIComponent(selectedName)}`)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg shrink-0"
+                style={{ background: 'rgba(245,158,11,0.14)', border: '1px solid rgba(245,158,11,0.4)', color: 'var(--score)' }}
+              >
+                <Trophy size={12} /> Leaderboards
+              </button>
+            )}
           </div>
           <div className="text-sm mb-1" style={{ color: 'var(--text-muted)' }}>{selectedName}</div>
           <div className="flex items-center gap-1.5 mb-5">
             <TrendingDown size={12} style={{ color: 'var(--loss)' }} />
             <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
-              Teams with historical win rate &lt; 33% - ordered newest season first
+              Teams with historical win rate &lt; 33%
             </span>
           </div>
 
@@ -460,7 +568,7 @@ export function ChallengeModePage() {
               {underdogError}
             </div>
           ) : (
-            <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto">
+            <div className="flex flex-col gap-2">
               {underdogs.map(entry => (
                 <button
                   key={`${entry.tournament_id}-${entry.team_id}`}
@@ -471,10 +579,7 @@ export function ChallengeModePage() {
                 >
                   <div>
                     <div className="text-sm font-medium" style={{ color: 'var(--text)' }}>
-                      {entry.team_name}
-                    </div>
-                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                      {entry.season} · {entry.wins}W / {entry.total_matches} matches
+                      {entry.team_name} · {entry.season}
                     </div>
                     {(() => {
                       const best = teamBest.get(`${entry.team_name}-${entry.tournament_id}`)
@@ -496,13 +601,12 @@ export function ChallengeModePage() {
                     >
                       {(entry.win_pct * 100).toFixed(0)}%
                     </div>
-                    <div className="text-xs" style={{ color: 'var(--text-dim)' }}>win rate</div>
                     {(() => {
                       const myRank = teamRanks.get(`${entry.team_name}-${entry.tournament_id}`)
                       if (!myRank) return null
                       return (
-                        <div className="text-xs font-semibold mt-1" style={{ color: 'var(--accent)' }}>
-                          #{myRank.rank}
+                        <div className="text-xs font-medium mt-1 flex items-center gap-1 justify-end" style={{ color: medalColor(myRank.rank) }}>
+                          <Globe size={12} /> Global Rank #{myRank.rank}
                         </div>
                       )
                     })()}
@@ -518,7 +622,18 @@ export function ChallengeModePage() {
       {step === 'squad' && selectedEntry && (
         <div className="fade-in">
           <BackButton onClick={() => goToStep('pick_team_season')} />
-          <div className="text-xl font-semibold mb-1" style={{ color: 'var(--text)' }}>Edit your squad</div>
+          <div className="flex items-start justify-between gap-3 mb-1">
+            <div className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Edit your squad</div>
+            {leaderboardsEnabled && (
+              <button
+                onClick={() => setShowSquadLeaderboard(true)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg shrink-0"
+                style={{ background: 'rgba(245,158,11,0.14)', border: '1px solid rgba(245,158,11,0.4)', color: 'var(--score)' }}
+              >
+                <Trophy size={12} /> Leaderboard
+              </button>
+            )}
+          </div>
           <div className="text-sm mb-5" style={{ color: 'var(--text-muted)' }}>
             {selectedName} {selectedEntry.season} · {selectedEntry.team_name}
             {swaps.length > 0 && (
@@ -570,6 +685,15 @@ export function ChallengeModePage() {
             </>
           ) : null}
         </div>
+      )}
+
+      {showSquadLeaderboard && selectedEntry && (
+        <ChallengeLeaderboardModal
+          tournamentId={selectedEntry.tournament_id}
+          teamName={selectedEntry.team_name}
+          mode="challenge"
+          onClose={() => setShowSquadLeaderboard(false)}
+        />
       )}
 
       {/* Step 4: Confirm */}

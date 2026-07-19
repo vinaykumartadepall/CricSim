@@ -58,3 +58,37 @@ class TestSimHistoryCountsRequiresWin:
             repo.get_sim_history_counts("client-1", tournament_ids, mode)
             query = repo._dict_cur.execute.call_args[0][0]
             assert "match_label ILIKE" in query, f"missing final-match lookup for tournament_ids={tournament_ids}, mode={mode}"
+
+
+class TestSimHistoryCountsNameQuery:
+    """Step 1 (tournament_ids=None) can be scoped to a name substring, so the
+    tournament picker's search box doesn't force fetching history for the
+    client's entire catalog on every render."""
+
+    def test_step1_no_mode_with_name_query_filters_on_name(self):
+        repo = _make_repo([])
+        repo.get_sim_history_counts("client-1", None, None, "ipl")
+        query, params = repo._dict_cur.execute.call_args[0]
+        assert "t.name ILIKE %s" in query
+        assert params[-2:] == ("%ipl%", "%ipl%")
+
+    def test_step1_challenge_mode_with_name_query_filters_on_name(self):
+        repo = _make_repo([])
+        repo.get_sim_history_counts("client-1", None, "challenge", "big bash")
+        query, params = repo._dict_cur.execute.call_args[0]
+        assert "t.name ILIKE %s" in query
+        assert params[-2:] == ("%big bash%", "%big bash%")
+
+    def test_step1_without_name_query_passes_null_pattern(self):
+        """No name_query -> the (%s IS NULL OR ...) filter is a no-op, not an empty-string match."""
+        repo = _make_repo([])
+        repo.get_sim_history_counts("client-1", None, None)
+        _, params = repo._dict_cur.execute.call_args[0]
+        assert params[-2:] == (None, None)
+
+    def test_step2_ignores_name_query(self):
+        """Season-level counts are already scoped by explicit tournament_ids - no name filter to add."""
+        repo = _make_repo([])
+        repo.get_sim_history_counts("client-1", [3039], None, "ipl")
+        query = repo._dict_cur.execute.call_args[0][0]
+        assert "t.name ILIKE" not in query

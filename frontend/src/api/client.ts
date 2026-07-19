@@ -169,9 +169,10 @@ export const api = {
   getTotalSimulations: () =>
     get<{ total: number }>('/simulations/total'),
 
-  getSimHistoryNameCounts: (clientId: string, mode?: string) => {
+  getSimHistoryNameCounts: (clientId: string, mode?: string, nameQuery?: string) => {
     const params = new URLSearchParams({ client_id: clientId })
     if (mode) params.set('mode', mode)
+    if (nameQuery) params.set('name_query', nameQuery)
     return get<SimHistoryNameCount[]>(`/sim-history/counts?${params}`)
   },
 
@@ -187,8 +188,14 @@ export const api = {
     return get<SimHistoryTeamBest[]>(`/sim-history/best?${params}`)
   },
 
-  getChallengeLeaderboard: (clientId: string, tournamentId: number, teamName: string, mode: string) => {
-    const params = new URLSearchParams({ client_id: clientId, tournament_id: String(tournamentId), team_name: teamName, mode })
+  getChallengeLeaderboard: (
+    clientId: string, tournamentId: number, teamName: string, mode: string,
+    limit = 10, offset = 0,
+  ) => {
+    const params = new URLSearchParams({
+      client_id: clientId, tournament_id: String(tournamentId), team_name: teamName, mode,
+      limit: String(limit), offset: String(offset),
+    })
     return get<ChallengeLeaderboardResponse>(`/sim-history/leaderboard?${params}`)
   },
 

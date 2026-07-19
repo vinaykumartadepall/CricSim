@@ -33,15 +33,24 @@ export function PlacementBadge({ placement, className = '' }: { placement: strin
 // Leaderboard *position* - a distinct concept from placement: two people can
 // both finish "Winner" but differ in leaderboard rank (e.g. tiebroken by
 // swaps/win%). Ranks 1-3 get the same medal colors as PlacementBadge; the
-// rest are a plain muted numbered circle.
+// rest are plain and muted. Single source of truth for that color rule -
+// reused by both the RankBadge circle and any plain-text rank display.
 const MEDAL_COLOR: Record<number, string> = { 1: GOLD, 2: SILVER, 3: BRONZE }
+
+export function medalColor(rank: number): string {
+  return MEDAL_COLOR[rank] ?? DIM
+}
 
 export function RankBadge({ rank, className = '' }: { rank: number; className?: string }) {
   const medal = MEDAL_COLOR[rank]
   return (
     <div className={`flex items-center justify-center rounded-full font-bold shrink-0 ${className}`}
       style={{
-        width: 28, height: 28, fontSize: 13,
+        // min-width (not a fixed width) so 3-digit ranks (up to 100, the
+        // leaderboard's own display cap) widen into a rounded pill instead
+        // of clipping - 1-2 digit ranks stay a true circle since the content
+        // never exceeds the minimum.
+        minWidth: 28, height: 28, padding: '0 6px', borderRadius: 999, fontSize: 13,
         background: medal ? darkTint(medal, 30) : NEUTRAL_BG,
         color: medal ?? DIM,
         border: `1px solid ${medal ? medal + '55' : 'var(--border)'}`,

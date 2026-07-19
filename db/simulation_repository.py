@@ -841,13 +841,18 @@ class SimulationRepository:
         client_id: str,
         tournament_ids: list[int] | None = None,
         mode: str | None = None,
+        name_query: str | None = None,
     ) -> list[dict]:
         """
-        Without tournament_ids  → per tournament-name counts (Step 1).
+        Without tournament_ids  → per tournament-name counts (Step 1), optionally
+        scoped to name_query (case-insensitive substring) so this matches what
+        the tournament picker's own search box is actually showing instead of
+        always pulling the client's entire history.
         With    tournament_ids  → per tournament-id counts   (Step 2).
         mode='challenge': totals only count underdog (win_pct < 0.33) team×season combos.
         """
         client_id = self._resolve_client_id(client_id)
+        like_pattern = f'%{name_query}%' if name_query else None
         if tournament_ids is None:
             if mode == 'challenge':
                 self._dict_cur.execute(
@@ -906,9 +911,10 @@ class SimulationRepository:
                            COALESCE(d.completed, 0) AS completed
                     FROM totals t
                     LEFT JOIN done d ON d.name = t.name
+                    WHERE (%s IS NULL OR t.name ILIKE %s)
                     ORDER BY t.name
                     """,
-                    (client_id,),
+                    (client_id, like_pattern, like_pattern),
                 )
             else:
                 self._dict_cur.execute(
@@ -951,9 +957,10 @@ class SimulationRepository:
                            COALESCE(d.completed, 0) AS completed
                     FROM totals t
                     LEFT JOIN done d ON d.name = t.name
+                    WHERE (%s IS NULL OR t.name ILIKE %s)
                     ORDER BY t.name
                     """,
-                    (client_id, mode, mode),
+                    (client_id, mode, mode, like_pattern, like_pattern),
                 )
         else:
             if mode == 'challenge':
@@ -1089,16 +1096,22 @@ class SimulationRepository:
         tournament_id: int,
         team_name: str,
         mode: str,
-    ) -> list[dict]:
+        limit: int = 10,
+        offset: int = 0,
+    ) -> dict:
         """
         Every user's single best attempt at this exact tournament+team combo,
         scoped to one mode. Tiebreak chain: placement -> fewest swaps -> highest
         win% in that run. RANK() (not ROW_NUMBER/DENSE_RANK) so ties share a
         rank and the next rank skips accordingly (1,1,1,4,5,5,7,...).
+
+        Paginated - the route clamps offset+limit to 100 (nobody browses past
+        the top 100), but the caller's own best attempt is always returned via
+        `you`, regardless of what page was requested, and `total_entrants` is
+        the true count even though the page itself never goes past 100.
         """
         resolved_client_id = self._resolve_client_id(client_id)
-        self._dict_cur.execute(
-            f"""
+        base_cte = f"""
             WITH ranked AS (
                 SELECT
                     gs.client_id                              AS client_id,
@@ -1125,17 +1138,37 @@ class SimulationRepository:
                     client_id, best_placement, swap_count, win_pct, sim_id, placement_rank
                 FROM ranked
                 ORDER BY client_id, placement_rank ASC, swap_count ASC, win_pct DESC
+            ),
+            scored AS (
+                SELECT
+                    client_id, best_placement, swap_count, win_pct, sim_id,
+                    RANK() OVER (ORDER BY placement_rank ASC, swap_count ASC, win_pct DESC) AS rank
+                FROM best_per_user
             )
-            SELECT
-                client_id, best_placement, swap_count, win_pct, sim_id,
-                (client_id = %s)                                                        AS is_you,
-                RANK() OVER (ORDER BY placement_rank ASC, swap_count ASC, win_pct DESC) AS rank
-            FROM best_per_user
-            ORDER BY rank ASC, client_id ASC
-            """,
-            (tournament_id, team_name, mode, resolved_client_id),
+            """
+        base_args = (tournament_id, team_name, mode)
+
+        self._dict_cur.execute(base_cte + "SELECT COUNT(*) AS total FROM scored", base_args)
+        total_entrants = self._dict_cur.fetchone()["total"]
+
+        self._dict_cur.execute(
+            base_cte + "SELECT * FROM scored ORDER BY rank ASC, client_id ASC LIMIT %s OFFSET %s",
+            base_args + (limit, offset),
         )
-        return [dict(r) for r in self._dict_cur.fetchall()]
+        entries = [dict(r) for r in self._dict_cur.fetchall()]
+        for entry in entries:
+            entry["is_you"] = entry["client_id"] == resolved_client_id
+
+        self._dict_cur.execute(
+            base_cte + "SELECT * FROM scored WHERE client_id = %s",
+            base_args + (resolved_client_id,),
+        )
+        you_row = self._dict_cur.fetchone()
+        you = dict(you_row) if you_row else None
+        if you is not None:
+            you["is_you"] = True
+
+        return {"you": you, "entries": entries, "total_entrants": total_entrants}
 
     def get_my_challenge_ranks(
         self,

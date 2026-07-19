@@ -4,11 +4,11 @@ import { createPortal } from 'react-dom'
 import { Trophy, TrendingUp, Swords, Star, RotateCcw, ChevronRight, ChevronLeft, X, Search, Users } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
 import { ShareButton } from '@/components/ui/ShareButton'
-import { RoleBadge } from '@/components/ui/RoleBadge'
 import { PlayerAvatar } from '@/components/ui/Avatar'
 import { FormatBadge } from '@/components/ui/FormatBadge'
-import { PlacementBadge, RankBadge } from '@/components/ui/PlacementBadge'
+import { PlayerRosterRow, type RosterPlayer } from '@/components/ui/PlayerRosterRow'
 import { PlayoffBracket } from '@/components/PlayoffBracket'
+import { ChallengeLeaderboardModal } from '@/components/ChallengeLeaderboardModal'
 import { api } from '@/api/client'
 import { getClientId } from '@/api/clientId'
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
@@ -16,7 +16,7 @@ import { captureViewportImage } from '@/lib/shareScreenshot'
 import { opaqueTint } from '@/lib/colorTint'
 import type {
   TournamentResult, LeaderboardsDashboard,
-  MatchItem, ChallengeLeaderboardEntry,
+  MatchItem,
 } from '@/types'
 
 type Tab = 'standings' | 'leaderboards' | 'matches'
@@ -180,14 +180,8 @@ const PAGE_SIZE = 50
 
 // ── Team XI preview panel ─────────────────────────────────────────────────────
 
-type LineupPlayer = {
-  player_id: number
-  player_name: string
-  player_role: string | null
+type LineupPlayer = RosterPlayer & {
   matches: number
-  runs: number
-  wickets: number
-  mvp_points: number
   batting_pts: number
   bowling_pts: number
   fielding_pts: number
@@ -196,10 +190,15 @@ type LineupPlayer = {
 function TeamPreviewPanel({
   teamName,
   players,
+  tradedInIds,
   onClose,
 }: {
   teamName: string
   players: LineupPlayer[]
+  // Only populated for the viewer's own team (only team whose swaps this
+  // page knows) - see PlayerRosterRow, shared with the leaderboard's squad
+  // popup so the treatment is identical everywhere a roster is shown.
+  tradedInIds: Set<number>
   onClose: () => void
 }) {
   useBodyScrollLock(true)
@@ -230,28 +229,7 @@ function TeamPreviewPanel({
         {/* Player list */}
         <div className="flex-1 overflow-y-auto">
           {players.map((p, i) => (
-            <div key={p.player_id}
-              className="flex items-center gap-3 px-4 py-3"
-              style={{ borderBottom: '1px solid var(--border)' }}>
-              <div className="text-xs w-5 text-right shrink-0 font-mono" style={{ color: 'var(--text-dim)' }}>{i + 1}</div>
-              <PlayerAvatar name={p.player_name} size={32} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{p.player_name}</span>
-                  <RoleBadge role={p.player_role} compact />
-                </div>
-                <div className="flex items-center gap-2 mt-0.5" style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                  <span>{p.runs} runs</span>
-                  {p.wickets > 0 && <span>· {p.wickets} wkts</span>}
-                </div>
-              </div>
-              {p.mvp_points > 0 && (
-                <div className="text-right shrink-0">
-                  <div className="text-sm font-bold" style={{ color: 'var(--score)' }}>{p.mvp_points.toFixed(1)}</div>
-                  <div className="text-xs" style={{ color: 'var(--text-dim)', fontSize: 10 }}>MVP</div>
-                </div>
-              )}
-            </div>
+            <PlayerRosterRow key={p.player_id} player={p} index={i} tradedIn={tradedInIds.has(p.player_id)} />
           ))}
           {players.length === 0 && (
             <div className="flex items-center justify-center h-32 text-sm" style={{ color: 'var(--text-dim)' }}>
@@ -476,115 +454,10 @@ function LeaderboardModal({
   )
 }
 
-// ── Challenge leaderboard modal (global, cross-user, same tournament+team+mode) ─
-// A different feature from LeaderboardModal above (that one is in-tournament
-// batting/bowling stats) - named distinctly to avoid the collision.
-
-function ChallengeLeaderboardModal({
-  tournamentId, teamName, mode, onClose,
-}: {
-  tournamentId: number
-  teamName: string
-  mode: string
-  onClose: () => void
-}) {
-  const [entries, setEntries] = useState<ChallengeLeaderboardEntry[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useBodyScrollLock(true)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    api.getChallengeLeaderboard(getClientId(), tournamentId, teamName, mode)
-      .then(r => { if (!cancelled) { setEntries(r.entries); setTotal(r.total_entrants) } })
-      .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load the leaderboard.") })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [tournamentId, teamName, mode])
-
-  const you = entries.find(e => e.is_you)
-
-  return createPortal(
-    <>
-      <div onClick={onClose}
-        style={{ position: 'fixed', inset: 0, zIndex: 160, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(3px)' }} />
-      <div style={{
-        position: 'fixed', left: '50%', top: '5vh', transform: 'translateX(-50%)',
-        width: 'min(520px, 96vw)', maxHeight: '90vh', zIndex: 161,
-        display: 'flex', flexDirection: 'column',
-        background: 'var(--bg)', borderRadius: 12, border: '1px solid var(--border)',
-        overflow: 'hidden', animation: 'fadeIn 150ms ease',
-      }}>
-        <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0"
-          style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{teamName}</div>
-            <div className="text-xs" style={{ color: 'var(--text-dim)' }}>
-              {total} {total === 1 ? 'entrant' : 'entrants'} · {mode === 'challenge' ? 'Challenge' : 'Fun'} mode
-            </div>
-          </div>
-          <button onClick={onClose} style={{ color: 'var(--text-muted)', flexShrink: 0 }}><X size={16} /></button>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center py-12"><Spinner /></div>
-        ) : error ? (
-          <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-dim)' }}>{error}</div>
-        ) : entries.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-dim)' }}>No entrants yet.</div>
-        ) : (
-          <>
-            {you && you.rank !== 1 && (
-              <div className="flex items-center gap-3 mx-4 mt-3 mb-1 px-3 py-2.5 rounded-lg flex-shrink-0"
-                style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid var(--accent)' }}>
-                <RankBadge rank={you.rank} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>Your rank</div>
-                  <div className="text-sm font-medium truncate" style={{ color: 'var(--accent)' }}>{you.username}</div>
-                </div>
-                <div className="text-right shrink-0">
-                  <PlacementBadge placement={you.best_placement} />
-                  <div className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
-                    {you.swap_count} trade{you.swap_count !== 1 ? 's' : ''} · {(you.win_pct * 100).toFixed(0)}% wins
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="flex-1 overflow-y-auto px-4 pb-4 pt-1">
-              {entries.map(e => (
-                <div key={e.client_id}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg mb-1.5"
-                  style={{
-                    background: e.is_you ? 'rgba(59,130,246,0.07)' : 'transparent',
-                    boxShadow: e.is_you ? 'inset 2px 0 0 var(--accent)' : undefined,
-                  }}>
-                  <RankBadge rank={e.rank} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate flex items-center gap-1.5" style={{ color: e.is_you ? 'var(--accent)' : 'var(--text)' }}>
-                      {e.username}
-                      {e.is_you && (
-                        <span className="text-xs px-1.5 py-px rounded font-semibold" style={{ background: 'rgba(59,130,246,0.12)', color: 'var(--accent)' }}>You</span>
-                      )}
-                    </div>
-                    <div className="text-xs" style={{ color: 'var(--text-dim)' }}>
-                      {e.swap_count} trade{e.swap_count !== 1 ? 's' : ''} · {(e.win_pct * 100).toFixed(0)}% wins
-                    </div>
-                  </div>
-                  <PlacementBadge placement={e.best_placement} />
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    </>,
-    document.body
-  )
-}
+// ChallengeLeaderboardModal (global, cross-user, same tournament+team+mode) -
+// a different feature from LeaderboardModal above (that one is in-tournament
+// batting/bowling stats) - lives in components/ChallengeLeaderboardModal.tsx
+// since FunModePage/ChallengeModePage need it too, not just this page.
 
 // ── Stat card ────────────────────────────────────────────────────────────────
 
@@ -778,6 +651,12 @@ export function ResultsPage() {
 
   // Team preview panel data
   const previewTeamData = previewTeam ? lineupTeams.find(t => t.team_name === previewTeam) : null
+  // Trades only exist for the viewer's own team - this page only ever knows
+  // the current viewer's swaps (result.swaps), not other teams' (AI-controlled
+  // or other multiplayer participants').
+  const previewTradedInIds = previewTeam && previewTeam === result?.user_team_name
+    ? new Set((result?.swaps ?? []).map(s => s.player_in_id))
+    : new Set<number>()
 
   return (
     <div className="w-full px-1 py-6">
@@ -805,6 +684,7 @@ export function ResultsPage() {
         <TeamPreviewPanel
           teamName={previewTeam}
           players={previewTeamData.players}
+          tradedInIds={previewTradedInIds}
           onClose={() => setPreviewTeam(null)}
         />
       )}

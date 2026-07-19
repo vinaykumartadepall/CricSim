@@ -65,6 +65,7 @@ export interface ChallengeLeaderboardEntry {
 }
 
 export interface ChallengeLeaderboardResponse {
+  you: ChallengeLeaderboardEntry | null
   entries: ChallengeLeaderboardEntry[]
   total_entrants: number
 }

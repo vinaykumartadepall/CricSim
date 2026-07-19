@@ -13,6 +13,7 @@ import { FunModePage } from '@/pages/FunModePage'
 import { ChallengeModePage } from '@/pages/ChallengeModePage'
 import { CustomModePage } from '@/pages/CustomModePage'
 import { ResultsPage } from '@/pages/ResultsPage'
+import { LeaderboardPage } from '@/pages/LeaderboardPage'
 import { SimulatingPage } from '@/pages/SimulatingPage'
 import { MatchDetailPage } from '@/pages/MatchDetailPage'
 import { SimulationsPage } from '@/pages/SimulationsPage'
@@ -29,7 +30,9 @@ import { MultiplayerLobbyPage } from '@/pages/MultiplayerLobbyPage'
 import { DraftPage } from '@/pages/DraftPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
-const HEADER_H = 60
+// Taller than a single-line header would need - the stacked "Cric/Simulator"
+// two-line logo (Header.tsx) is the tallest element in the bar.
+const HEADER_H = 72
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -69,6 +72,7 @@ function AppShell() {
           <Route path="/custom"                              element={<CustomModePage />} />
           <Route path="/simulating/:simId"                   element={<SimulatingPage />} />
           <Route path="/results/:simId"                      element={<ResultsPage />} />
+          <Route path="/leaderboard"                         element={<LeaderboardPage />} />
           <Route path="/results/:simId/matches/:matchId"     element={<MatchDetailPage />} />
           <Route path="/simulations"                         element={<SimulationsPage />} />
           <Route path="/stats"                               element={<StatsPage />} />

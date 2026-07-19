@@ -13,14 +13,15 @@ client = TestClient(app)
 
 
 class _FakeRepo:
-    def __init__(self, rows):
+    def __init__(self, rows, you=None):
         self._rows = rows
+        self._you = you
 
-    def get_challenge_leaderboard(self, client_id, tournament_id, team_name, mode):
+    def get_challenge_leaderboard(self, client_id, tournament_id, team_name, mode, limit=10, offset=0):
         assert tournament_id == 3039
         assert team_name == "Mumbai Indians"
         assert mode == "challenge"
-        return self._rows
+        return {"you": self._you, "entries": self._rows, "total_entrants": len(self._rows)}
 
     def get_my_challenge_ranks(self, client_id, tournament_id, mode):
         assert tournament_id == 3039
@@ -84,6 +85,61 @@ class TestChallengeLeaderboardRoute:
             "client_id": "a", "tournament_id": 3039, "team_name": "Mumbai Indians", "mode": "challenge",
         })
         assert resp.status_code == 503
+
+    def test_you_included_even_when_outside_the_page(self, monkeypatch):
+        you = {"client_id": "a", "best_placement": "Group stage", "swap_count": 2,
+               "win_pct": 0.36, "sim_id": "s99", "is_you": True, "rank": 47}
+        monkeypatch.setattr(sim_history_mod, "SimulationRepository", lambda: _FakeRepo(_leaderboard_rows(), you=you))
+        monkeypatch.setattr(sim_history_mod, "_display_names_for", lambda ids: {"a": "Alice"})
+
+        resp = client.get("/cricsimapi/sim-history/leaderboard", params={
+            "client_id": "a", "tournament_id": 3039, "team_name": "Mumbai Indians", "mode": "challenge",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["you"]["rank"] == 47
+        assert body["you"]["username"] == "Alice"
+
+    def test_you_is_null_when_caller_has_no_attempt(self, monkeypatch):
+        monkeypatch.setattr(sim_history_mod, "SimulationRepository", lambda: _FakeRepo(_leaderboard_rows()))
+        monkeypatch.setattr(sim_history_mod, "_display_names_for", lambda ids: {})
+
+        resp = client.get("/cricsimapi/sim-history/leaderboard", params={
+            "client_id": "a", "tournament_id": 3039, "team_name": "Mumbai Indians", "mode": "challenge",
+        })
+        assert resp.json()["you"] is None
+
+    def test_offset_at_cap_is_422(self):
+        resp = client.get("/cricsimapi/sim-history/leaderboard", params={
+            "client_id": "a", "tournament_id": 3039, "team_name": "Mumbai Indians", "mode": "challenge",
+            "offset": 100,
+        })
+        assert resp.status_code == 422
+
+    def test_limit_above_cap_is_422(self):
+        resp = client.get("/cricsimapi/sim-history/leaderboard", params={
+            "client_id": "a", "tournament_id": 3039, "team_name": "Mumbai Indians", "mode": "challenge",
+            "limit": 101,
+        })
+        assert resp.status_code == 422
+
+    def test_limit_clamped_to_remaining_room_under_cap(self, monkeypatch):
+        seen = {}
+
+        class _CapturingRepo(_FakeRepo):
+            def get_challenge_leaderboard(self, client_id, tournament_id, team_name, mode, limit=10, offset=0):
+                seen["limit"], seen["offset"] = limit, offset
+                return super().get_challenge_leaderboard(client_id, tournament_id, team_name, mode, limit, offset)
+
+        monkeypatch.setattr(sim_history_mod, "SimulationRepository", lambda: _CapturingRepo(_leaderboard_rows()))
+        monkeypatch.setattr(sim_history_mod, "_display_names_for", lambda ids: {})
+
+        resp = client.get("/cricsimapi/sim-history/leaderboard", params={
+            "client_id": "a", "tournament_id": 3039, "team_name": "Mumbai Indians", "mode": "challenge",
+            "limit": 50, "offset": 90,
+        })
+        assert resp.status_code == 200
+        assert seen == {"limit": 10, "offset": 90}  # 90 + 50 would exceed 100 -> clamped to 10
 
 
 class TestMyChallengeRanksRoute:
