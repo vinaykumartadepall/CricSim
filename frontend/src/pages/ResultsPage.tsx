@@ -854,6 +854,7 @@ export function ResultsPage() {
             const name  = mvpRow.player as string
             const team  = mvpRow.team as string
             const total = Number(mvpRow.total).toFixed(1)
+            const headshotUrl = mvpRow.headshot_url as string | null | undefined
             return (
               <button
                 onClick={() => setActiveLb('mvp')}
@@ -863,7 +864,7 @@ export function ResultsPage() {
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}
               >
                 <div className="flex gap-3 items-center px-4 py-3">
-                  <PlayerAvatar name={name} size={46} />
+                  <PlayerAvatar name={name} url={headshotUrl} size={46} />
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--text-dim)' }}>Player of the Tournament</div>
                     <div className="text-sm font-bold truncate" style={{ color: 'var(--text)' }}>{name}</div>

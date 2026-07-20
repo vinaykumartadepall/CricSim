@@ -310,6 +310,7 @@ class LeaderboardRepository:
                 pa.bowling_pts,
                 pa.fielding_pts,
                 (pa.batting_pts + pa.bowling_pts + pa.fielding_pts) AS total,
+                hp.cricinfo_id,
                 COUNT(*) OVER ()                                    AS total_count
             FROM simulation.player_awards pa
             LEFT JOIN history.players hp ON hp.player_id = pa.player_id
@@ -324,6 +325,12 @@ class LeaderboardRepository:
         )
         rows = self.cur.fetchall()
         total = rows[0]['total_count'] if rows else 0
+        # cricinfo_id passed through raw, not converted to a URL here -
+        # api/worker.py persists whatever this returns into
+        # simulation.leaderboard_cache, and we want that to store the small
+        # stable id, not a URL baked to today's CDN path. Callers convert via
+        # db.headshots.with_headshot_url right before building an API
+        # response (api/routes/leaderboards.py).
         return _rank_rows(rows, offset), total
 
 

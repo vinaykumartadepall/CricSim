@@ -112,3 +112,27 @@ class TestMvpTiebreaker:
         order_by = _order_by_clause(cur.last_query)
         assert "DESC" in order_by
         assert order_by.endswith("pa.award_id")
+
+
+class TestMvpCricinfoId:
+    """mvp() selects cricinfo_id raw (not a derived headshot_url) - this is
+    what api/worker.py persists into simulation.leaderboard_cache, and we
+    want that to store the small stable id rather than a URL string baked to
+    today's CDN path. api/routes/leaderboards.py converts to headshot_url via
+    db.headshots.with_headshot_url right before building the API response,
+    not here - see tests/test_db_headshots.py for that conversion."""
+
+    def test_selects_cricinfo_id(self):
+        cur = _FakeCursor()
+        LeaderboardRepository(cur).mvp("sim-1", limit=20, offset=0)
+        assert "hp.cricinfo_id" in cur.last_query
+
+    def test_row_passes_cricinfo_id_through_raw(self):
+        cur = _FakeCursor(rows=[{
+            "player": "Virat Kohli", "team": "Royal Challengers Bangalore",
+            "batting_pts": 100.0, "bowling_pts": 0.0, "fielding_pts": 5.0, "total": 105.0,
+            "cricinfo_id": 253802, "total_count": 1,
+        }])
+        entries, _ = LeaderboardRepository(cur).mvp("sim-1", limit=20, offset=0)
+        assert entries[0]["cricinfo_id"] == 253802
+        assert "headshot_url" not in entries[0]

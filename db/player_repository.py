@@ -12,6 +12,7 @@ import psycopg2.extras
 
 from db.admin_edits import record_edit
 from db.database import get_db_connection
+from db.headshots import headshot_url as _headshot_url
 
 _EDITABLE_FIELDS = (
     "name", "display_name", "player_role", "batting_style",
@@ -19,12 +20,6 @@ _EDITABLE_FIELDS = (
 )
 _VALID_ROLES = {"Batter", "Bowler", "All-rounder", "Keeper"}
 _VALID_GENDERS = {"male", "female"}
-
-
-def _headshot_url(cricinfo_id) -> str | None:
-    if not cricinfo_id:
-        return None
-    return f"https://a.espncdn.com/i/headshots/cricket/players/full/{cricinfo_id}.png"
 
 
 class PlayerRepository:

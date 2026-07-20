@@ -29,6 +29,7 @@ from api.models.responses import (
 )
 from api.worker import get_tournament_progress, run_match_job, run_tournament_job
 from db.database import db_cursor, get_db_connection
+from db.headshots import headshot_url
 from db.simulation_repository import SimulationRepository, _parse_win
 from simulator.serializers.match import (
     _build_result_description, get_commentary, get_match_result, get_scorecard, get_tournament_result,
@@ -414,6 +415,19 @@ def get_lineups(sim_id: str):
         # Collect all player+team combos
         all_keys = set(bat_rows) | set(bowl_rows) | set(mvp_by_key)
 
+        # cricinfo_id for headshots - looked up separately by player_id (not
+        # taken from the batting aggregate above) so it's still available for
+        # players who only bowled or only picked up a fielding award and never
+        # had a batting row at all.
+        player_ids = {pid for pid, _ in all_keys}
+        cricinfo_by_id: dict = {}
+        if player_ids:
+            repo.dict_cursor.execute(
+                "SELECT player_id, cricinfo_id FROM history.players WHERE player_id = ANY(%(ids)s)",
+                {"ids": list(player_ids)},
+            )
+            cricinfo_by_id = {r["player_id"]: r["cricinfo_id"] for r in repo.dict_cursor.fetchall()}
+
         # Group by team
         team_players: dict = {}
         for pid, tname in all_keys:
@@ -425,6 +439,7 @@ def get_lineups(sim_id: str):
                 "player_id":   pid,
                 "player_name": bat.get("player_name") or mvp.get("player_name", ""),
                 "player_role": bat.get("player_role"),
+                "headshot_url":headshot_url(cricinfo_by_id.get(pid)),
                 "runs":        int(bat.get("runs", 0) or 0),
                 "balls":       int(bat.get("balls", 0) or 0),
                 "wickets":     int(bowl.get("wickets", 0) or 0),

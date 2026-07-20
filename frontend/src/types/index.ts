@@ -273,6 +273,7 @@ export interface MvpRow {
   bowling_pts: number
   fielding_pts: number
   total: number
+  headshot_url?: string | null
 }
 
 export interface LeaderboardsDashboard {

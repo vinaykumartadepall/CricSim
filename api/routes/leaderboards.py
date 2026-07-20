@@ -13,6 +13,7 @@ from api.models.responses import (
     MVPRow,
     PaginatedLeaderboard,
 )
+from db.headshots import with_headshot_url
 from db.leaderboard_repository import LeaderboardRepository, _BATTING_SORT, _BOWLING_SORT
 from db.simulation_repository import SimulationRepository
 
@@ -64,7 +65,7 @@ def leaderboards_dashboard(sim_id: str):
         best_economy=[BowlingAggregateRow(**r) for r in data['best-economy']],
         best_bowling_figures=[BestFiguresRow(**r) for r in data['best-bowling-figures']],
         most_dots=[BowlingAggregateRow(**r) for r in data['most-dots']],
-        mvp=[MVPRow(**r) for r in data['mvp']],
+        mvp=[MVPRow(**with_headshot_url(r)) for r in data['mvp']],
     )
 
 
@@ -102,7 +103,7 @@ def leaderboard(
             typed = [BestFiguresRow(**r) for r in entries]
         else:  # mvp
             entries, total = lb.mvp(sim_id, limit, offset)
-            typed = [MVPRow(**r) for r in entries]
+            typed = [MVPRow(**with_headshot_url(r)) for r in entries]
     finally:
         repo.close()
 

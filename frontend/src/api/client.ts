@@ -156,7 +156,7 @@ export const api = {
     ),
 
   getLineups: (simId: string) =>
-    get<{ sim_id: string; teams: { team_name: string; players: { player_id: number; player_name: string; player_role: string | null; matches: number; runs: number; wickets: number; mvp_points: number; batting_pts: number; bowling_pts: number; fielding_pts: number }[] }[] }>(
+    get<{ sim_id: string; teams: { team_name: string; players: { player_id: number; player_name: string; player_role: string | null; headshot_url: string | null; matches: number; runs: number; wickets: number; mvp_points: number; batting_pts: number; bowling_pts: number; fielding_pts: number }[] }[] }>(
       `/simulations/${simId}/lineups`
     ),
 

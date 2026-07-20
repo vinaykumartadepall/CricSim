@@ -12,6 +12,7 @@ export interface RosterPlayer {
   player_id: number
   player_name: string
   player_role: string | null
+  headshot_url?: string | null
   runs: number
   wickets: number
   mvp_points: number
@@ -34,7 +35,7 @@ export function PlayerRosterRow({ player, index, tradedIn }: { player: RosterPla
       }}
     >
       <div className="text-xs w-5 text-right shrink-0 font-mono" style={{ color: 'var(--text-dim)' }}>{index + 1}</div>
-      <PlayerAvatar name={player.player_name} size={32} />
+      <PlayerAvatar name={player.player_name} url={player.headshot_url} size={32} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{player.player_name}</span>

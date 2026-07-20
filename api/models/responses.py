@@ -300,6 +300,7 @@ class MVPRow(BaseModel):
     bowling_pts: float
     fielding_pts: float
     total: float
+    headshot_url: Optional[str] = None
 
 
 class PaginatedLeaderboard(BaseModel):
