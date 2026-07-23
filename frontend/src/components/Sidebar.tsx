@@ -5,8 +5,8 @@ import { useSidebar } from '@/contexts/SidebarContext'
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
 import logoUrl from '@/assets/logo.png'
 
-const SERIF = "'DM Serif Display', Georgia, 'Times New Roman', serif"
-const SANS  = "'DM Sans', system-ui, sans-serif"
+const SANS      = "'DM Sans', system-ui, sans-serif"
+const LOGO_SANS = "'DM Sans', system-ui, sans-serif"
 
 const NAV_ITEMS = [
   { path: '/',            icon: Home,        label: 'Home'           },
@@ -74,9 +74,12 @@ export function Sidebar() {
           borderBottom: '1px solid var(--border)',
           flexShrink: 0,
         }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: SERIF, fontSize: 19, letterSpacing: '0.01em' }}>
-            <img src={logoUrl} alt="" style={{ width: 20, height: 22, flexShrink: 0, objectFit: 'contain' }} />
-            <span>Cric<span style={{ color: 'var(--accent)' }}>Sim</span></span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <img src={logoUrl} alt="" style={{ width: 29, height: 32, flexShrink: 0, objectFit: 'contain' }} />
+            <span style={{ fontFamily: LOGO_SANS, fontSize: 15, fontWeight: 800, letterSpacing: 0, lineHeight: 1.05 }}>
+              <div style={{ color: 'var(--text)' }}>Cric</div>
+              <div style={{ color: 'var(--accent)' }}>Simulator</div>
+            </span>
           </span>
           <button
             onClick={closeSidebar}
