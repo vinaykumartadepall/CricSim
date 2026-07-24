@@ -101,6 +101,20 @@ def _make_cache_strategy() -> _CacheStrategy:
     return strategy_cls()
 
 
+# Several methods below (get_tournament_distribution, get_wicket_keepers,
+# get_batter_phase_distribution, ...) fall back to a live query against
+# history.deliveries when their precomputed table has no row for the
+# requested key - safe in local dev, where deliveries exists, but production
+# was deliberately built without that table (CLAUDE.md rule 1 - 11.2M rows,
+# never needed at simulation runtime). Gated at the single choke point every
+# query passes through (_run_query) rather than at each of the ~40 call
+# sites, so it also covers any such method added later without needing to
+# remember to gate it individually. Off by default - flip
+# ALLOW_DELIVERIES_FALLBACK=true only in an environment where
+# history.deliveries actually exists and the live fallback is wanted.
+_ALLOW_DELIVERIES_FALLBACK = os.getenv('ALLOW_DELIVERIES_FALLBACK', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 # Process-level cache: keyed by ('pos', fmt, stat_type) or ('pcs_venue', fmt, venue_id)
 _PRECOMPUTED_CACHE: _CacheStrategy = _make_cache_strategy()
 
@@ -171,6 +185,7 @@ def _fine_grained_phase(over_1indexed: int, match_format: str) -> str:
 
 try:
     from db.database import get_db_connection
+    import psycopg2
     HAS_DB = True
 except ImportError:
     HAS_DB = False
@@ -265,26 +280,51 @@ class StatsRepository:
     def _run_query(self, query: str, params: tuple = ()) -> List[tuple]:
         if not self.conn:
             return []
+        if not _ALLOW_DELIVERIES_FALLBACK and 'history.deliveries' in query:
+            get_logger().warning(
+                "Blocked history.deliveries fallback query (ALLOW_DELIVERIES_FALLBACK is off)"
+            )
+            return []
         with StatsRepository._query_lock:
-            try:
-                cur = self.conn.cursor()
-                # DEBUG, not TRACE - TRACE is dominated by extremely high-volume
-                # per-ball/per-over strategy dumps elsewhere in the codebase;
-                # DEBUG keeps query visibility usable without that noise, opt-in
-                # rather than cluttering the default (INFO) log output.
-                if is_level_active(logging.DEBUG):
+            for attempt in (1, 2):
+                try:
+                    cur = self.conn.cursor()
+                    # DEBUG, not TRACE - TRACE is dominated by extremely high-volume
+                    # per-ball/per-over strategy dumps elsewhere in the codebase;
+                    # DEBUG keeps query visibility usable without that noise, opt-in
+                    # rather than cluttering the default (INFO) log output.
+                    if is_level_active(logging.DEBUG):
+                        try:
+                            rendered = cur.mogrify(query, params).decode('utf-8', 'replace')
+                        except Exception:
+                            rendered = query
+                        get_logger().debug("SQL: %s", rendered)
+                    cur.execute(query, params)
+                    res = cur.fetchall()
+                    cur.close()
+                    return res
+                except (psycopg2.InterfaceError, psycopg2.OperationalError):
+                    # The shared singleton connection died (DB restart, network
+                    # blip, idle timeout, ...). Without this, every StatsRepository
+                    # query in the process silently returns [] forever after the
+                    # first drop - simulations keep "succeeding" while quietly
+                    # falling back to nameless placeholder players for everyone,
+                    # since callers here can't distinguish "no data" from "query
+                    # never ran". Reconnect once and retry before giving up.
+                    get_logger().warning("DB connection dead - reconnecting (attempt %d)", attempt)
+                    if attempt == 2 or not HAS_DB:
+                        get_logger().exception("DB reconnect failed - query dropped")
+                        return []
                     try:
-                        rendered = cur.mogrify(query, params).decode('utf-8', 'replace')
+                        StatsRepository._conn = get_db_connection(autocommit=True)
+                        self.conn = StatsRepository._conn
                     except Exception:
-                        rendered = query
-                    get_logger().debug("SQL: %s", rendered)
-                cur.execute(query, params)
-                res = cur.fetchall()
-                cur.close()
-                return res
-            except Exception:
-                get_logger().exception("DB query failed")
-                return []
+                        get_logger().exception("DB reconnect failed - query dropped")
+                        return []
+                except Exception:
+                    get_logger().exception("DB query failed")
+                    return []
+        return []
             
     def _parse_rows_to_probs(self, rows) -> Dict[Tuple[int, int, str, Optional[str]], float]:
         # Rows format expected: (runs_batter, runs_extras, outcome_type, outcome_kind, count)
