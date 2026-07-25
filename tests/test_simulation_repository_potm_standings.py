@@ -21,7 +21,12 @@ def _make_repo():
 class TestSaveMatchPotm:
     def test_writes_player_id_name_team_points(self):
         repo = _make_repo()
-        potm = SimpleNamespace(player_id=42, player_name="Virat Kohli", team="RCB", total=87.456)
+        # match_score (not total) is what gets persisted - it's what
+        # MatchAwards.potm() actually selected this player by, and may
+        # differ from total when a strategy applies a match-local bonus
+        # (e.g. StatisticalAwardsStrategy's winning-team multiplier).
+        potm = SimpleNamespace(player_id=42, player_name="Virat Kohli", team="RCB",
+                                total=87.456, match_score=109.32)
 
         repo.save_match_potm(123, potm)
 
@@ -31,7 +36,7 @@ class TestSaveMatchPotm:
         assert "potm_player_name" in query
         assert "potm_team_name" in query
         assert "potm_points" in query
-        assert params == (42, "Virat Kohli", "RCB", 87.46, 123)  # points rounded to 2dp
+        assert params == (42, "Virat Kohli", "RCB", 109.32, 123)  # match_score rounded to 2dp, not total
 
     def test_none_potm_is_a_noop(self):
         repo = _make_repo()

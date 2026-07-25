@@ -30,6 +30,19 @@ def _played(awards_list) -> MatchAwards:
     return ma
 
 
+# ── PlayerAward.match_score ─────────────────────────────────────────────────────
+
+class TestPlayerAwardMatchScore:
+    def test_defaults_to_total_when_not_set(self):
+        a = PlayerAward(1, "Alice", total=50.0)
+        assert a.match_score == pytest.approx(50.0)
+
+    def test_can_be_set_independently_of_total(self):
+        a = PlayerAward(1, "Alice", total=50.0, match_score=62.5)
+        assert a.total == pytest.approx(50.0)
+        assert a.match_score == pytest.approx(62.5)
+
+
 # ── MatchAwards ─────────────────────────────────────────────────────────────────
 
 class TestMatchAwardsPotm:
@@ -57,6 +70,19 @@ class TestMatchAwardsPotm:
         awards.record_from_match(match=object())
         ranked = awards.all_sorted()
         assert [a.player_id for a in ranked] == [2, 3, 1]
+
+    def test_potm_selects_by_match_score_not_total(self):
+        # Bob has the higher raw total, but Alice's match_score (a
+        # match-local bonus a strategy applied, e.g. a winning-team
+        # multiplier) overtakes it - POTM must follow match_score.
+        strategy = _FixedStrategy([
+            PlayerAward(1, "Alice", team="A", total=50.0, match_score=90.0),
+            PlayerAward(2, "Bob", team="B", total=80.0),  # match_score defaults to total
+        ])
+        awards = MatchAwards(strategy=strategy)
+        awards.record_from_match(match=object())
+        assert awards.potm().player_id == 1
+        assert [a.player_id for a in awards.all_sorted()] == [1, 2]
 
     def test_record_from_match_replaces_previous_results(self):
         awards = MatchAwards(strategy=_FixedStrategy([PlayerAward(1, "Alice", total=10.0)]))
@@ -95,6 +121,18 @@ class TestTournamentAwardsAccumulation:
         ta.add_match(_played([PlayerAward(1, "Alice", team="", total=10.0)]))
         ta.add_match(_played([PlayerAward(1, "Alice", team="A", total=5.0)]))
         assert ta._totals[1].team == "A"
+
+    def test_accumulation_ignores_match_score_a_potm_only_bonus_never_leaks_into_the_tournament_total(self):
+        ta = TournamentAwards()
+        ta.add_match(_played([
+            PlayerAward(1, "Alice", team="A", total=30.0, match_score=37.5),  # e.g. winner-boosted for POTM
+            PlayerAward(2, "Bob", team="B", total=60.0),  # lost this match, no boost
+        ]))
+        # Tournament total must reflect only the true, unmultiplied totals -
+        # Bob still leads the tournament sum despite losing this one match.
+        assert ta._totals[1].total == pytest.approx(30.0)
+        assert ta._totals[2].total == pytest.approx(60.0)
+        assert ta.pott().player_id == 2
 
     def test_pott_returns_highest_cumulative(self):
         ta = TournamentAwards()

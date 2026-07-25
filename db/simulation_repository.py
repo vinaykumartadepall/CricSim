@@ -384,6 +384,13 @@ class SimulationRepository:
         MvpStrategy MatchAwards was constructed with. Called once per match,
         both for standalone matches (run_match_job) and tournament matches
         (_PersistingTournamentEngine._on_fixture_complete).
+
+        Persists match_score, not total - match_score is what MatchAwards
+        actually selected this player by (may include a match-local bonus
+        like the default strategy's winning-team multiplier); total is the
+        unmultiplied score that separately feeds the Player of the
+        Tournament / MVP leaderboard via TournamentAwards and must not be
+        touched here.
         """
         if potm is None:
             return
@@ -396,7 +403,7 @@ class SimulationRepository:
                    potm_points        = %s
             WHERE  match_id = %s
             """,
-            (potm.player_id, potm.player_name, potm.team, round(potm.total, 2), match_id),
+            (potm.player_id, potm.player_name, potm.team, round(potm.match_score, 2), match_id),
         )
 
     # ── simulation.tournaments ─────────────────────────────────────────────────

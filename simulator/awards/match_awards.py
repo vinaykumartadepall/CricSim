@@ -3,10 +3,13 @@ Match/tournament awards orchestration - strategy-agnostic.
 
 MatchAwards delegates all actual scoring to an injected MvpStrategy (see
 mvp_strategy.py); it just runs the strategy once per match and exposes the
-result (who's POTM, everyone ranked). TournamentAwards accumulates those
-results across a tournament's matches for POTT, by summing .total and
-merging .breakdown dicts generically - it never assumes any particular set
-of category names, so it works unchanged for any MvpStrategy.
+result (who's POTM, everyone ranked - by .match_score, not .total, see
+PlayerAward). TournamentAwards accumulates those results across a
+tournament's matches for POTT, by summing .total (deliberately not
+.match_score - any match-local POTM bonus a strategy applies must never
+leak into the tournament-wide total) and merging .breakdown dicts
+generically - it never assumes any particular set of category names, so it
+works unchanged for any MvpStrategy.
 """
 
 from __future__ import annotations
@@ -32,13 +35,19 @@ class MatchAwards:
         self._results = {a.player_id: a for a in self._strategy.compute(match)}
 
     def potm(self) -> Optional[PlayerAward]:
-        """Return the player with the highest total, or None if empty."""
+        """Return the player with the highest match_score, or None if empty.
+
+        match_score, not total - see PlayerAward.match_score. For the
+        default strategy this is total with a winning-team multiplier
+        applied; other strategies that don't set match_score fall back to
+        total via PlayerAward.__post_init__.
+        """
         if not self._results:
             return None
-        return max(self._results.values(), key=lambda a: a.total)
+        return max(self._results.values(), key=lambda a: a.match_score)
 
     def all_sorted(self) -> List[PlayerAward]:
-        return sorted(self._results.values(), key=lambda a: a.total, reverse=True)
+        return sorted(self._results.values(), key=lambda a: a.match_score, reverse=True)
 
 
 class TournamentAwards:

@@ -72,6 +72,13 @@ class MvpPointsRules:
 class StatisticalAwardsStrategy(MvpStrategy):
     """The default MVP rubric - a fixed, per-format point table."""
 
+    # Player of the Match only (see PlayerAward.match_score) - a winning-team
+    # player's match_score is boosted by this factor before POTM is picked.
+    # total (which feeds Player of the Tournament / the MVP leaderboard via
+    # TournamentAwards) never sees this - it stays the player's true,
+    # unmultiplied score across every match, win or lose.
+    WINNER_MULTIPLIER: float = 1.25
+
     _RULES: Dict[str, MvpPointsRules] = {
         'T20': MvpPointsRules(
             run=1, boundary_bonus=1, six_bonus=2,
@@ -182,20 +189,29 @@ class StatisticalAwardsStrategy(MvpStrategy):
                     if t and not t.team:
                         t.team = bow_name
 
-        return [
-            PlayerAward(
+        # None for a tie/no-result - nobody's team "won", so nobody gets the
+        # POTM multiplier for this match. Same winner the points table/NRR/
+        # standings already treat as authoritative, including after a super
+        # over resolves a tie.
+        winner = match.result.winner if getattr(match, 'result', None) else None
+
+        awards = []
+        for t in tallies.values():
+            total = t.batting_pts + t.bowling_pts + t.fielding_pts
+            match_score = total * self.WINNER_MULTIPLIER if t.team == winner else total
+            awards.append(PlayerAward(
                 player_id=t.player_id,
                 player_name=t.player_name,
                 team=t.team,
-                total=t.batting_pts + t.bowling_pts + t.fielding_pts,
+                total=total,
                 breakdown={
                     'batting_pts': t.batting_pts,
                     'bowling_pts': t.bowling_pts,
                     'fielding_pts': t.fielding_pts,
                 },
-            )
-            for t in tallies.values()
-        ]
+                match_score=match_score,
+            ))
+        return awards
 
 
 @dataclass

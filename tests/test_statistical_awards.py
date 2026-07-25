@@ -80,10 +80,11 @@ def _inning(deliveries, batting_ips=None, bowling_ips=None, inning_number=1):
     return inn
 
 
-def _match(innings, match_format="T20"):
+def _match(innings, match_format="T20", winner=None):
     m = MagicMock()
     m.innings       = innings
     m.match_format  = match_format
+    m.result        = MagicMock(winner=winner)
     return m
 
 
@@ -332,6 +333,98 @@ def test_compute_picks_highest_scorer_first_via_matchawards_potm():
     )
     best = max(results, key=lambda a: a.total)
     assert best.player_id == 1  # 60 runs (+ 50-milestone) outscores one wicket
+
+
+# ── Winning-team multiplier (Player of the Match only) ─────────────────────────
+
+class TestWinnerMultiplier:
+    def test_winning_team_player_gets_boosted_match_score(self):
+        bat = _player(1, "Batter")
+        bow = _player(2, "Bowler")
+        deliveries = [_delivery(bat, bow, runs_batter=4)]
+        bat_ip = MagicMock(); bat_ip.id = 1; bat_ip.is_out = False; bat_ip.balls_faced = 1
+        bow_ip = MagicMock(); bow_ip.id = 2; bow_ip.is_out = False; bow_ip.balls_faced = 0
+
+        results = StatisticalAwardsStrategy().compute(
+            _match([_inning(deliveries, [bat_ip], [bow_ip])], winner="TeamA")
+        )
+
+        batter_award = next(a for a in results if a.player_id == 1)
+        assert batter_award.team == "TeamA"
+        assert batter_award.match_score == pytest.approx(
+            batter_award.total * StatisticalAwardsStrategy.WINNER_MULTIPLIER
+        )
+
+    def test_losing_team_player_match_score_equals_total(self):
+        bat = _player(1, "Batter")
+        bow = _player(2, "Bowler")
+        deliveries = [_delivery(bat, bow, runs_batter=4)]
+        bat_ip = MagicMock(); bat_ip.id = 1; bat_ip.is_out = False; bat_ip.balls_faced = 1
+        bow_ip = MagicMock(); bow_ip.id = 2; bow_ip.is_out = False; bow_ip.balls_faced = 0
+
+        results = StatisticalAwardsStrategy().compute(
+            _match([_inning(deliveries, [bat_ip], [bow_ip])], winner="TeamB")
+        )
+
+        batter_award = next(a for a in results if a.player_id == 1)
+        assert batter_award.team == "TeamA"
+        assert batter_award.match_score == pytest.approx(batter_award.total)
+
+    def test_tie_or_no_result_applies_no_multiplier_to_anyone(self):
+        bat = _player(1, "Batter")
+        bow = _player(2, "Bowler")
+        deliveries = [_delivery(bat, bow, runs_batter=4)]
+        bat_ip = MagicMock(); bat_ip.id = 1; bat_ip.is_out = False; bat_ip.balls_faced = 1
+        bow_ip = MagicMock(); bow_ip.id = 2; bow_ip.is_out = False; bow_ip.balls_faced = 0
+
+        results = StatisticalAwardsStrategy().compute(
+            _match([_inning(deliveries, [bat_ip], [bow_ip])], winner=None)
+        )
+
+        for a in results:
+            assert a.match_score == pytest.approx(a.total)
+
+    def test_multiplier_never_touches_total_which_feeds_the_tournament_leaderboard(self):
+        bat = _player(1, "Batter")
+        bow = _player(2, "Bowler")
+        deliveries = [_delivery(bat, bow, runs_batter=4)]
+        bat_ip = MagicMock(); bat_ip.id = 1; bat_ip.is_out = False; bat_ip.balls_faced = 1
+        bow_ip = MagicMock(); bow_ip.id = 2; bow_ip.is_out = False; bow_ip.balls_faced = 0
+
+        results = StatisticalAwardsStrategy().compute(
+            _match([_inning(deliveries, [bat_ip], [bow_ip])], winner="TeamA")
+        )
+
+        batter_award = next(a for a in results if a.player_id == 1)
+        expected_total = 4 * T20.run + T20.boundary_bonus
+        assert batter_award.total == pytest.approx(expected_total)  # unmultiplied
+        assert batter_award.total == pytest.approx(batter_award.breakdown['batting_pts'])
+
+    def test_winner_multiplier_can_flip_potm_versus_a_bigger_losing_side_total(self):
+        # The bowler (TeamB) has a lower raw total than the batter (TeamA),
+        # but TeamB wins the match - the boost should let the bowler's
+        # match_score overtake the batter's unboosted total, flipping POTM.
+        bat = _player(1, "Batter")
+        bow = _player(2, "Bowler")
+
+        # 7 fours = 28 runs + 7 boundary bonuses = 35 pts (stays under the
+        # 30-run milestone threshold, keeping the numbers simple).
+        deliveries = [_delivery(bat, bow, over=o, runs_batter=4) for o in range(7)]
+        deliveries.append(_delivery(bat, bow, over=7, is_wicket=True, wicket_kind="bowled"))  # 33 pts
+
+        bat_ip = MagicMock(); bat_ip.id = 1; bat_ip.is_out = True; bat_ip.balls_faced = 7
+        bow_ip = MagicMock(); bow_ip.id = 2; bow_ip.is_out = False; bow_ip.balls_faced = 8
+
+        match = _match([_inning(deliveries, [bat_ip], [bow_ip])], winner="TeamB")
+        results = StatisticalAwardsStrategy().compute(match)
+        by_id = {a.player_id: a for a in results}
+
+        assert by_id[1].total == pytest.approx(35.0)
+        assert by_id[2].total == pytest.approx(33.0)
+        assert by_id[1].total > by_id[2].total  # batter genuinely outscored on raw total
+        assert by_id[2].match_score == pytest.approx(33.0 * StatisticalAwardsStrategy.WINNER_MULTIPLIER)
+        assert by_id[2].match_score > by_id[1].match_score  # but the winner boost flips POTM
+        assert max(results, key=lambda a: a.match_score).player_id == 2
 
 
 def test_mdm_format_resolves_to_test_rules():
