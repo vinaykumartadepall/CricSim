@@ -73,9 +73,9 @@ class TestLeaderboardsEnabledSetting:
     def teardown_method(self):
         get_admin_settings().leaderboards_enabled = self._original
 
-    def test_defaults_to_false(self, monkeypatch):
+    def test_defaults_to_true(self, monkeypatch):
         monkeypatch.delenv("LEADERBOARDS_ENABLED", raising=False)
-        assert AdminSettings().leaderboards_enabled is False
+        assert AdminSettings().leaderboards_enabled is True
 
     def test_set_leaderboards_enabled_false(self):
         set_leaderboards_enabled(False)
@@ -99,9 +99,9 @@ class TestLeaderboardsEnabledEnvDefault:
             monkeypatch.setenv("LEADERBOARDS_ENABLED", value)
             assert AdminSettings().leaderboards_enabled is False
 
-    def test_falls_back_to_false_when_unset(self, monkeypatch):
+    def test_falls_back_to_true_when_unset(self, monkeypatch):
         monkeypatch.delenv("LEADERBOARDS_ENABLED", raising=False)
-        assert AdminSettings().leaderboards_enabled is False
+        assert AdminSettings().leaderboards_enabled is True
 
 
 class TestAdminSettingsEnvDefaults:

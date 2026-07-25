@@ -44,12 +44,12 @@ class AdminSettings:
         "DEFAULT_BOWLING_STRATEGY", BowlingStrategyFactory.available_names(), "historical"
     ))
     # Feature flag for the global challenge leaderboard (api/routes/sim_history.py's
-    # /leaderboard and /my-ranks) - defaults OFF (opt-in) on an unconfigured
-    # server, so a fresh restart/redeploy never silently re-exposes it; an
-    # admin must explicitly enable it via the admin UI, or LEADERBOARDS_ENABLED=true
-    # can be set in the environment to start enabled.
+    # /leaderboard and /my-ranks) - defaults ON on an unconfigured server; an
+    # admin can still disable it via the admin UI, or LEADERBOARDS_ENABLED=false
+    # can be set in the environment to start disabled (e.g. as an emergency
+    # kill switch).
     leaderboards_enabled: bool = field(default_factory=lambda: _env_bool_default(
-        "LEADERBOARDS_ENABLED", False
+        "LEADERBOARDS_ENABLED", True
     ))
 
 
