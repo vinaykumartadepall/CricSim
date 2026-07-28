@@ -438,6 +438,17 @@ export interface RoomMember {
   connected: boolean
 }
 
+// Advanced Settings' venue override - "specific" pins the pool to exact venue
+// names, "country" pools every venue across one or more countries (a
+// different random venue per match). Undefined/omitted means today's
+// curated per-format list.
+export interface VenueConfig {
+  mode: 'specific' | 'country'
+  venues?: string[]
+  country_ids?: number[]
+  country_names?: string[]
+}
+
 export interface RoomState {
   room_id: string
   host_id?: string
@@ -445,6 +456,10 @@ export interface RoomState {
   tournament_name: string
   player_count: number
   match_format: string
+  is_public: boolean
+  schedule_type: 'round_robin' | 'double_round_robin' | null
+  playoff_format: 'semis_final' | 'ipl' | null
+  venue_config: VenueConfig | null
   status: 'waiting' | 'drafting' | 'reordering' | 'simulating' | 'completed'
   current_picker: string | null
   picks_made: number
@@ -460,6 +475,25 @@ export interface CreateRoomBody {
   tournament_name: string
   player_count: number
   match_format: string
+  is_public?: boolean
+  schedule_type?: 'round_robin' | 'double_round_robin'
+  playoff_format?: 'semis_final' | 'ipl'
+  venue_config?: VenueConfig
+}
+
+// A venue search result (GET /multiplayer/venues/search).
+export interface VenueSearchResult {
+  name: string
+  city: string | null
+  country: string | null
+  matches: number
+}
+
+// A country with at least one venue (GET /multiplayer/countries).
+export interface VenueCountry {
+  country_id: number
+  name: string
+  venue_count: number
 }
 
 export interface JoinRoomBody {
@@ -471,6 +505,20 @@ export interface JoinRoomBody {
 export interface RoomResponse extends RoomState {
   room_id: string
   tournament_name: string
+}
+
+// A row in the public rooms browse list (GET /multiplayer/rooms/public) -
+// deliberately not the full RoomState/member list, just enough to render a
+// browse card and decide whether/how to join.
+export interface PublicRoomSummary {
+  room_id: string
+  tournament_name: string
+  mode: '1v1' | 'tournament'
+  match_format: string
+  player_count: number
+  members_joined: number
+  spots_remaining: number
+  host_name: string
 }
 
 export interface AdminSettings {

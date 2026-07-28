@@ -1,4 +1,4 @@
-import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, ChallengeLeaderboardResponse, MyTeamRankItem, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse, LeaderboardsEnabledResponse, AdminSimListResponse, AdminTournamentSummary, AdminTournamentDetail, AdminPlayer, Country, Commentary } from '@/types'
+import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, ChallengeLeaderboardResponse, MyTeamRankItem, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, PublicRoomSummary, VenueSearchResult, VenueCountry, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse, LeaderboardsEnabledResponse, AdminSimListResponse, AdminTournamentSummary, AdminTournamentDetail, AdminPlayer, Country, Commentary } from '@/types'
 import { supabase } from '@/lib/supabase'
 
 const BASE = '/cricsimapi'
@@ -244,6 +244,19 @@ export const api = {
 
   getRoom: (roomId: string) =>
     get<RoomState>(`/multiplayer/rooms/${roomId}`),
+
+  searchMultiplayerVenues: (q: string, limit = 10) =>
+    get<VenueSearchResult[]>(`/multiplayer/venues/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+
+  getMultiplayerCountries: () =>
+    get<VenueCountry[]>('/multiplayer/countries'),
+
+  getPublicRooms: (filters: { mode?: string[]; matchFormat?: string[] } = {}) => {
+    const params = new URLSearchParams()
+    filters.mode?.forEach(m => params.append('mode', m))
+    filters.matchFormat?.forEach(f => params.append('match_format', f))
+    return get<PublicRoomSummary[]>(`/multiplayer/rooms/public?${params.toString()}`)
+  },
 
   // ── Admin endpoints (ops-only page, not linked from main nav) ───────────────
   // Require a Supabase JWT belonging to a user in the backend's ADMIN_USER_IDS.

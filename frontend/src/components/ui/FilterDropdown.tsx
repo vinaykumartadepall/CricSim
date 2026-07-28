@@ -99,7 +99,7 @@ export function FilterDropdown({
         <span className="truncate">{triggerText}</span>
         <ChevronDown
           size={12}
-          style={{ color: values.length > 0 ? 'var(--accent)' : 'var(--text-dim)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}
+          style={{ color: values.length > 0 ? 'var(--accent)' : 'var(--text-muted)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}
         />
       </button>
 

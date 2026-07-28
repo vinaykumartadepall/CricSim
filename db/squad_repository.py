@@ -22,6 +22,14 @@ _VALID_SCHEDULE_TYPES = {"round_robin", "double_round_robin", "two_group_hybrid"
 # Everything simulator/tournament/scheduler.py::generate_playoffs handles.
 _VALID_PLAYOFF_FORMATS = {"none", "two_teams", "semis_final", "ipl", "quarters_semis_final"}
 
+# Country-mode venue pool: cap per country so a nation with dozens of
+# rarely-used grounds doesn't dilute the pool with equally-likely obscure
+# picks - see venues_for_countries.
+_TOP_VENUES_PER_COUNTRY = 8
+# Playoff/final marquee pool: real tournaments concentrate knockouts at a
+# handful of grounds regardless of bracket size - see top_venues_by_matches.
+_PLAYOFF_VENUE_POOL_SIZE = 3
+
 
 class SquadRepository:
     def __init__(self):
@@ -240,6 +248,77 @@ class SquadRepository:
             (f"%{q}%", f"%{q}%", limit),
         )
         return [dict(r) for r in self.cur.fetchall()]
+
+    def list_venue_countries(self) -> list[dict[str, Any]]:
+        """Countries that have at least one venue in history.venues - for the
+        multiplayer Advanced Settings "country" venue-pool picker. Only
+        countries with a venue to actually pick from are worth listing.
+        Most-stadiums-first so the countries someone's actually likely to
+        want are at the top of the (searchable) list."""
+        self.cur.execute(
+            """
+            SELECT c.country_id, c.name, COUNT(v.venue_id) AS venue_count
+            FROM history.countries c
+            JOIN history.venues v ON v.country_id = c.country_id
+            GROUP BY c.country_id, c.name
+            ORDER BY venue_count DESC, c.name
+            """
+        )
+        return [dict(r) for r in self.cur.fetchall()]
+
+    def _venues_with_match_counts(self, where_sql: str, params: tuple) -> list[dict[str, Any]]:
+        """Shared 'how popular is this venue' signal - live-joins
+        history.matches (the small per-match table, NOT the forbidden
+        11.2M-row history.deliveries) for a per-venue match count. Callers
+        vary only the WHERE filter and how they group/limit the result
+        afterward - see venues_for_countries and top_venues_by_matches."""
+        self.cur.execute(
+            f"""
+            SELECT v.venue_id, v.name, v.city, v.country_id, COUNT(m.match_id) AS matches
+            FROM history.venues v
+            LEFT JOIN history.matches m ON m.venue_id = v.venue_id
+            WHERE {where_sql}
+            GROUP BY v.venue_id, v.name, v.city, v.country_id
+            ORDER BY COUNT(m.match_id) DESC, v.name
+            """,
+            params,
+        )
+        return [dict(r) for r in self.cur.fetchall()]
+
+    def venues_for_countries(self, country_ids: list[int], top_n: int = _TOP_VENUES_PER_COUNTRY) -> list[dict[str, Any]]:
+        """The most-played venues (top `top_n` per country, by live match
+        count) across one or more countries - the pool a multiplayer room's
+        "country" venue-config mode cycles/randomizes across. Capped per
+        country so a nation with dozens of rarely-used grounds doesn't
+        dilute the pool with equally-likely obscure picks; a country with
+        fewer than top_n venues simply keeps all of them (mirrors the shape
+        of api/multiplayer/venues.py::venues_for_format's [{"name": ...}]
+        list so both sources are interchangeable downstream)."""
+        if not country_ids:
+            return []
+        rows = self._venues_with_match_counts("v.country_id = ANY(%s)", (country_ids,))
+        kept: list[dict[str, Any]] = []
+        seen: dict[Any, int] = {}
+        for r in rows:
+            cid = r["country_id"]
+            if seen.get(cid, 0) < top_n:
+                kept.append({"name": r["name"]})
+                seen[cid] = seen.get(cid, 0) + 1
+        return kept
+
+    def top_venues_by_matches(self, venue_names: list[str], limit: int = _PLAYOFF_VENUE_POOL_SIZE) -> list[str]:
+        """Given a candidate venue-name pool (whatever a room's group-stage
+        matches are already drawing from - default curated list, specific
+        hand-picked venues, or a country pool), return just the `limit` most
+        historically significant by live match count - the marquee subset
+        multiplayer playoff/final matches draw from instead of the full
+        group-stage pool. Fewer input venues than `limit` returns all of
+        them unchanged; venues absent from history.venues are silently
+        excluded (matches resolve_venue's existing silent-no-op elsewhere)."""
+        if not venue_names:
+            return []
+        rows = self._venues_with_match_counts("v.name = ANY(%s)", (venue_names,))
+        return [r["name"] for r in rows[:limit]]
 
     # ── Write ──────────────────────────────────────────────────────────────────
 

@@ -65,6 +65,12 @@ class RoomState:
     player_count: int
     match_format: str = 'T20'           # 'T20' | 'ODI' | 'Test'
     status: str = 'waiting'             # waiting | drafting | reordering | simulating | completed
+    is_public: bool = False             # visible/joinable from the public rooms browse list
+    # Advanced Settings, all None = today's existing default behavior unchanged.
+    schedule_type: Optional[str] = None   # 'round_robin' | 'double_round_robin' | None (-> double_round_robin)
+    playoff_format: Optional[str] = None  # 'semis_final' | 'ipl' | None (-> ipl if >=4 teams else none)
+    # {'mode': 'specific', 'venues': [...]} | {'mode': 'country', 'country_id': int, 'country_name': str} | None (-> curated per-format list)
+    venue_config: Optional[dict] = None
     members: Dict[str, Member] = field(default_factory=dict)   # client_id → Member
     pick_sequence: List[str] = field(default_factory=list)     # client_ids in pick order
     current_pick_idx: int = 0
@@ -95,6 +101,14 @@ class RoomState:
     def picks_made(self) -> int:
         return sum(len(m.squad) for m in self.members.values())
 
+    @property
+    def spots_remaining(self) -> int:
+        return self.player_count - len(self.members)
+
+    @property
+    def is_full(self) -> bool:
+        return self.spots_remaining <= 0
+
     def draft_complete(self) -> bool:
         return all(len(m.squad) == SQUAD_SIZE for m in self.members.values())
 
@@ -106,6 +120,10 @@ class RoomState:
             "tournament_name": self.tournament_name,
             "player_count": self.player_count,
             "match_format": self.match_format,
+            "is_public": self.is_public,
+            "schedule_type": self.schedule_type,
+            "playoff_format": self.playoff_format,
+            "venue_config": self.venue_config,
             "status": self.status,
             "ready_members": list(self.ready_members),
             "current_picker": self.current_picker_id,
@@ -136,7 +154,9 @@ class DraftManager:
 
     def create_room(self, host_id: str, display_name: str, mode: str,
                     tournament_name: str, player_count: int,
-                    match_format: str = 'T20') -> RoomState:
+                    match_format: str = 'T20', is_public: bool = False,
+                    schedule_type: Optional[str] = None, playoff_format: Optional[str] = None,
+                    venue_config: Optional[dict] = None) -> RoomState:
         room_id = self._unique_code()
         room = RoomState(
             room_id=room_id,
@@ -145,6 +165,10 @@ class DraftManager:
             tournament_name=tournament_name,
             player_count=player_count,
             match_format=match_format,
+            is_public=is_public,
+            schedule_type=schedule_type,
+            playoff_format=playoff_format,
+            venue_config=venue_config,
         )
         host = Member(client_id=host_id, display_name=display_name)
         room.members[host_id] = host
@@ -160,7 +184,7 @@ class DraftManager:
             raise ValueError("Room not found")
         if room.status != 'waiting':
             raise ValueError("Draft has already started")
-        if len(room.members) >= room.player_count:
+        if room.is_full:
             raise ValueError("Room is full")
         if client_id not in room.members:
             room.members[client_id] = Member(

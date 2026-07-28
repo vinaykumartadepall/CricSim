@@ -112,6 +112,10 @@ class TournamentConfig:
     teams: List[TeamConfig]
     schedule: Union[ScheduleConfig, List[Fixture]]  # auto or explicit
     playoffs: PlayoffConfig
+    # Marquee subset of venue_names playoff/final fixtures draw from instead
+    # of the full pool (see TournamentEngine._fallback_venue_pool). Empty by
+    # default - falls back to venue_names, today's exact behavior.
+    playoff_venue_names: List[str] = field(default_factory=list)
     outcome_strategy: str = "enhanced"
     bowling_strategy: str = "historical"
     era_normalize_contexts: List[str] = field(default_factory=lambda: list(ERA_NORMALIZE_ALL))
@@ -184,6 +188,7 @@ def parse_tournament_config(raw: dict) -> TournamentConfig:
         teams=teams,
         schedule=schedule,
         playoffs=playoffs,
+        playoff_venue_names=raw.get("playoff_venues", []),
         outcome_strategy=raw.get("outcome_strategy", "enhanced"),
         bowling_strategy=raw.get("bowling_strategy", "historical"),
         era_normalize_contexts=raw.get("era_normalize_contexts", ERA_NORMALIZE_ALL),

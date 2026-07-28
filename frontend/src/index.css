@@ -224,6 +224,10 @@ input[type="search"]::-webkit-search-decoration {
 }
 .input:focus { border-color: var(--accent); }
 .input::placeholder { color: var(--text-dim); }
+/* Brighter placeholder variant - for search-style inputs sitting next to a
+   FilterDropdown/SingleSelectDropdown trigger, so both read at the same
+   visibility instead of the default dim placeholder disappearing next to them. */
+.input-placeholder-muted::placeholder { color: var(--text-muted); }
 
 .select {
   background: var(--surface-2);

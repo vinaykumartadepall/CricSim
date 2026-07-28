@@ -125,3 +125,14 @@ class TestBuildTournamentConfig:
         assert isinstance(cfg.schedule, ScheduleConfig)
         assert cfg.schedule.type == "round_robin"
         assert cfg.playoffs.format == "none"
+        assert cfg.playoff_venue_names == []
+
+    def test_playoff_venues_round_trip(self):
+        raw = _seeded_style_config()
+        raw["playoff_venues"] = ["Wankhede Stadium"]
+        cfg = _build_tournament_config(raw)
+        assert cfg.playoff_venue_names == ["Wankhede Stadium"]
+
+    def test_playoff_venues_absent_defaults_to_empty_list(self):
+        cfg = _build_tournament_config(_seeded_style_config())
+        assert cfg.playoff_venue_names == []

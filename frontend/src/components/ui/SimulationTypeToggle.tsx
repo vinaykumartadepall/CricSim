@@ -7,7 +7,7 @@ import { Zap, Crown } from 'lucide-react'
 export function SimulationTypeToggle() {
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-dim)' }}>
+      <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
         Simulation Type
       </label>
       <div className="grid grid-cols-2 gap-2.5">

@@ -3,17 +3,19 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import Callable, List, Optional
+from typing import Callable, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 import json as _json
+import psycopg2.extras
 
 from api.job_queue import job_queue
 from api.multiplayer.venues import venues_for_format
 from api.multiplayer.manager import HOST_RECONNECT_GRACE_S, SQUAD_SIZE, RoomState, draft_manager, _snake_sequence
 from db.database import db_cursor
+from db.squad_repository import SquadRepository
 from simulator.logger import get_logger
 
 router = APIRouter(prefix="/cricsimapi/multiplayer", tags=["multiplayer"])
@@ -133,7 +135,38 @@ def player_filter_options():
     }
 
 
+# ── Advanced Settings: venue/country pickers ────────────────────────────────────
+# Public (unauthenticated) counterparts of the admin-only /admin/data/venues
+# search - same underlying query (SquadRepository.search_history_venues),
+# just reachable from the create-room flow rather than gated behind an admin
+# JWT. Used by the "specific venues" / "country" venue-config modes.
+
+@router.get("/venues/search")
+def search_multiplayer_venues(q: str = "", limit: int = Query(10, le=50)):
+    repo = SquadRepository()
+    try:
+        return repo.search_history_venues(q=q, limit=limit)
+    finally:
+        repo.close()
+
+
+@router.get("/countries")
+def list_multiplayer_venue_countries():
+    repo = SquadRepository()
+    try:
+        return repo.list_venue_countries()
+    finally:
+        repo.close()
+
+
 # ── room create/join ───────────────────────────────────────────────────────────
+
+class VenueConfigRequest(BaseModel):
+    mode: Literal["specific", "country"]
+    venues: Optional[List[str]] = None
+    country_ids: Optional[List[int]] = None
+    country_names: Optional[List[str]] = None
+
 
 class CreateRoomRequest(BaseModel):
     client_id: str
@@ -142,6 +175,11 @@ class CreateRoomRequest(BaseModel):
     tournament_name: str = Field("", max_length=64)
     player_count: int = Field(2, ge=2, le=10)
     match_format: str = Field("T20", pattern="^(T20|ODI|Test)$")
+    is_public: bool = False
+    # Advanced Settings - all optional, None means today's existing default behavior.
+    schedule_type: Optional[str] = Field(None, pattern="^(round_robin|double_round_robin)$")
+    playoff_format: Optional[str] = Field(None, pattern="^(semis_final|ipl)$")
+    venue_config: Optional[VenueConfigRequest] = None
 
 
 class JoinRoomRequest(BaseModel):
@@ -164,6 +202,10 @@ def create_room(body: CreateRoomRequest):
         tournament_name=name,
         player_count=body.player_count,
         match_format=body.match_format,
+        is_public=body.is_public,
+        schedule_type=body.schedule_type,
+        playoff_format=body.playoff_format,
+        venue_config=body.venue_config.model_dump() if body.venue_config else None,
     )
     _persist_room(room)
     return {"room_id": room.room_id, "tournament_name": room.tournament_name, **room.to_dict()}
@@ -183,6 +225,50 @@ def join_room(room_id: str, body: JoinRoomRequest):
     # and a restore-from-DB must not resurrect the duplicate.
     _persist_member(room.room_id, body.client_id, room.members[body.client_id].display_name)
     return room.to_dict()
+
+
+class PublicRoomSummary(BaseModel):
+    room_id: str
+    tournament_name: str
+    mode: str
+    match_format: str
+    player_count: int
+    members_joined: int
+    spots_remaining: int
+    host_name: str
+
+
+@router.get("/rooms/public", response_model=List[PublicRoomSummary])
+def list_public_rooms(
+    mode: Optional[List[str]] = Query(None),
+    match_format: Optional[List[str]] = Query(None),
+):
+    """
+    Currently-joinable public rooms, sorted by fewest spots remaining first.
+    Reads directly from draft_manager._rooms (in-memory) rather than the DB -
+    the same source of truth get_room/the idle reaper already use, and this
+    deploys single-worker so it's authoritative without a DB round trip.
+    """
+    rooms = [
+        r for r in draft_manager._rooms.values()
+        if r.is_public and r.status == 'waiting' and not r.is_full
+        and (not mode or r.mode in mode)
+        and (not match_format or r.match_format in match_format)
+    ]
+    rooms.sort(key=lambda r: r.spots_remaining)
+    return [
+        PublicRoomSummary(
+            room_id=r.room_id,
+            tournament_name=r.tournament_name,
+            mode=r.mode,
+            match_format=r.match_format,
+            player_count=r.player_count,
+            members_joined=len(r.members),
+            spots_remaining=r.spots_remaining,
+            host_name=r.members[r.host_id].display_name,
+        )
+        for r in rooms
+    ]
 
 
 @router.get("/rooms/{room_id}")
@@ -508,6 +594,35 @@ async def _start_simulation(room: RoomState):
         await draft_manager.broadcast(room, {"type": "error", "data": {"message": f"Simulation failed: {e}"}})
 
 
+def _resolve_venue_pool(room: RoomState, fmt: str) -> list:
+    """The candidate venue list a room's match(es) draw from - []-shaped like
+    api/multiplayer/venues.py::venues_for_format's [{"name": ...}, ...], so
+    every existing consumer (1v1's random.choice, tournament's fixture-cycled
+    venues list) keeps working unchanged regardless of which source this
+    returns from. Advanced Settings' venue_config picks the source:
+      - None (default, untouched)             -> today's curated per-format list
+      - {"mode": "specific", "venues": [...]}  -> exactly those venue names
+      - {"mode": "country", "country_ids": [...]} -> every venue across those countries
+    A specific/country pick that somehow resolves to an empty list falls back
+    to the curated default rather than leaving a room with no venue at all.
+    """
+    cfg = room.venue_config
+    if not cfg:
+        return venues_for_format(fmt)
+    if cfg.get("mode") == "specific":
+        names = cfg.get("venues") or []
+        pool = [{"name": n} for n in names]
+    elif cfg.get("mode") == "country":
+        repo = SquadRepository()
+        try:
+            pool = repo.venues_for_countries(cfg.get("country_ids") or [])
+        finally:
+            repo.close()
+    else:
+        pool = []
+    return pool or venues_for_format(fmt)
+
+
 def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> tuple:
     """Build a tournament/match config and kick off the simulation synchronously."""
     from api.worker import run_tournament_job, run_match_job
@@ -537,7 +652,7 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
     repo = SimulationRepository()
     try:
         fmt = room.match_format
-        venues = venues_for_format(fmt)
+        venues = _resolve_venue_pool(room, fmt)
         if room.mode == "1v1":
             import random
             home, away = members[0], members[1]
@@ -583,7 +698,19 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
         else:
             teams = [_team_cfg(m) for m in members]
             n_teams = len(teams)
-            playoffs_fmt = "ipl" if n_teams >= 4 else "none"
+            # Room settings win when set (Advanced Settings); otherwise the
+            # same defaults this always used.
+            schedule_type = room.schedule_type or "double_round_robin"
+            playoffs_fmt = room.playoff_format or ("ipl" if n_teams >= 4 else "none")
+            # Marquee subset of `venues` playoff/final fixtures draw from
+            # instead of the full group-stage pool (real tournaments
+            # concentrate knockouts at a handful of grounds) - applies
+            # regardless of which venue mode resolved `venues` above.
+            venue_repo = SquadRepository()
+            try:
+                playoff_venues = venue_repo.top_venues_by_matches([v["name"] for v in venues])
+            finally:
+                venue_repo.close()
             config = {
                 "simulation_type": "tournament",
                 "tournament_name": room.tournament_name,
@@ -598,7 +725,11 @@ def _run_simulation(room: RoomState, on_sim_created: Callable[[str], None]) -> t
                 "gender": "male",
                 "teams": teams,
                 "venues": venues,
-                "schedule": {"type": "double_round_robin", "matches_per_pair": 2},
+                "playoff_venues": playoff_venues,
+                "schedule": {
+                    "type": schedule_type,
+                    "matches_per_pair": 2 if schedule_type == "double_round_robin" else 1,
+                },
                 "playoffs": {"format": playoffs_fmt, "top_n": 4},
                 # outcome_strategy/bowling_strategy intentionally omitted - worker.py's
                 # _build_tournament_config falls back to the current admin-configured
@@ -741,16 +872,22 @@ def _restore_room_from_db(room_id: str) -> "RoomState | None":
     from api.multiplayer.manager import Member, RoomState as RS
     with db_cursor() as cur:
         cur.execute(
-            "SELECT host_id, mode, status, tournament_name, player_count, match_format "
+            "SELECT host_id, mode, status, tournament_name, player_count, match_format, is_public, "
+            "       schedule_type, playoff_format, venue_config "
             "FROM simulation.rooms WHERE room_id = %s",
             (room_id.upper(),),
         )
         row = cur.fetchone()
         if not row:
             return None
-        host_id, mode, status, tournament_name, player_count, match_format = row
+        (host_id, mode, status, tournament_name, player_count, match_format, is_public,
+         schedule_type, playoff_format, venue_config_raw) = row
         if status not in ("waiting", "drafting", "reordering"):
             return None
+        venue_config = (
+            venue_config_raw if isinstance(venue_config_raw, dict)
+            else (_json.loads(venue_config_raw) if venue_config_raw else None)
+        )
 
         cur.execute(
             "SELECT client_id, display_name, draft_order, squad "
@@ -767,6 +904,10 @@ def _restore_room_from_db(room_id: str) -> "RoomState | None":
             player_count=player_count,
             match_format=match_format or "T20",
             status=status,
+            is_public=is_public,
+            schedule_type=schedule_type,
+            playoff_format=playoff_format,
+            venue_config=venue_config,
         )
         for cid, dname, draft_order, squad_raw in members_rows:
             squad = squad_raw if isinstance(squad_raw, list) else (_json.loads(squad_raw) if squad_raw else [])
@@ -793,9 +934,12 @@ def _restore_room_from_db(room_id: str) -> "RoomState | None":
 def _persist_room(room: RoomState) -> None:
     with db_cursor() as cur:
         cur.execute(
-            """INSERT INTO simulation.rooms (room_id, host_id, mode, status, tournament_name, player_count, match_format)
-               VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING""",
-            (room.room_id, room.host_id, room.mode, room.status, room.tournament_name, room.player_count, room.match_format),
+            """INSERT INTO simulation.rooms (room_id, host_id, mode, status, tournament_name, player_count, match_format, is_public,
+                                              schedule_type, playoff_format, venue_config)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING""",
+            (room.room_id, room.host_id, room.mode, room.status, room.tournament_name, room.player_count, room.match_format, room.is_public,
+             room.schedule_type, room.playoff_format,
+             psycopg2.extras.Json(room.venue_config) if room.venue_config is not None else None),
         )
         cur.execute(
             """INSERT INTO simulation.room_members (room_id, client_id, display_name, squad)

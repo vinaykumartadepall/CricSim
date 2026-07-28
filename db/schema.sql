@@ -509,6 +509,10 @@ CREATE TABLE IF NOT EXISTS simulation.rooms (
     tournament_name TEXT       NOT NULL,
     player_count   SMALLINT    NOT NULL DEFAULT 2,
     match_format   TEXT        NOT NULL DEFAULT 'T20' CHECK (match_format IN ('T20','ODI','Test')),
+    is_public      BOOLEAN     NOT NULL DEFAULT FALSE,
+    schedule_type  TEXT        CHECK (schedule_type IS NULL OR schedule_type IN ('round_robin','double_round_robin')),
+    playoff_format TEXT        CHECK (playoff_format IS NULL OR playoff_format IN ('semis_final','ipl')),
+    venue_config   JSONB,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_rooms_status ON simulation.rooms(status);

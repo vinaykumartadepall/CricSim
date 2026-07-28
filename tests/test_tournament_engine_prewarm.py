@@ -25,7 +25,7 @@ from simulator.tournament.config import (
 from simulator.tournament.engine import TournamentEngine
 
 
-def _make_config(venues, teams_with_home_venues=()):
+def _make_config(venues, teams_with_home_venues=(), playoff_venue_names=()):
     teams = [
         TeamConfig(name=f"Team {i}", short_name=f"T{i}", players=[], home_venue=hv)
         for i, hv in enumerate(teams_with_home_venues or [None, None, None, None])
@@ -39,6 +39,7 @@ def _make_config(venues, teams_with_home_venues=()):
         teams=teams,
         schedule=ScheduleConfig(type="round_robin"),
         playoffs=PlayoffConfig(format="none"),
+        playoff_venue_names=list(playoff_venue_names),
     )
 
 
@@ -118,6 +119,17 @@ class TestPrewarmVenuePriming:
             engine._prewarm_strategies()
 
         assert engine._bowling_strat.init_model.call_count == 1
+
+    def test_includes_playoff_venue_names_not_just_configured_venues(self):
+        config = _make_config(venues=["Wankhede Stadium"], playoff_venue_names=["Melbourne Cricket Ground"])
+        engine = _make_engine(config)
+
+        with patch.object(engine_mod, "resolve_venue",
+                           _fake_resolve_venue({"Wankhede Stadium": 42, "Melbourne Cricket Ground": 13})):
+            engine._prewarm_strategies()
+
+        venue_ids_seen = {v for v in engine.outcome_venue_ids_seen if v is not None}
+        assert venue_ids_seen == {42, 13}
 
     def test_deduplicates_venue_appearing_as_both_configured_and_home(self):
         config = _make_config(venues=["Wankhede Stadium"], teams_with_home_venues=["Wankhede Stadium", None, None, None])

@@ -230,3 +230,46 @@ class TestJoinRoomNameDedup:
 
         assert room.members["p1"].display_name == "Vinay (2)"
         assert len(room.members) == 2
+
+
+class TestRoomVisibility:
+    """Public/private rooms - is_public defaults off (private), and the
+    spots_remaining/is_full properties (used by both join_room's existing
+    full-room check and the public rooms browse endpoint) stay consistent."""
+
+    def test_create_room_defaults_to_private(self):
+        manager = DraftManager()
+        room = manager.create_room(
+            host_id="host", display_name="Host", mode="1v1",
+            tournament_name="Test Cup", player_count=2,
+        )
+        assert room.is_public is False
+
+    def test_create_room_can_opt_into_public(self):
+        manager = DraftManager()
+        room = manager.create_room(
+            host_id="host", display_name="Host", mode="1v1",
+            tournament_name="Test Cup", player_count=2, is_public=True,
+        )
+        assert room.is_public is True
+
+    def test_spots_remaining_and_is_full(self):
+        room = _make_room(num_members=2, mode="1v1")  # player_count=2, 2 members already
+        assert room.spots_remaining == 0
+        assert room.is_full is True
+
+        room = _make_room(num_members=1, mode="tournament")
+        room.player_count = 4  # 1 member, room for 4
+        assert room.spots_remaining == 3
+        assert room.is_full is False
+
+    def test_join_room_still_rejects_full_room_via_is_full(self):
+        manager = DraftManager()
+        room = manager.create_room(
+            host_id="host", display_name="Host", mode="1v1",
+            tournament_name="Test Cup", player_count=2,
+        )
+        manager.join_room(room.room_id, "p1", "Player 1")  # fills the room (host + p1)
+
+        with pytest.raises(ValueError, match="Room is full"):
+            manager.join_room(room.room_id, "p2", "Player 2")

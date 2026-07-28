@@ -163,9 +163,10 @@ class TournamentEngine:
         ]
 
         venue_name = fixture.venue
-        if not venue_name and self._config.venue_names:
+        pool = self._fallback_venue_pool(stage)
+        if not venue_name and pool:
             import random
-            venue_name = random.choice(self._config.venue_names)
+            venue_name = random.choice(pool)
         venue = resolve_venue(self._repo, venue_name) if venue_name else None
 
         match = SimulationMatch(
@@ -278,6 +279,17 @@ class TournamentEngine:
                 results[fixture.match_label] = winner
 
         return results.get("Final")
+
+    def _fallback_venue_pool(self, stage: str) -> List[str]:
+        """Pool to draw from when a fixture has no venue already assigned.
+        Playoffs prefer the marquee subset when configured (real tournaments
+        concentrate knockouts at a handful of grounds); empty
+        playoff_venue_names or group stage falls back to the full pool
+        unchanged - old/seeded configs with no playoff_venues key behave
+        exactly as before this existed."""
+        if stage == "playoff" and self._config.playoff_venue_names:
+            return self._config.playoff_venue_names
+        return self._config.venue_names
 
     def _home_venue(self, team_name: str) -> Optional[str]:
         """Return the configured home venue name for a team, or None."""
@@ -480,7 +492,7 @@ class TournamentEngine:
         self._bowling_strat.init_model(warm_match)
 
         cfg = self._config
-        venue_names = set(cfg.venue_names) | {t.home_venue for t in cfg.teams if t.home_venue}
+        venue_names = set(cfg.venue_names) | {t.home_venue for t in cfg.teams if t.home_venue} | set(cfg.playoff_venue_names)
         primed = 0
         for name in venue_names:
             venue = resolve_venue(self._repo, name)

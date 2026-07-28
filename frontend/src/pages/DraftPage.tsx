@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Copy, Check, ArrowUp, ArrowDown, Search, Zap, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Copy, Check, ArrowUp, ArrowDown, Search, Zap, AlertTriangle, CheckCircle2, Settings } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
@@ -10,7 +10,9 @@ import { ShareButton } from '@/components/ui/ShareButton'
 import { FormatBadge } from '@/components/ui/FormatBadge'
 import { RoleBadge } from '@/components/ui/RoleBadge'
 import { Headshot } from '@/components/ui/Avatar'
+import { Modal } from '@/components/ui/Modal'
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
+import { scheduleLabel, playoffLabel, venueConfigSummary } from '@/lib/advancedRoomSettings'
 import type { MultiplayerPlayer, PlayerFilterOptions, RoomState } from '@/types'
 
 const DRAFT_HELP_KEY = '/multiplayer/draft'
@@ -487,6 +489,29 @@ function PickPanel({
   )
 }
 
+// ── Room settings popup (read-only) ─────────────────────────────────────────────
+
+function RoomSettingsModal({ room, onClose }: { room: FullRoomState; onClose: () => void }) {
+  const isTournament = room.mode === 'tournament'
+  const rows: { label: string; value: string }[] = []
+  if (isTournament) {
+    rows.push({ label: 'Schedule', value: scheduleLabel(room.schedule_type) })
+    rows.push({ label: 'Playoff Format', value: playoffLabel(room.playoff_format) })
+  }
+  rows.push({ label: 'Venues', value: venueConfigSummary(room.venue_config) })
+
+  return (
+    <Modal title="Room Settings" onClose={onClose}>
+      {rows.map(r => (
+        <div key={r.label} className="flex flex-col gap-1">
+          <div className="text-xs font-medium" style={{ color: 'var(--accent-dim)' }}>{r.label}</div>
+          <div className="text-sm" style={{ color: 'var(--text)' }}>{r.value}</div>
+        </div>
+      ))}
+    </Modal>
+  )
+}
+
 // ── Waiting room ──────────────────────────────────────────────────────────────
 
 function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady, onReady, onKick, onLeave }: {
@@ -503,6 +528,7 @@ function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady,
   const canStart    = hasMinPlayers && allReady
   const allJoined   = room.members.length >= room.player_count
   const needed      = minToStart - room.members.length
+  const [showSettings, setShowSettings] = useState(false)
 
   return (
     <div className="flex flex-col items-center px-6 pt-12 pb-8">
@@ -510,10 +536,22 @@ function WaitingRoom({ room, clientId, onStart, starting, readyMembers, myReady,
         <div className="text-center mb-8">
           <div className="text-xs font-medium tracking-widest uppercase mb-2" style={{ color: 'var(--accent)' }}>Waiting Room</div>
           <h2 className="text-2xl font-bold mb-1" style={{ color: 'var(--text)' }}>{room.tournament_name}</h2>
-          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+          <p className="text-sm mb-2" style={{ color: 'var(--text-muted)' }}>
             {isTournament ? 'Tournament' : '1 vs 1 Match'} · <FormatBadge format={room.match_format ?? 'T20'} /> · {room.members.length}/{room.player_count} joined
           </p>
+          <button
+            type="button"
+            onClick={() => setShowSettings(true)}
+            className="inline-flex items-center gap-1 text-xs mx-auto transition-colors"
+            style={{ color: 'var(--accent)' }}
+            onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--accent-dim)'}
+            onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--accent)'}
+          >
+            <Settings size={12} /> Room settings
+          </button>
         </div>
+
+        {showSettings && <RoomSettingsModal room={room} onClose={() => setShowSettings(false)} />}
 
         <div className="card p-4 mb-4">
           <div className="text-xs mb-2" style={{ color: 'var(--text-dim)' }}>Room Code</div>
