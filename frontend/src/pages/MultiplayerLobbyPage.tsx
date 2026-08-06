@@ -546,10 +546,10 @@ function PublicRoomsSection({ onJoin }: { onJoin: (roomId: string) => void }) {
       <div className="flex items-center justify-between gap-2 mb-4">
         <div className="text-sm font-semibold flex-shrink-0" style={{ color: 'var(--text)' }}>Public Rooms</div>
         <div className="flex items-center gap-1.5">
-          <div className="w-24">
+          <div className="w-27">
             <FilterDropdown placeholder="All formats" values={matchFormat} options={FORMAT_OPTIONS} onChange={setMatchFormat} />
           </div>
-          <div className="w-24">
+          <div className="w-27">
             <FilterDropdown placeholder="All modes" values={mode} options={MODE_OPTIONS} onChange={setMode} />
           </div>
           <button
