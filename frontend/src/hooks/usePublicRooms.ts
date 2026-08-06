@@ -10,6 +10,7 @@ const POLL_INTERVAL_MS = 10_000
 export function usePublicRooms(mode: string[], matchFormat: string[]) {
   const [rooms, setRooms] = useState<PublicRoomSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // mode/matchFormat are expected to be stable array references from the
@@ -31,5 +32,13 @@ export function usePublicRooms(mode: string[], matchFormat: string[]) {
     return () => { cancelled = true; clearInterval(interval) }
   }, [fetchRooms])
 
-  return { rooms, loading, error, refetch: () => fetchRooms(false) }
+  // Separate from `loading` (which only covers the initial/filter-change
+  // fetch) so a manual refresh click gets its own brief spin without
+  // flashing the full-section spinner over an already-rendered list.
+  function refetch() {
+    setRefreshing(true)
+    return fetchRooms(false).finally(() => setRefreshing(false))
+  }
+
+  return { rooms, loading, refreshing, error, refetch }
 }

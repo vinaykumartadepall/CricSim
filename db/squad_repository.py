@@ -293,18 +293,39 @@ class SquadRepository:
         dilute the pool with equally-likely obscure picks; a country with
         fewer than top_n venues simply keeps all of them (mirrors the shape
         of api/multiplayer/venues.py::venues_for_format's [{"name": ...}]
-        list so both sources are interchangeable downstream)."""
+        list so both sources are interchangeable downstream).
+
+        The result is interleaved round-robin across countries (country A's
+        most-played venue, country B's most-played venue, ..., then each
+        country's 2nd-most-played, ...) rather than concatenated in raw
+        match-count order. Group-stage fixtures cycle through this list
+        in order (simulator/tournament/scheduler.py::_pick_venue), so a
+        flat match-count sort would let a country with historically huge
+        match volumes (e.g. England, with well over a century of Test
+        cricket) fill every early cycle slot and starve newer/lower-volume
+        countries - even though their own top venues were kept in the pool,
+        a short tournament's cycling would never reach them. Interleaving
+        guarantees every selected country gets an early, roughly even
+        share of matches regardless of its historical volume."""
         if not country_ids:
             return []
         rows = self._venues_with_match_counts("v.country_id = ANY(%s)", (country_ids,))
-        kept: list[dict[str, Any]] = []
-        seen: dict[Any, int] = {}
+        per_country: dict[Any, list[str]] = {}
         for r in rows:
-            cid = r["country_id"]
-            if seen.get(cid, 0) < top_n:
-                kept.append({"name": r["name"]})
-                seen[cid] = seen.get(cid, 0) + 1
-        return kept
+            bucket = per_country.setdefault(r["country_id"], [])
+            if len(bucket) < top_n:
+                bucket.append(r["name"])
+
+        ordered_country_ids = list(dict.fromkeys(country_ids))  # de-dup, preserve caller's selection order
+        interleaved: list[dict[str, Any]] = []
+        idx = 0
+        while any(idx < len(per_country.get(cid, [])) for cid in ordered_country_ids):
+            for cid in ordered_country_ids:
+                bucket = per_country.get(cid, [])
+                if idx < len(bucket):
+                    interleaved.append({"name": bucket[idx]})
+            idx += 1
+        return interleaved
 
     def top_venues_by_matches(self, venue_names: list[str], limit: int = _PLAYOFF_VENUE_POOL_SIZE) -> list[str]:
         """Given a candidate venue-name pool (whatever a room's group-stage

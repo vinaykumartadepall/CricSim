@@ -727,6 +727,7 @@ export function DraftPage() {
   const [pickPanelOpen, setPickPanelOpen] = useState(false)
   const autoOpenedForPickRef            = useRef(-1)
   const [pickNotif, setPickNotif]       = useState<PickNotif | null>(null)
+  const [showDraftSettings, setShowDraftSettings] = useState(false)
 
   // Reorder phase state
   const [reorderTimer, setReorderTimer] = useState(60)
@@ -1162,34 +1163,48 @@ export function DraftPage() {
           </div>
         )}
 
-        {/* Sticky header */}
-        <div className="flex-shrink-0 px-4 py-3 flex items-center justify-between"
-          style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-          <div>
-            <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{room.tournament_name}</div>
-            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+        {/* Sticky header - grid, not flex, so each column has a fixed track
+            width. With flex+justify-between the timer's screen position
+            depended on the picker-name text width next to it (shifting left/
+            right as the current picker changed); a grid keeps the timer
+            column's position constant regardless of what text sits in the
+            columns either side of it. */}
+        <div className="flex-shrink-0 px-4 py-3 grid items-center"
+          style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)', gridTemplateColumns: '1fr auto minmax(0, 180px)', columnGap: 8 }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>{room.tournament_name}</div>
+            <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
               Pick {room.picks_made}/{room.total_picks} · {room.mode === '1v1' ? '1v1' : 'Tournament'} · <FormatBadge format={room.match_format ?? 'T20'} />
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          {/* Always occupies the middle grid column (even when empty) so the
+              text stack never slides into the timer's slot. */}
+          <div>{(isMyTurn || currentPickerMember) && <TimerRing seconds={timer} size={44} />}</div>
+          <div className="flex flex-col items-end gap-1" style={{ minWidth: 0 }}>
             {isMyTurn ? (
-              <div className="flex items-center gap-2">
-                <TimerRing seconds={timer} size={40} />
-                <span className="text-xs px-2 py-1 rounded-full font-semibold"
-                  style={{ background: 'var(--accent-tint)', color: 'var(--accent)' }}>
-                  Your pick!
-                </span>
-              </div>
+              <span className="text-xs px-2 py-1 rounded-full font-semibold"
+                style={{ background: 'var(--accent-tint)', color: 'var(--accent)' }}>
+                Your pick!
+              </span>
             ) : currentPickerMember ? (
-              <div className="flex items-center gap-1.5">
-                <TimerRing seconds={timer} size={36} />
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  {currentPickerMember.display_name} picking
-                </span>
-              </div>
+              <span className="text-xs truncate max-w-full" style={{ color: 'var(--text-muted)' }}>
+                {currentPickerMember.display_name} picking
+              </span>
             ) : null}
+            <button
+              type="button"
+              onClick={() => setShowDraftSettings(true)}
+              className="inline-flex items-center gap-1 text-xs transition-colors"
+              style={{ color: 'var(--accent)' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--accent-dim)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--accent)'}
+            >
+              <Settings size={11} /> Room settings
+            </button>
           </div>
         </div>
+
+        {showDraftSettings && <RoomSettingsModal room={room} onClose={() => setShowDraftSettings(false)} />}
 
         {/* Team chips */}
         <TeamChips room={room} clientId={clientId} viewingId={viewingId} onSelect={setViewingId} />

@@ -562,6 +562,9 @@ export function FunModePage() {
                         <div className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{team.team_name}</div>
                         {best ? (
                           <div className="flex items-center gap-1.5 mt-1">
+                            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                              Best:
+                            </span>
                             <PlacementBadge placement={best.best_placement} />
                             <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
                               {best.swap_count} trade{best.swap_count !== 1 ? 's' : ''}

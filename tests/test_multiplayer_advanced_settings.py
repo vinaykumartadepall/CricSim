@@ -420,7 +420,9 @@ class TestSquadRepositoryVenueCountryMethods:
         # Rows already come back ordered `matches DESC, name` (the fake
         # cursor just returns them as given, mirroring the live query's
         # ORDER BY) - country 7 has 3 venues but top_n=2 keeps only the
-        # 2 most-played; country 9's single venue is unaffected.
+        # 2 most-played; country 9's single venue is unaffected. Result is
+        # interleaved round-robin (7's #1, 9's #1, 7's #2, 9's #2-absent),
+        # not the raw match-count order the rows arrived in.
         rows = [
             {"name": "Wankhede Stadium", "country_id": 7, "matches": 150},
             {"name": "Eden Gardens", "country_id": 7, "matches": 120},
@@ -432,8 +434,8 @@ class TestSquadRepositoryVenueCountryMethods:
         result = repo.venues_for_countries([7, 9], top_n=2)
         assert result == [
             {"name": "Wankhede Stadium"},
-            {"name": "Eden Gardens"},
             {"name": "Only Ground"},
+            {"name": "Eden Gardens"},
         ]
 
     def test_venues_for_countries_keeps_all_when_under_top_n(self):
@@ -445,6 +447,36 @@ class TestSquadRepositoryVenueCountryMethods:
         repo.cur = _SquadFakeCursor(rows)
         result = repo.venues_for_countries([3], top_n=8)
         assert result == [{"name": "Only Ground A"}, {"name": "Only Ground B"}]
+
+    def test_venues_for_countries_interleaves_instead_of_favoring_high_volume_country(self):
+        # Regression test for the reported bug: selecting India + UK + Australia
+        # sent 12/16 matches to the UK because a flat match-count sort put every
+        # UK venue (much higher historical match volume) ahead of every India/
+        # Australia venue, and the group-stage cycler (venues[i % len(venues)])
+        # never got far enough into the list to reach them in a short tournament.
+        # Rows arrive globally sorted by matches DESC - UK's venues (thousands
+        # of Test matches over a century-plus) dominate the front of that order.
+        rows = [
+            {"name": "Lord's", "country_id": 2, "matches": 500},
+            {"name": "The Oval", "country_id": 2, "matches": 480},
+            {"name": "Old Trafford", "country_id": 2, "matches": 400},
+            {"name": "MCG", "country_id": 3, "matches": 300},
+            {"name": "SCG", "country_id": 3, "matches": 250},
+            {"name": "Wankhede Stadium", "country_id": 7, "matches": 150},
+            {"name": "Eden Gardens", "country_id": 7, "matches": 120},
+        ]
+        repo = SquadRepository.__new__(SquadRepository)
+        repo.cur = _SquadFakeCursor(rows)
+        result = repo.venues_for_countries([7, 2, 3], top_n=8)  # India, UK, Australia
+        # First 3 entries must already cover all 3 countries, not just the UK -
+        # a short tournament's venue-cycling only ever gets this far.
+        first_three_names = {v["name"] for v in result[:3]}
+        assert first_three_names == {"Wankhede Stadium", "Lord's", "MCG"}
+        assert result == [
+            {"name": "Wankhede Stadium"}, {"name": "Lord's"}, {"name": "MCG"},
+            {"name": "Eden Gardens"}, {"name": "The Oval"}, {"name": "SCG"},
+            {"name": "Old Trafford"},
+        ]
 
     def test_top_venues_by_matches_returns_top_k(self):
         rows = [

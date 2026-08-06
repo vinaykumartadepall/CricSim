@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Dice5, Users, Swords, Link, ChevronLeft, Crown, Globe, Lock, ChevronRight, Settings, X } from 'lucide-react'
+import { Dice5, Users, Swords, Link, ChevronLeft, Crown, Globe, Lock, ChevronRight, Settings, X, RotateCw } from 'lucide-react'
 import { api } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { SimulationTypeToggle } from '@/components/ui/SimulationTypeToggle'
@@ -304,13 +304,6 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
 
               {venueMode === 'country' && (
                 <div className="flex flex-col gap-2 mt-1">
-                  <FilterDropdown
-                    placeholder="Choose countries"
-                    searchable
-                    values={countryIds}
-                    options={countries.map(c => ({ value: String(c.country_id), label: `${c.name} (${c.venue_count})` }))}
-                    onChange={setCountryIds}
-                  />
                   {countryIds.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
                       {countries.filter(c => countryIds.includes(String(c.country_id))).map(c => (
@@ -332,6 +325,13 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
                       ))}
                     </div>
                   )}
+                  <FilterDropdown
+                    placeholder="Choose countries"
+                    searchable
+                    values={countryIds}
+                    options={countries.map(c => ({ value: String(c.country_id), label: `${c.name} (${c.venue_count})` }))}
+                    onChange={setCountryIds}
+                  />
                 </div>
               )}
             </div>
@@ -539,18 +539,27 @@ function RoomCard({ room, onJoin }: { room: PublicRoomSummary; onJoin: (roomId: 
 function PublicRoomsSection({ onJoin }: { onJoin: (roomId: string) => void }) {
   const [mode, setMode] = useState<string[]>([])
   const [matchFormat, setMatchFormat] = useState<string[]>([])
-  const { rooms, loading, error } = usePublicRooms(mode, matchFormat)
+  const { rooms, loading, refreshing, error, refetch } = usePublicRooms(mode, matchFormat)
 
   return (
     <div style={{ maxWidth: 560, margin: '0 auto', padding: '0 24px 64px' }}>
-      <div className="text-sm font-semibold mb-3" style={{ color: 'var(--text)' }}>Public Rooms</div>
-
-      <div className="flex gap-2 mb-4">
-        <div className="w-36">
-          <FilterDropdown placeholder="All formats" values={matchFormat} options={FORMAT_OPTIONS} onChange={setMatchFormat} />
-        </div>
-        <div className="w-36">
-          <FilterDropdown placeholder="All modes" values={mode} options={MODE_OPTIONS} onChange={setMode} />
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <div className="text-sm font-semibold flex-shrink-0" style={{ color: 'var(--text)' }}>Public Rooms</div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-24">
+            <FilterDropdown placeholder="All formats" values={matchFormat} options={FORMAT_OPTIONS} onChange={setMatchFormat} />
+          </div>
+          <div className="w-24">
+            <FilterDropdown placeholder="All modes" values={mode} options={MODE_OPTIONS} onChange={setMode} />
+          </div>
+          <button
+            onClick={() => refetch()}
+            disabled={loading || refreshing}
+            title="Refresh"
+            className="icon-btn"
+          >
+            <RotateCw size={13} className={refreshing ? 'spin' : ''} />
+          </button>
         </div>
       </div>
 
