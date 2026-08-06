@@ -1,9 +1,20 @@
 import { useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { X, Home, BarChart2, Clock, UserCircle } from 'lucide-react'
+import { X, Home, BarChart2, Clock, UserCircle, Mail } from 'lucide-react'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock'
 import logoUrl from '@/assets/logo.png'
+
+// lucide-react ships no X (formerly Twitter) brand mark - inlined from
+// Simple Icons rather than reusing lucide's `X` (a generic close-glyph,
+// already used elsewhere in this file for the drawer's close button).
+function XLogo({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  )
+}
 
 const SANS      = "'DM Sans', system-ui, sans-serif"
 const LOGO_SANS = "'DM Sans', system-ui, sans-serif"
@@ -108,22 +119,81 @@ export function Sidebar() {
           })}
         </nav>
 
-        {/* Attribution footer */}
-        <div style={{
-          marginTop: 'auto',
-          borderTop: '1px solid var(--border)',
-          padding: '10px 16px',
-          fontSize: 10, color: 'var(--text-dim)',
-          lineHeight: 1.6,
-          flexShrink: 0,
-        }}>
-          Match data from{' '}
-          <a href="https://cricsheet.org" target="_blank" rel="noopener noreferrer"
-            style={{ color: 'var(--text-dim)', textDecoration: 'underline' }}>
-            Cricsheet.org
-          </a>
-          <br />
-          Open Data Commons Attribution License
+        {/* Bottom-anchored: contact links, then attribution fine print */}
+        <div style={{ marginTop: 'auto', flexShrink: 0 }}>
+          {/* Contact */}
+          <div style={{
+            borderTop: '1px solid var(--border)',
+            padding: '12px 16px',
+          }}>
+            <div style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+              color: 'var(--text-dim)', marginBottom: 8,
+            }}>
+              Contact
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <a
+                href="mailto:tadepallivk1109@gmail.com"
+                title="Email"
+                aria-label="Email"
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 34, height: 34, borderRadius: 8,
+                  background: 'var(--surface-2)', border: '0.5px solid var(--border)',
+                  color: 'var(--text-muted)',
+                }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget as HTMLElement
+                  el.style.color = 'var(--accent)'; el.style.borderColor = 'var(--accent)'
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget as HTMLElement
+                  el.style.color = 'var(--text-muted)'; el.style.borderColor = 'var(--border)'
+                }}
+              >
+                <Mail size={17} />
+              </a>
+              <a
+                href="https://x.com/CricSimulator"
+                target="_blank" rel="noopener noreferrer"
+                title="X"
+                aria-label="X"
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 34, height: 34, borderRadius: 8,
+                  background: 'var(--surface-2)', border: '0.5px solid var(--border)',
+                  color: 'var(--text-muted)',
+                }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget as HTMLElement
+                  el.style.color = 'var(--accent)'; el.style.borderColor = 'var(--accent)'
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget as HTMLElement
+                  el.style.color = 'var(--text-muted)'; el.style.borderColor = 'var(--border)'
+                }}
+              >
+                <XLogo size={16} />
+              </a>
+            </div>
+          </div>
+
+          {/* Attribution footer */}
+          <div style={{
+            borderTop: '1px solid var(--border)',
+            padding: '10px 16px',
+            fontSize: 10, color: 'var(--text-dim)',
+            lineHeight: 1.6,
+          }}>
+            Match data from{' '}
+            <a href="https://cricsheet.org" target="_blank" rel="noopener noreferrer"
+              style={{ color: 'var(--text-dim)', textDecoration: 'underline' }}>
+              Cricsheet.org
+            </a>
+            <br />
+            Open Data Commons Attribution License
+          </div>
         </div>
       </div>
     </>
