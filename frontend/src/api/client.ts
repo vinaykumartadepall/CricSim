@@ -239,6 +239,9 @@ export const api = {
   createRoom: (body: CreateRoomBody) =>
     post<RoomResponse>('/multiplayer/rooms', body),
 
+  getActiveHostedRoomCount: (clientId: string) =>
+    get<{ count: number; limit: number }>(`/multiplayer/rooms/active-count?client_id=${encodeURIComponent(clientId)}`),
+
   joinRoom: (roomId: string, body: JoinRoomBody) =>
     post<RoomState>(`/multiplayer/rooms/${roomId}/join`, body),
 

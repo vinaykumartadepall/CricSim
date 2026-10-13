@@ -25,6 +25,25 @@ _KEEPER_ROLE = "Keeper"
 # reconnect, or a reset-to-waiting after a simulation) before the idle
 # reaper cleans it up - see _reap_idle_rooms_forever.
 ROOM_IDLE_TIMEOUT_S = int(os.getenv("ROOM_IDLE_TIMEOUT_S", str(30 * 60)))
+# Mirrors the single-player cap (api/routes/simulations.py's "max 2 concurrent
+# running simulations per client") - someone opening many multiplayer rooms
+# back to back has no other throttle, since the simulation itself is only
+# created later, server-side, with client_id=None.
+MAX_ACTIVE_HOSTED_ROOMS = 2
+
+
+def _active_hosted_room_count(client_id: str) -> int:
+    """How many rooms client_id currently hosts that aren't finished yet.
+    Reads draft_manager._rooms directly (in-memory) - same source of truth
+    list_public_rooms already uses, authoritative without a DB round trip
+    since this deploys single-worker. host_id (not "original creator") is
+    the right selector: it already reflects host-transfer-on-disconnect, so
+    a room that transferred away from this client no longer counts against
+    them, and one transferred to them does."""
+    return sum(
+        1 for r in draft_manager._rooms.values()
+        if r.host_id == client_id and r.status != 'completed'
+    )
 
 
 # ── player search ──────────────────────────────────────────────────────────────
@@ -187,12 +206,25 @@ class JoinRoomRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=32)
 
 
+@router.get("/rooms/active-count")
+def get_active_hosted_room_count(client_id: str = Query(...)):
+    """How many rooms client_id currently hosts (not yet 'completed'), plus
+    the cap - lets the frontend disable Create Room proactively instead of
+    only finding out via a 429 after filling in the whole form."""
+    return {"count": _active_hosted_room_count(client_id), "limit": MAX_ACTIVE_HOSTED_ROOMS}
+
+
 @router.post("/rooms")
 def create_room(body: CreateRoomRequest):
     if body.mode == "1v1" and body.player_count != 2:
         raise HTTPException(status_code=422, detail="1v1 mode requires exactly 2 players")
     if body.mode == "tournament" and body.player_count < 4:
         raise HTTPException(status_code=422, detail="Tournament mode requires at least 4 players")
+    if _active_hosted_room_count(body.client_id) >= MAX_ACTIVE_HOSTED_ROOMS:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many active rooms. Finish or leave an existing room before creating another.",
+        )
 
     name = body.tournament_name.strip() or _random_tournament_name()
     room = draft_manager.create_room(

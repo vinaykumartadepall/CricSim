@@ -586,7 +586,7 @@ function PublicRoomsSection({ onJoin }: { onJoin: (roomId: string) => void }) {
 
 export function MultiplayerLobbyPage() {
   const params = useParams<{ roomId?: string }>()
-  const { authReady } = useAuth()
+  const { authReady, clientId } = useAuth()
   const navigate = useNavigate()
 
   const [modal, setModal] = useState<'create' | 'join' | null>(null)
@@ -594,6 +594,17 @@ export function MultiplayerLobbyPage() {
   // /join/:roomId share-link route) - takes over as the join modal's
   // initialCode alongside params.roomId.
   const [joinCode, setJoinCode] = useState<string | undefined>(undefined)
+
+  // Active-hosted-room cap (backend enforces this for real on POST /rooms;
+  // this is just so Create Room can be disabled upfront instead of only
+  // failing with a 429 after the whole form is filled in).
+  const [roomCap, setRoomCap] = useState<{ count: number; limit: number } | null>(null)
+  const atRoomCap = !!roomCap && roomCap.count >= roomCap.limit
+
+  useEffect(() => {
+    if (!authReady) return
+    api.getActiveHostedRoomCount(clientId).then(setRoomCap).catch(() => setRoomCap(null))
+  }, [authReady, clientId, modal])
 
   // Auto-open Join modal only after auth has settled (so displayName is the real profile name)
   useEffect(() => {
@@ -636,11 +647,18 @@ export function MultiplayerLobbyPage() {
         {/* Two CTA buttons side by side */}
         <div className="flex gap-4">
           <button
-            onClick={() => setModal('create')}
+            onClick={() => !atRoomCap && setModal('create')}
+            disabled={atRoomCap}
+            title={atRoomCap ? 'Finish or leave an existing room before creating another' : undefined}
             className="flex items-center gap-2.5 px-7 py-3.5 rounded-xl font-semibold text-sm transition-all"
-            style={{ background: 'var(--accent)', color: 'var(--bg)', boxShadow: '0 4px 20px var(--accent-glow)' }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--accent-dim)'}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'var(--accent)'}
+            style={{
+              background: atRoomCap ? 'var(--surface-2)' : 'var(--accent)',
+              color: atRoomCap ? 'var(--text-dim)' : 'var(--bg)',
+              boxShadow: atRoomCap ? 'none' : '0 4px 20px var(--accent-glow)',
+              cursor: atRoomCap ? 'not-allowed' : 'pointer',
+            }}
+            onMouseEnter={e => { if (!atRoomCap) (e.currentTarget as HTMLElement).style.background = 'var(--accent-dim)' }}
+            onMouseLeave={e => { if (!atRoomCap) (e.currentTarget as HTMLElement).style.background = 'var(--accent)' }}
           >
             <Users size={16} />
             Create Room
@@ -664,6 +682,11 @@ export function MultiplayerLobbyPage() {
             Join Room
           </button>
         </div>
+        {atRoomCap && (
+          <div className="text-xs mt-3" style={{ color: 'var(--text-dim)' }}>
+            You already have {roomCap!.limit} active rooms — finish or leave one before creating another.
+          </div>
+        )}
       </div>
 
       {/* How-it-works strip */}
