@@ -410,7 +410,8 @@
       "country": "Australia",
       "aliases": [
         "Western Australia Cricket Association Ground, Perth",
-        "W.A.C.A. Ground"
+        "W.A.C.A. Ground",
+        "WACA, Perth"
       ]
     },
     {
@@ -745,7 +746,8 @@
       "city": "London",
       "country": "United Kingdom",
       "aliases": [
-        "Kennington Oval, London"
+        "Kennington Oval, London",
+        "The Oval"
       ]
     },
     {
@@ -794,7 +796,8 @@
       "country": "United Kingdom",
       "aliases": [
         "The Cooper Associates County Ground, Taunton",
-        "County Ground, Taunton"
+        "County Ground, Taunton",
+        "The County Ground, Taunton"
       ]
     },
     {
@@ -810,7 +813,8 @@
       "city": "Worcester",
       "country": "United Kingdom",
       "aliases": [
-        "County Ground, New Road, Worcester"
+        "County Ground, New Road, Worcester",
+        "New Road, Worcester"
       ]
     },
     {
@@ -879,7 +883,8 @@
       "city": "Centurion",
       "country": "South Africa",
       "aliases": [
-        "SuperSport Park, Centurion"
+        "SuperSport Park, Centurion",
+        "Centurion Park"
       ]
     },
     {
@@ -895,7 +900,8 @@
       "city": "East London",
       "country": "South Africa",
       "aliases": [
-        "Buffalo Park, East London"
+        "Buffalo Park, East London",
+        "Buffalo Park, KuGumpo City"
       ]
     },
     {
@@ -905,7 +911,8 @@
       "aliases": [
         "The Wanderers Stadium, Johannesburg",
         "New Wanderers Stadium",
-        "New Wanderers Stadium, Johannesburg"
+        "New Wanderers Stadium, Johannesburg",
+        "Wanderers Stadium, Johannesburg"
       ]
     },
     {
@@ -1332,14 +1339,6 @@
       ]
     },
     {
-      "canonical": "Malahide",
-      "city": "Dublin",
-      "country": "Ireland",
-      "aliases": [
-        "Malahide, Dublin"
-      ]
-    },
-    {
       "canonical": "Merrion Cricket Club Ground",
       "city": "Dublin",
       "country": "Ireland",
@@ -1368,7 +1367,10 @@
       "city": "Dublin",
       "country": "Ireland",
       "aliases": [
-        "The Village, Malahide, Dublin"
+        "The Village, Malahide, Dublin",
+        "Malahide",
+        "Malahide, Dublin",
+        "Malahide Cricket Ground, Dublin"
       ]
     },
     {
@@ -1582,6 +1584,47 @@
       "aliases": [
         "United Cricket Club Ground, Windhoek"
       ]
+    },
+    {
+      "canonical": "County Ground, Hove",
+      "city": "Brighton",
+      "country": "United Kingdom",
+      "aliases": [
+        "The County Ground, Hove"
+      ]
+    },
+    {
+      "canonical": "Gahanga International Cricket Stadium, Rwanda",
+      "city": "Kigali City",
+      "country": "Rwanda",
+      "aliases": [
+        "Gahanga International Cricket Stadium",
+        "Gahanga International Cricket Stadium. Rwanda"
+      ]
+    },
+    {
+      "canonical": "Korogi Sports Park, Nisshin",
+      "city": "Nisshin",
+      "country": "Japan",
+      "aliases": [
+        "Korogi Sports Park"
+      ]
+    },
+    {
+      "canonical": "Old Deer Park",
+      "city": "Richmond",
+      "country": "United Kingdom",
+      "aliases": [
+        "Old Deer Park, Richmond"
+      ]
+    },
+    {
+      "canonical": "New Williamfield No1 Oval",
+      "city": "Stirling",
+      "country": "United Kingdom",
+      "aliases": [
+        "New Williamfield No1 Oval, Stirling"
+      ]
     }
   ],
   "by_name_city": [
@@ -1737,6 +1780,10 @@
     {
       "name": "Chilaw Marians Cricket Club Ground",
       "country": "Sri Lanka"
+    },
+    {
+      "name": "Uplands College, White River",
+      "country": "South Africa"
     }
   ],
   "by_name_pattern": [

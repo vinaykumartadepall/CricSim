@@ -10,7 +10,10 @@ canonical_names.  For each group the script:
      if none exists, the one with the most history.matches references.
   3. Renames the winner to the canonical name / city if needed.
   4. Re-points all history.matches and simulation.matches to the winner.
-  5. Deletes the losing rows.
+  5. Deletes the losing rows' precomputed stats (player_context_stats,
+     venue_stats, bowler_order_stats) - derived data, rebuilt for the winner
+     by the next `python -m db.precompute` run.
+  6. Deletes the losing rows.
 
 Usage:
     python -m db.dedup_venues           # dry run (prints plan, no writes)
@@ -24,6 +27,15 @@ from typing import Optional
 
 from db.database import get_db_connection
 from db.venue_resolver import load_overrides, all_canonical_groups, invalidate_cache
+
+# Precomputed tables with an FK to history.venues. Their rows for a merged-away
+# venue can't be re-pointed (they'd collide with the winner's own rows), so they
+# are deleted and rebuilt by db/precompute.py.
+_DERIVED_VENUE_TABLES = (
+    "history.player_context_stats",
+    "history.venue_stats",
+    "history.bowler_order_stats",
+)
 
 
 def _find_venue_ids(cur, names: list[str]) -> list[tuple[int, str, Optional[str], int]]:
@@ -94,15 +106,23 @@ def run(commit: bool) -> None:
                 )
                 print(f"  renamed → '{canonical}' / city={canonical_city or winner_city}")
 
-            # Re-point history.matches references
             for lid, _, _, lcount in losers:
                 cur.execute(
                     "UPDATE history.matches SET venue_id = %s WHERE venue_id = %s",
                     (winner_id, lid),
                 )
+                cur.execute(
+                    "UPDATE simulation.matches SET venue_id = %s WHERE venue_id = %s",
+                    (winner_id, lid),
+                )
                 total_matches_repointed += lcount
 
-            # Delete losing venue rows (no FK references remain after re-pointing)
+            for table in _DERIVED_VENUE_TABLES:
+                cur.execute(f"DELETE FROM {table} WHERE venue_id = ANY(%s)", (loser_ids,))
+                if cur.rowcount:
+                    print(f"  cleared : {cur.rowcount} {table} rows (rebuilt by the next precompute)")
+
+            # Every FK to history.venues is now re-pointed or cleared.
             cur.execute(
                 "DELETE FROM history.venues WHERE venue_id = ANY(%s)",
                 (loser_ids,),
@@ -115,6 +135,8 @@ def run(commit: bool) -> None:
 
     if commit:
         print(f"\nDone. Merged {total_merged} duplicate rows; re-pointed {total_matches_repointed} matches.")
+        if total_merged:
+            print("Re-run `python -m db.precompute` so merged venues' stats are rebuilt.")
     else:
         print("\n[DRY RUN] No changes written. Re-run with --commit to apply.")
 
