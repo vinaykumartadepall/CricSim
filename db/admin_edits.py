@@ -1,8 +1,7 @@
 """
 Admin edit log: every admin-UI mutation is recorded in simulation.admin_edits
-so hand edits can be (a) audited, (b) replayed onto another database
-(prod <-> local sync), and (c) re-applied after seed_sim_configs.py overwrites
-the seeded configs.
+so hand edits can be (a) audited and (b) replayed onto another database
+(prod <-> local sync).
 
 record_edit() is called by the repositories inside the same transaction as the
 mutation itself. Replay/export logic lives in db/replay_admin_edits.py.

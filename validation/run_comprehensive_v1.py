@@ -145,12 +145,13 @@ def _wsample(items, weights, k, rng):
 def select_venues(repo, match_format, gender, n, rng, min_deliveries=2000):
     raw_fmts = repo._raw_formats(match_format)
     rows = repo._run_query("""
-        SELECT v.venue_id, v.name, v.country, COUNT(*) AS n
+        SELECT v.venue_id, v.name, vc.name, COUNT(*) AS n
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         JOIN history.venues   v ON m.venue_id  = v.venue_id
+        LEFT JOIN history.countries vc ON vc.country_id = v.country_id
         WHERE m.match_format = ANY(%s) AND m.gender = %s
-        GROUP BY v.venue_id, v.name, v.country
+        GROUP BY v.venue_id, v.name, vc.name
         HAVING COUNT(*) >= %s
         ORDER BY n DESC
     """, (raw_fmts, gender, min_deliveries))
@@ -363,9 +364,10 @@ def batch_build_matches(repo, all_match_ids, match_format, _w=print):
     # ── 1. Match metadata + venue ──────────────────────────────────────────────
     _w(f"  [Batch] Match metadata …")
     meta_rows = repo._run_query("""
-        SELECT m.match_id, m.venue_id, v.name, v.country, m.home_team_id, m.away_team_id
+        SELECT m.match_id, m.venue_id, v.name, vc.name, m.home_team_id, m.away_team_id
         FROM history.matches m
         JOIN history.venues v ON m.venue_id = v.venue_id
+        LEFT JOIN history.countries vc ON vc.country_id = v.country_id
         WHERE m.match_id = ANY(%s)
     """, (mid_list,))
     match_meta = {r[0]: r[1:] for r in meta_rows}

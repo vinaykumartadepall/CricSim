@@ -694,7 +694,7 @@
     {
       "canonical": "Forthill",
       "city": "Dundee",
-      "country": "United Kingdom",
+      "country": "Scotland",
       "aliases": [
         "Forthill, Dundee"
       ]
@@ -702,7 +702,7 @@
     {
       "canonical": "Goldenacre",
       "city": "Edinburgh",
-      "country": "United Kingdom",
+      "country": "Scotland",
       "aliases": [
         "Goldenacre, Edinburgh"
       ]
@@ -710,7 +710,7 @@
     {
       "canonical": "Grange Cricket Club Ground, Raeburn Place",
       "city": "Edinburgh",
-      "country": "United Kingdom",
+      "country": "Scotland",
       "aliases": [
         "Grange Cricket Club Ground, Raeburn Place, Edinburgh",
         "Grange Cricket Club, Raeburn Place"
@@ -1261,7 +1261,7 @@
     {
       "canonical": "Civil Service Cricket Club, Stormont",
       "city": "Belfast",
-      "country": "United Kingdom",
+      "country": "Ireland",
       "aliases": [
         "Civil Service Cricket Club, Stormont, Belfast"
       ]
@@ -1455,7 +1455,7 @@
     {
       "canonical": "Central Broward Regional Park Stadium Turf Ground",
       "city": "Lauderhill",
-      "country": "United States of America",
+      "country": "United States",
       "aliases": [
         "Central Broward Regional Park Stadium Turf Ground, Lauderhill"
       ]
@@ -1471,7 +1471,7 @@
     {
       "canonical": "Church Street Park",
       "city": "Morrisville",
-      "country": "United States of America",
+      "country": "United States",
       "aliases": [
         "Church Street Park, Morrisville"
       ]
@@ -1479,7 +1479,7 @@
     {
       "canonical": "Grand Prairie Stadium",
       "city": "Dallas",
-      "country": "United States of America",
+      "country": "United States",
       "aliases": [
         "Grand Prairie Stadium, Dallas"
       ]

@@ -143,8 +143,9 @@ def main():
 
     # ── Build match config ───────────────────────────────────────────────────
     meta = repo._run_query(
-        "SELECT m.venue_id, v.name, v.country, m.home_team_id, m.away_team_id "
+        "SELECT m.venue_id, v.name, vc.name, m.home_team_id, m.away_team_id "
         "FROM history.matches m JOIN history.venues v ON v.venue_id = m.venue_id "
+        "LEFT JOIN history.countries vc ON vc.country_id = v.country_id "
         "WHERE m.match_id = %s", (MATCH_ID,)
     )[0]
     vid, vname, vcountry, htid, atid = meta

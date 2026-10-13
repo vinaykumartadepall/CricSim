@@ -24,7 +24,7 @@ from typing import Optional
 from geopy.geocoders import Nominatim
 
 from db.database import get_db_connection
-from db.venue_resolver import load_overrides, resolve_final_country, invalidate_cache
+from db.venue_resolver import load_overrides, resolve_final_country, invalidate_cache, get_or_create_country_id
 
 _VENUE_NOISE = re.compile(
     r"\b(cricket|ground|stadium|oval|park|field|international|club|"
@@ -55,24 +55,6 @@ def _geocode(geolocator, query: str) -> Optional[str]:
             print(f"    [retry {attempt+1}/3 in {wait}s] {query!r}: {exc}")
             time.sleep(wait)
     return None
-
-
-def _load_or_insert_country(cur, name: str, name_to_id: dict[str, int]) -> int:
-    """Return country_id for name, inserting a new row if it doesn't exist yet."""
-    if name in name_to_id:
-        return name_to_id[name]
-    cur.execute(
-        "INSERT INTO history.countries (name) VALUES (%s) ON CONFLICT (name) DO NOTHING RETURNING country_id",
-        (name,),
-    )
-    row = cur.fetchone()
-    if row:
-        country_id = row[0]
-    else:
-        cur.execute("SELECT country_id FROM history.countries WHERE name = %s", (name,))
-        country_id = cur.fetchone()[0]
-    name_to_id[name] = country_id
-    return country_id
 
 
 def run(commit: bool) -> None:
@@ -179,7 +161,7 @@ def run(commit: bool) -> None:
         if updates:
             print(f"\nWriting {len(updates)} updates …")
             for country_name, vid in updates:
-                cid = _load_or_insert_country(cur, country_name, name_to_id)
+                cid = get_or_create_country_id(cur, country_name, name_to_id)
                 cur.execute(
                     "UPDATE history.venues SET country_id = %s WHERE venue_id = %s",
                     (cid, vid),

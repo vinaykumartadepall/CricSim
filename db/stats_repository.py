@@ -428,7 +428,8 @@ class StatsRepository:
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         JOIN history.venues  v ON m.venue_id = v.venue_id
-        WHERE v.country = %s AND m.match_format = ANY(%s) AND m.gender = %s
+        JOIN history.countries vc ON vc.country_id = v.country_id
+        WHERE vc.name = %s AND m.match_format = ANY(%s) AND m.gender = %s
         GROUP BY d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
         """
         rows = self._run_query(query, (country, raw_fmts, gender))
@@ -1317,8 +1318,9 @@ class StatsRepository:
         t20_fmts = self._raw_formats("T20")
         odi_fmts = self._raw_formats("ODI")
 
-        country_join   = "JOIN history.venues v ON m.venue_id = v.venue_id" if country else ""
-        country_filter = "AND v.country = %s"                                if country else ""
+        country_join   = ("JOIN history.venues v ON m.venue_id = v.venue_id "
+                          "JOIN history.countries vc ON vc.country_id = v.country_id") if country else ""
+        country_filter = "AND vc.name = %s"                                             if country else ""
 
         query = f"""
         WITH total_matches AS (
@@ -1449,8 +1451,9 @@ class StatsRepository:
             loc_param: Optional[object] = venue_id
         elif countries or country:
             c_list     = countries if countries else [country]
-            loc_join   = "JOIN history.venues v ON m.venue_id = v.venue_id"
-            loc_filter = "AND v.country = ANY(%s)"
+            loc_join   = ("JOIN history.venues v ON m.venue_id = v.venue_id "
+                          "JOIN history.countries vc ON vc.country_id = v.country_id")
+            loc_filter = "AND vc.name = ANY(%s)"
             loc_param  = c_list
         else:
             loc_join   = ""
@@ -1665,8 +1668,9 @@ class StatsRepository:
         FROM history.deliveries d
         JOIN history.matches m ON d.match_id = m.match_id
         JOIN history.venues  v ON m.venue_id = v.venue_id
+        JOIN history.countries vc ON vc.country_id = v.country_id
         WHERE d.bowler_id = ANY(%s)
-          AND v.country = %s
+          AND vc.name = %s
           AND m.match_format = ANY(%s)
           AND m.gender = %s
         GROUP BY d.bowler_id
@@ -1754,8 +1758,9 @@ class StatsRepository:
             loc_param: Optional[object] = venue_id
         elif countries or country:
             c_list     = countries if countries else [country]
-            loc_join   = "JOIN history.venues v ON m.venue_id = v.venue_id"
-            loc_filter = "AND v.country = ANY(%s)"
+            loc_join   = ("JOIN history.venues v ON m.venue_id = v.venue_id "
+                          "JOIN history.countries vc ON vc.country_id = v.country_id")
+            loc_filter = "AND vc.name = ANY(%s)"
             loc_param  = c_list
         else:
             loc_join   = ""
@@ -2223,11 +2228,12 @@ class StatsRepository:
             return []
         raw_fmts = self._raw_formats(match_format)
         return self._run_query("""
-            SELECT DISTINCT mp.match_id, m.venue_id, v.name, v.country,
+            SELECT DISTINCT mp.match_id, m.venue_id, v.name, vc.name,
                    m.home_team_id, m.away_team_id, m.date
             FROM history.match_players mp
             JOIN history.matches m  ON mp.match_id = m.match_id
             JOIN history.venues  v  ON m.venue_id  = v.venue_id
+            LEFT JOIN history.countries vc ON vc.country_id = v.country_id
             WHERE mp.player_id = %s AND m.match_format = ANY(%s) AND m.gender = %s
             ORDER BY m.date DESC
             LIMIT %s

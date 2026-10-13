@@ -1,18 +1,22 @@
 """
 Export / replay the admin edit log (simulation.admin_edits) between databases.
 
-Typical flow - edits made on prod via the admin UI, synced to local:
+Typical flow - edits made on prod via the admin UI, synced to local
+(run from the repo root, as a module - `python db/replay_admin_edits.py`
+fails with "No module named 'db'"):
 
     # on the droplet
-    python db/replay_admin_edits.py --export edits.jsonl
+    python -m db.replay_admin_edits --export edits.jsonl
     # locally, after scp'ing the file down
-    python db/replay_admin_edits.py --apply edits.jsonl
+    python -m db.replay_admin_edits --apply edits.jsonl
 
 --apply is idempotent: rows whose edit_id already exists in the target are
 skipped, and applied rows are copied into the target's log verbatim (same
 edit_id/edited_at), so repeated applies are no-ops and both DBs end up with
-identical logs. It also re-applies hand edits after seed_sim_configs.py has
-overwritten the seeded configs.
+identical logs. Because of that skip, --apply only replays onto a database
+whose log doesn't already hold those edits - it can't re-apply edits on the
+database they were made on (e.g. after seed_sim_configs.py overwrites the
+seeded configs there).
 
 Replays go through the same repository methods the admin API uses (with
 record=False, since the original edit row is copied instead) - one write path.

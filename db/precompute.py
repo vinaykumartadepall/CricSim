@@ -918,16 +918,17 @@ def _populate_player_country_stats(
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT d.batter_id, v.country,
+            SELECT d.batter_id, vc.name AS country,
                    EXTRACT(YEAR FROM m.date)::INTEGER AS year,
                    d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
                    COUNT(*) AS cnt
             FROM history.deliveries d
             JOIN history.matches m ON d.match_id = m.match_id
             JOIN history.venues  v ON m.venue_id = v.venue_id
+            JOIN history.countries vc ON vc.country_id = v.country_id
             WHERE m.match_format = ANY(%s) AND m.gender = %s
-              AND m.date IS NOT NULL AND d.batter_id IS NOT NULL AND v.country IS NOT NULL
-            GROUP BY d.batter_id, v.country, year,
+              AND m.date IS NOT NULL AND d.batter_id IS NOT NULL
+            GROUP BY d.batter_id, vc.name, year,
                      d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
             """,
             (raw_fmts, gender),
@@ -1196,16 +1197,17 @@ def _populate_country_stats(conn, fmt: str, gender: str, dry_run: bool) -> int:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT v.country,
+            SELECT vc.name AS country,
                    EXTRACT(YEAR FROM m.date)::INTEGER AS year,
                    d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind,
                    COUNT(*) AS cnt
             FROM history.deliveries d
             JOIN history.matches m ON d.match_id = m.match_id
             JOIN history.venues  v ON m.venue_id  = v.venue_id
+            JOIN history.countries vc ON vc.country_id = v.country_id
             WHERE m.match_format = ANY(%s) AND m.gender = %s
-              AND m.date IS NOT NULL AND v.country IS NOT NULL
-            GROUP BY v.country, year,
+              AND m.date IS NOT NULL
+            GROUP BY vc.name, year,
                      d.runs_batter, d.runs_extras, d.outcome_type, d.outcome_kind
             """,
             (raw_fmts, gender),

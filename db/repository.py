@@ -1,6 +1,6 @@
 from db.database import get_db_connection
 from db.entities import Player, Team, Venue, Tournament, Match, Delivery
-from db.venue_resolver import load_overrides, resolve_canonical, resolve_final_country
+from db.venue_resolver import load_overrides, resolve_canonical, resolve_final_country, get_or_create_country_id
 import psycopg2.extras
 import logging
 
@@ -14,6 +14,7 @@ class CricketRepository:
         self._teams_cache = {}   # name -> id
         self._venues_cache = {}  # name -> id
         self._tournaments_cache = {} # (name, season) -> id
+        self._country_ids = {}       # country name -> history.countries.country_id
 
         # Load venue overrides once per repository instance (file-level cache in venue_resolver)
         self._venue_overrides = load_overrides()
@@ -97,9 +98,10 @@ class CricketRepository:
 
         # New venue - resolve country (geocoding handled later by populate_venue_countries.py).
         country = resolve_final_country(canonical_name, city, self._venue_overrides)
+        country_id = get_or_create_country_id(self.cur, country, self._country_ids) if country else None
         self.cur.execute(
-            "INSERT INTO history.venues (name, city, country) VALUES (%s, %s, %s) RETURNING venue_id",
-            (canonical_name, city, country)
+            "INSERT INTO history.venues (name, city, country_id) VALUES (%s, %s, %s) RETURNING venue_id",
+            (canonical_name, city, country_id)
         )
         venue.id = self.cur.fetchone()[0]
         venue.name = canonical_name

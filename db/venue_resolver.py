@@ -18,6 +18,9 @@ Two concerns are handled here:
      by_name_pattern - city match + name substring
      by_city         - exact city name
    Then west_indies_countries remaps WI member nations → "West Indies".
+
+3. Country name → history.countries.country_id (get_or_create_country_id) -
+   venues store country_id, not a country name.
 """
 
 from __future__ import annotations
@@ -146,3 +149,22 @@ def resolve_final_country(
     override = canonical_country or resolve_country(name, city, overrides)
     raw = override or geocoded_country
     return apply_west_indies_mapping(raw, overrides)
+
+
+def get_or_create_country_id(cur, name: str, name_to_id: dict[str, int]) -> int:
+    """Return country_id for name, inserting a new history.countries row if it doesn't exist yet.
+    name_to_id is a caller-owned cache, updated in place."""
+    if name in name_to_id:
+        return name_to_id[name]
+    cur.execute(
+        "INSERT INTO history.countries (name) VALUES (%s) ON CONFLICT (name) DO NOTHING RETURNING country_id",
+        (name,),
+    )
+    row = cur.fetchone()
+    if row:
+        country_id = row[0]
+    else:
+        cur.execute("SELECT country_id FROM history.countries WHERE name = %s", (name,))
+        country_id = cur.fetchone()[0]
+    name_to_id[name] = country_id
+    return country_id
