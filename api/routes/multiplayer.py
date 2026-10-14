@@ -14,7 +14,7 @@ import psycopg2.extras
 from api.job_queue import job_queue
 from api.multiplayer.venues import venues_for_format
 from api.multiplayer.manager import HOST_RECONNECT_GRACE_S, SQUAD_SIZE, RoomState, draft_manager, _snake_sequence
-from db.database import db_cursor
+from db.database import bind_actor, db_cursor
 from db.squad_repository import SquadRepository
 from simulator.logger import get_logger
 
@@ -216,6 +216,7 @@ def get_active_hosted_room_count(client_id: str = Query(...)):
 
 @router.post("/rooms")
 def create_room(body: CreateRoomRequest):
+    bind_actor(f"client:{body.client_id}")
     if body.mode == "1v1" and body.player_count != 2:
         raise HTTPException(status_code=422, detail="1v1 mode requires exactly 2 players")
     if body.mode == "tournament" and body.player_count < 4:
@@ -245,6 +246,7 @@ def create_room(body: CreateRoomRequest):
 
 @router.post("/rooms/{room_id}/join")
 def join_room(room_id: str, body: JoinRoomRequest):
+    bind_actor(f"client:{body.client_id}")
     if not _room_exists_in_db(room_id):
         draft_manager.remove_room(room_id)
         raise HTTPException(status_code=404, detail="Room no longer exists")
@@ -316,6 +318,7 @@ def get_room(room_id: str):
 
 @router.websocket("/ws/{room_id}")
 async def room_ws(ws: WebSocket, room_id: str, client_id: str = Query(...)):
+    bind_actor(f"client:{client_id}")
     await ws.accept()
     room = draft_manager.get_room(room_id)
     if not room:

@@ -1,3 +1,7 @@
+-- Every table in history and simulation also gets audit columns
+-- (created_at, updated_at, updated_by) from the "Audit columns" section at the
+-- end of this file - they are deliberately not repeated in each CREATE TABLE.
+
 -- Create Schemas
 CREATE SCHEMA IF NOT EXISTS history;
 CREATE SCHEMA IF NOT EXISTS simulation;
@@ -556,3 +560,61 @@ CREATE TABLE IF NOT EXISTS simulation.identity_links (
 -- Case-insensitive uniqueness: "Rahul" and "rahul" collide.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_links_username_lower
     ON simulation.identity_links (lower(username));
+
+-------------------------------------------------------------------------------
+-- Audit columns (migration 034) - keep this section LAST.
+--
+-- Every table in history and simulation gets:
+--   created_at  timestamptz  set on insert (column default), never changed afterwards
+--   updated_at  timestamptz  set on insert (default), bumped on every UPDATE (trigger)
+--   updated_by  text         app.actor of the writing connection (default + trigger)
+-- app.actor is set per connection by db/database.py (db_actor() / process default).
+-- The loop below re-runs harmlessly on every initialize_schema() and picks up
+-- new tables automatically; a migration adding a table calls
+-- SELECT public.audit_enable('<schema>.<table>');
+-------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.audit_actor() RETURNS text
+LANGUAGE sql STABLE AS $$
+    SELECT coalesce(nullif(current_setting('app.actor', true), ''), current_user)::text
+$$;
+
+CREATE OR REPLACE FUNCTION public.audit_touch() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.created_at := OLD.created_at;
+    NEW.updated_at := now();
+    NEW.updated_by := public.audit_actor();
+    RETURN NEW;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.audit_enable(tbl regclass) RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+    EXECUTE format(
+        'ALTER TABLE %s '
+        'ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(), '
+        'ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(), '
+        'ADD COLUMN IF NOT EXISTS updated_by text NOT NULL DEFAULT public.audit_actor()',
+        tbl);
+    EXECUTE format('DROP TRIGGER IF EXISTS audit_touch ON %s', tbl);
+    EXECUTE format(
+        'CREATE TRIGGER audit_touch BEFORE UPDATE ON %s '
+        'FOR EACH ROW EXECUTE FUNCTION public.audit_touch()',
+        tbl);
+END
+$$;
+
+DO $$
+DECLARE t regclass;
+BEGIN
+    FOR t IN
+        SELECT c.oid::regclass
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname IN ('history', 'simulation') AND c.relkind IN ('r', 'p')
+        ORDER BY 1
+    LOOP
+        PERFORM public.audit_enable(t);
+    END LOOP;
+END
+$$;

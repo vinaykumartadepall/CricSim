@@ -28,7 +28,7 @@ from api.models.responses import (
     TournamentResultResponse,
 )
 from api.worker import get_tournament_progress, run_match_job, run_tournament_job
-from db.database import db_cursor, get_db_connection
+from db.database import bind_actor, db_cursor, get_db_connection
 from db.headshots import headshot_url
 from db.simulation_repository import SimulationRepository, _parse_win
 from simulator.serializers.match import (
@@ -46,6 +46,8 @@ router = APIRouter(prefix="/cricsimapi/simulations", tags=["simulations"])
 def create_simulation(
     request: Annotated[Union[MatchSimRequest, TournamentSimRequest], Field(discriminator="simulation_type")],
 ):
+    if request.client_id:
+        bind_actor(f"client:{request.client_id}")
     repo = SimulationRepository()
     try:
         config_dict = request.model_dump()
@@ -81,6 +83,8 @@ class TournamentFromIdRequest(BaseModel):
 @router.post("/tournament", response_model=SimCreatedResponse, status_code=202)
 def create_tournament_from_id(body: TournamentFromIdRequest):
     """Start a tournament simulation using a pre-seeded tournament_id."""
+    if body.client_id:
+        bind_actor(f"client:{body.client_id}")
     conn = get_db_connection(autocommit=False)
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:

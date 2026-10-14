@@ -9,7 +9,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.deps import get_current_user_id
+from api.deps import audit_user
+from db.database import bind_actor
 from db.identity_repository import IdentityRepository, UsernameTakenError
 from simulator.logger import get_logger
 
@@ -36,6 +37,7 @@ def sync_anonymous(body: SyncAnonymousRequest):
     """Passive background sync of an anonymous session's current name -
     called on app load. Collisions (astronomically unlikely for an
     auto-generated name) are swallowed by the repo itself, not surfaced."""
+    bind_actor(f"client:{body.client_id}")
     repo = IdentityRepository()
     try:
         repo.sync_anonymous(body.client_id, body.username.strip())
@@ -44,7 +46,7 @@ def sync_anonymous(body: SyncAnonymousRequest):
 
 
 @router.post("/link")
-def link(body: LinkRequest, user_id: str = Depends(get_current_user_id)):
+def link(body: LinkRequest, user_id: str = Depends(audit_user)):
     """
     Called once per sign-in. First-ever sign-in for this Google account
     links whichever identity client_id currently resolves to; every sign-in
@@ -75,6 +77,7 @@ def link(body: LinkRequest, user_id: str = Depends(get_current_user_id)):
 def set_username(body: SetUsernameRequest):
     """Explicit rename, for anonymous and authenticated identities alike -
     client_id is resolved to its canonical identity first either way."""
+    bind_actor(f"client:{body.client_id}")
     repo = IdentityRepository()
     try:
         canonical_id = repo.resolve_client_id(body.client_id)

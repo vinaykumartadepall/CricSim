@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from db.database import db_actor
 from db.simulation_repository import SimulationRepository
 from db.stats_repository import StatsRepository
 from simulator.admin_settings import get_admin_settings
@@ -76,7 +77,7 @@ def get_tournament_progress(sim_id: str) -> Dict[str, Any] | None:
 
 
 def run_match_job(sim_id: str, config: dict) -> None:
-    with log_context(sim_id=sim_id, match_id=1):
+    with log_context(sim_id=sim_id, match_id=1), db_actor(f"worker:sim:{sim_id}"):
         repo = SimulationRepository()
         try:
             repo.update_status(sim_id, 'running')
@@ -139,7 +140,7 @@ def run_tournament_job(
     user_team_name: str | None = None,
     client_id: str | None = None,
 ) -> None:
-    with log_context(sim_id=sim_id):
+    with log_context(sim_id=sim_id), db_actor(f"worker:sim:{sim_id}"):
         repo = SimulationRepository()
         try:
             repo.update_status(sim_id, 'running')

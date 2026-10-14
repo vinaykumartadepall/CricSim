@@ -1,11 +1,81 @@
 import logging
 import os
+import re
+import sys
 from contextlib import contextmanager
+from contextvars import ContextVar
+from pathlib import Path
+from typing import Iterator, Optional
 
 import psycopg2
 from psycopg2 import sql
+from psycopg2.extensions import parse_dsn
 
 from simulator.logger import get_logger, is_level_active
+
+
+# ── Audit actor ────────────────────────────────────────────────────────────────
+# Every connection carries the Postgres setting app.actor, which the audit
+# column defaults and the audit_touch trigger (db/schema.sql) write into
+# updated_by. Callers never pass it: it comes from db_actor() if one is active,
+# else the process default ("api" for the server, "script:<name>" for scripts).
+
+_ACTOR_UNSAFE = re.compile(r"[^A-Za-z0-9_.:@-]")
+
+
+def _sanitize_actor(actor: Optional[str]) -> str:
+    # libpq splits `options` on whitespace and treats backslash as an escape,
+    # so keep actor strings to a plain token.
+    cleaned = _ACTOR_UNSAFE.sub("_", str(actor or ""))[:100]
+    return cleaned or "unknown"
+
+
+def _process_actor() -> str:
+    argv0 = sys.argv[0] if sys.argv else ""
+    name = Path(argv0).stem if argv0 and argv0 != "-c" else "python"
+    return _sanitize_actor(f"script:{name}")
+
+
+_default_actor: str = _process_actor()
+_actor_var: ContextVar[Optional[str]] = ContextVar("db_actor", default=None)
+
+
+def set_default_actor(actor: str) -> None:
+    """Process-wide fallback actor, e.g. "api" at server startup."""
+    global _default_actor
+    _default_actor = _sanitize_actor(actor)
+
+
+def current_actor() -> str:
+    return _actor_var.get() or _default_actor
+
+
+def bind_actor(actor: str) -> None:
+    """Set the actor for the rest of the current context, without a reset.
+    Only for scopes that own a throwaway context - a FastAPI request (each runs
+    in its own copied context; verified with anyio 4 / Starlette 1) or a
+    websocket handler. Anywhere else use db_actor()."""
+    _actor_var.set(_sanitize_actor(actor))
+
+
+@contextmanager
+def db_actor(actor: str) -> Iterator[None]:
+    """Attribute every connection opened inside this block to `actor`."""
+    token = _actor_var.set(_sanitize_actor(actor))
+    try:
+        yield
+    finally:
+        _actor_var.reset(token)
+
+
+def _connect(dsn: Optional[str] = None, **kwargs):
+    """psycopg2.connect with app.actor appended to any existing `options`."""
+    existing = kwargs.pop("options", None) or (parse_dsn(dsn).get("options") if dsn else None)
+    actor_opt = f"-c app.actor={current_actor()}"
+    options = f"{existing} {actor_opt}" if existing else actor_opt
+    if dsn:
+        return psycopg2.connect(dsn, options=options, **kwargs)
+    return psycopg2.connect(options=options, **kwargs)
 
 
 def _is_insert_query(query) -> bool:
@@ -78,9 +148,9 @@ def get_supabase_connection(autocommit=True):
     the main DB instead. Falls back to main DB if SUPABASE_DATABASE_URL is not set."""
     url = _SUPABASE_DATABASE_URL or _DATABASE_URL
     if url:
-        conn = psycopg2.connect(url)
+        conn = _connect(url)
     else:
-        conn = psycopg2.connect(
+        conn = _connect(
             dbname=DB_NAME,
             user=DB_USER,
             password=DB_PASS,
@@ -94,9 +164,9 @@ def get_supabase_connection(autocommit=True):
 
 def get_db_connection(autocommit=True):
     if _DATABASE_URL:
-        conn = psycopg2.connect(_DATABASE_URL)
+        conn = _connect(_DATABASE_URL)
     else:
-        conn = psycopg2.connect(
+        conn = _connect(
             dbname=DB_NAME,
             user=DB_USER,
             password=DB_PASS,

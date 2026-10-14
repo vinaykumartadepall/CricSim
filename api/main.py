@@ -24,7 +24,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.deps import require_admin_user
+from api.deps import audit_admin
 from api.job_queue import job_queue
 from api.routes.admin import router as admin_router
 from api.routes.admin_data import router as admin_data_router
@@ -37,9 +37,12 @@ from api.routes.multiplayer import _reap_idle_rooms_forever
 from api.routes.sim_history import router as sim_history_router
 from api.routes.simulations import router as sim_router
 from api.worker import run_match_job, run_tournament_job
-from db.database import get_db_connection
+from db.database import get_db_connection, set_default_actor
 from db.stats_repository import StatsRepository
 from simulator.logger import configure_logger, get_logger
+
+# updated_by for API writes with no more specific actor (db_actor / audit deps).
+set_default_actor("api")
 
 # Clear the stats cache when available RAM drops below this threshold.
 _LOW_RAM_THRESHOLD_MB = int(os.getenv("LOW_RAM_THRESHOLD_MB", "250"))
@@ -168,7 +171,7 @@ app.add_middleware(
 # Every admin route requires a verified Supabase JWT belonging to a user in
 # ADMIN_USER_IDS - these endpoints mutate global server state (and admin/squads
 # has a destructive DELETE), and they were publicly reachable before this guard.
-_admin_guard = [Depends(require_admin_user)]
+_admin_guard = [Depends(audit_admin)]
 app.include_router(admin_router, dependencies=_admin_guard)
 # Also mount under /cricsimapi - every other route the frontend calls goes through
 # this prefix (nginx proxies it in production), whereas bare /admin/* is only used

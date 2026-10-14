@@ -7,6 +7,7 @@ import jwt as pyjwt
 from jwt import PyJWKClient
 from fastapi import Depends, Header, HTTPException
 
+from db.database import bind_actor
 from simulator.logger import get_logger
 
 # Module-level singleton - fetches JWKS once, then caches signing keys.
@@ -69,4 +70,19 @@ def require_admin_user(user_id: str = Depends(get_current_user_id)) -> str:
     if user_id not in _admin_user_ids():
         get_logger().warning("Rejected admin access attempt by user %s", user_id)
         raise HTTPException(status_code=403, detail="Forbidden")
+    return user_id
+
+
+# Async on purpose: FastAPI awaits async dependencies in the request's own
+# context, so the actor they bind is visible to the (sync, threadpool) endpoint
+# that runs next. A sync dependency would set it in a throwaway thread context.
+async def audit_user(user_id: str = Depends(get_current_user_id)) -> str:
+    """get_current_user_id, plus: DB writes in this request record user:<id>."""
+    bind_actor(f"user:{user_id}")
+    return user_id
+
+
+async def audit_admin(user_id: str = Depends(require_admin_user)) -> str:
+    """require_admin_user, plus: DB writes in this request record user:<id>."""
+    bind_actor(f"user:{user_id}")
     return user_id
