@@ -245,19 +245,6 @@ def _upsert_player_context(conn, rows: list, dry_run: bool) -> int:
                 (player_id, match_format, context_type, venue_id, country,
                  probs_raw, probs_era, ball_count)
             VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)
-            ON CONFLICT DO NOTHING
-            """,
-            rows,
-            page_size=500,
-        )
-        # Handle conflict by updating
-        psycopg2.extras.execute_batch(
-            cur,
-            """
-            INSERT INTO history.player_context_stats
-                (player_id, match_format, context_type, venue_id, country,
-                 probs_raw, probs_era, ball_count)
-            VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)
             ON CONFLICT (player_id, match_format, context_type,
                          (COALESCE(venue_id, -1)), (COALESCE(country, '')))
             DO UPDATE SET
@@ -412,7 +399,11 @@ def _upsert_bowler_order(conn, rows: list, dry_run: bool) -> int:
                 (player_id, match_format, dist_type, match_type, inning_number,
                  venue_id, country, probs)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT (player_id, match_format, dist_type, match_type, inning_number,
+                         (COALESCE(venue_id, -1)), (COALESCE(country, '')))
+            DO UPDATE SET
+                probs = EXCLUDED.probs,
+                computed_at = now()
             """,
             rows,
             page_size=500,
