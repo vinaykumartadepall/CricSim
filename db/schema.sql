@@ -379,9 +379,14 @@ CREATE TABLE IF NOT EXISTS simulation.game_sessions (
 --   Ordered array of history.players.player_id integers; index = batting position.
 --
 -- NULL = not yet seeded.  Raises 422 if config is NULL or any team has empty players.
+-- overseas_limit / home_country_name: max overseas players per XI and the
+-- home nation they're counted against (IPL/PSL/CPL/SA20/BBL), read by
+-- /lov/tournaments for the squad editors. NULL = no limit. (Migration 036.)
 CREATE TABLE IF NOT EXISTS simulation.tournament_seeded (
-    tournament_id INT NOT NULL PRIMARY KEY REFERENCES history.tournaments(tournament_id),
-    config        JSONB
+    tournament_id     INT NOT NULL PRIMARY KEY REFERENCES history.tournaments(tournament_id),
+    config            JSONB,
+    overseas_limit    INT,
+    home_country_name VARCHAR(128)
 );
 
 -- Custom teams (simulation squads - not tied to history.teams).

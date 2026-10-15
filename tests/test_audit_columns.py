@@ -9,13 +9,9 @@ local Postgres (or no CREATEDB permission) is available.
 """
 import re
 import time
-import uuid
 from pathlib import Path
 
-import psycopg2
 import pytest
-
-import db.database as database
 
 DB_DIR = Path(__file__).resolve().parent.parent / "db"
 SCHEMA_SQL = (DB_DIR / "schema.sql").read_text()
@@ -46,38 +42,8 @@ class TestAuditSchemaText:
 
 
 @pytest.fixture(scope="module")
-def fresh_db():
-    try:
-        admin = psycopg2.connect(dbname="postgres", user=database.DB_USER, password=database.DB_PASS,
-                                 host=database.DB_HOST, port=database.DB_PORT, connect_timeout=3)
-    except psycopg2.OperationalError as e:
-        pytest.skip(f"no local Postgres: {e}")
-    admin.autocommit = True
-    name = f"cricsim_test_{uuid.uuid4().hex[:10]}"
-    try:
-        with admin.cursor() as cur:
-            cur.execute(f'CREATE DATABASE "{name}"')
-    except psycopg2.Error as e:
-        admin.close()
-        pytest.skip(f"cannot create a test database: {e}")
-
-    def connect(actor="test:default"):
-        with database.db_actor(actor):
-            conn = database._connect(dbname=name, user=database.DB_USER, password=database.DB_PASS,
-                                     host=database.DB_HOST, port=database.DB_PORT)
-        conn.autocommit = True
-        return conn
-
-    try:
-        conn = connect("test:schema")
-        with conn.cursor() as cur:
-            cur.execute(SCHEMA_SQL)
-        conn.close()
-        yield connect
-    finally:
-        with admin.cursor() as cur:
-            cur.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
-        admin.close()
+def fresh_db(make_db):
+    return make_db().connect
 
 
 def _fetch(conn, sql, params=()):

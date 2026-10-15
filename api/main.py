@@ -15,6 +15,7 @@ load_dotenv()  # loads .env from project root before anything else reads os.gete
 import asyncio
 import logging
 import os
+import signal
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -85,6 +86,20 @@ def _memory_monitor() -> None:
                 "[MemMonitor] Low RAM (%.0f MB free, rss=%.0f MB) - evicted %d cache entries",
                 available_mb, rss_mb, cleared,
             )
+
+
+def _clear_stats_cache_on_signal(signum, frame) -> None:
+    """`sudo systemctl kill -s USR1 cricsim-api` - drop the in-memory stats
+    cache (e.g. after a data refresh); it reloads lazily on next use, exactly
+    as after the low-RAM eviction above. No restart, no interrupted sims."""
+    cleared = StatsRepository.clear_cache()
+    get_logger().warning("[Cache] SIGUSR1 received - cleared %d stats cache entries", cleared)
+
+
+# signal.signal only works from the main thread - true when uvicorn imports
+# this module; guarded so importing it from a worker thread can't crash.
+if hasattr(signal, "SIGUSR1") and threading.current_thread() is threading.main_thread():
+    signal.signal(signal.SIGUSR1, _clear_stats_cache_on_signal)
 
 
 def _resume_or_fail_interrupted_sims() -> None:

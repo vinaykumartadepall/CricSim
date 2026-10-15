@@ -19,6 +19,16 @@ class CricketRepository:
         # Load venue overrides once per repository instance (file-level cache in venue_resolver)
         self._venue_overrides = load_overrides()
         
+    def forget_cached_ids(self):
+        """Drop every in-memory id cache. Needed after a ROLLBACK TO SAVEPOINT:
+        rows created since the savepoint no longer exist, but their ids would
+        still be cached. The caches refill from the DB on next lookup."""
+        self._players_cache.clear()
+        self._teams_cache.clear()
+        self._venues_cache.clear()
+        self._tournaments_cache.clear()
+        self._country_ids.clear()
+
     def commit(self):
         self.conn.commit()
         
