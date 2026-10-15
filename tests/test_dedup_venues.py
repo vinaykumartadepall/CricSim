@@ -89,6 +89,23 @@ class TestDedupMerge:
         cur, _ = _run(monkeypatch, False, ROWS)
         assert all(q.startswith("SELECT") for q, _ in cur.executed)
 
+    def test_precompute_hint_shown_standalone(self, monkeypatch, capsys):
+        _run(monkeypatch, True, ROWS)
+        assert "Re-run `python -m db.precompute`" in capsys.readouterr().out
+
+    def test_precompute_hint_suppressed_when_caller_rebuilds_stats(self, monkeypatch, capsys):
+        cur = _Cursor(ROWS)
+        conn = _Conn(cur)
+        group = {"canonical": "Kennington Oval", "city": "London", "aliases": ["The Oval"]}
+        monkeypatch.setattr(dedup, "get_db_connection", lambda autocommit=False: conn)
+        monkeypatch.setattr(dedup, "load_overrides", lambda: {})
+        monkeypatch.setattr(dedup, "all_canonical_groups", lambda overrides: [group])
+        monkeypatch.setattr(dedup, "invalidate_cache", lambda: None)
+        dedup.run(commit=True, precompute_follows=True)
+        out = capsys.readouterr().out
+        assert "Merged 1 duplicate rows" in out
+        assert "Re-run `python -m db.precompute`" not in out
+
     def test_single_row_group_is_left_alone(self, monkeypatch):
         cur, _ = _run(monkeypatch, True, ROWS[:1])
         assert all(q.startswith("SELECT") for q, _ in cur.executed)

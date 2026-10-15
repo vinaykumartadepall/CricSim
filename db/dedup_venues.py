@@ -59,7 +59,9 @@ def _find_venue_ids(cur, names: list[str]) -> list[tuple[int, str, Optional[str]
     return cur.fetchall()
 
 
-def run(commit: bool) -> None:
+def run(commit: bool, precompute_follows: bool = False) -> None:
+    """precompute_follows: the caller (db/refresh.py) rebuilds or reloads the
+    precomputed tables itself, so the "re-run precompute" hint is suppressed."""
     invalidate_cache()
     overrides = load_overrides()
     groups = all_canonical_groups(overrides)
@@ -135,7 +137,7 @@ def run(commit: bool) -> None:
 
     if commit:
         print(f"\nDone. Merged {total_merged} duplicate rows; re-pointed {total_matches_repointed} matches.")
-        if total_merged:
+        if total_merged and not precompute_follows:
             print("Re-run `python -m db.precompute` so merged venues' stats are rebuilt.")
     else:
         print("\n[DRY RUN] No changes written. Re-run with --commit to apply.")

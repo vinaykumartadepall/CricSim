@@ -347,7 +347,7 @@ def build(edits: str | None, yes: bool, skip_download: bool, skip_enrich_api: bo
     gate_new_venues(cur, venue_id_before, yes)
     from db.dedup_venues import run as dedup_run
     from db.populate_venue_countries import run as countries_run
-    dedup_run(commit=True)
+    dedup_run(commit=True, precompute_follows=True)
     countries_run(commit=True)
     cur.execute("SELECT venue_id, name, city FROM history.venues WHERE country_id IS NULL")
     missing = cur.fetchall()
@@ -510,7 +510,7 @@ def apply(dump: str, yes: bool, dry_run: bool, backup_dir: Path, keep: int,
         if not dry_run:
             _say("\n[4] venue dedup (re-points prod's own simulations off merged venues)")
             from db.dedup_venues import run as dedup_run
-            dedup_run(commit=True)
+            dedup_run(commit=True, precompute_follows=True)
 
         _say("\n[5] merge" + (" - rolled back (dry run)" if dry_run else ""))
         t0 = time.perf_counter()
