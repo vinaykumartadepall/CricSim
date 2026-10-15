@@ -52,9 +52,14 @@ class _FakeCursor:
 
         elif q.startswith("INSERT INTO simulation.identity_links (id, username, is_anonymous)"):
             anon_id, username = params
+            existing = self.rows.get(anon_id)
+            if existing and (not existing["is_anonymous"] or existing.get("linked_auth_id")):
+                # DO UPDATE ... WHERE is_anonymous AND linked_auth_id IS NULL: a linked
+                # row is left untouched (so its username isn't re-checked either)
+                self._result = None
+                return
             if self._find_by_username(username, exclude_id=anon_id):
                 raise _FakeUniqueViolation()
-            existing = self.rows.get(anon_id)
             if existing:
                 existing["username"] = username
             else:
@@ -137,6 +142,13 @@ class TestSyncAnonymous:
         repo = _repo({"A1": {"id": "A1", "username": "Taken", "is_anonymous": True, "linked_auth_id": None}})
         repo.sync_anonymous("A2", "Taken")  # must not raise
         assert "A2" not in repo._cur.rows
+
+    def test_never_renames_an_account_linked_from_this_anon_id(self):
+        # first sign-in linked anon id A1 to a Google account; a later null-session
+        # page load still calls sync with A1 and the stored generated name
+        repo = _repo({"A1": {"id": "A1", "username": "Vinay", "is_anonymous": False, "linked_auth_id": "G1"}})
+        repo.sync_anonymous("A1", "SwiftPoint_2424")
+        assert repo._cur.rows["A1"]["username"] == "Vinay"
 
 
 class TestLinkAccount:

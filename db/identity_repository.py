@@ -80,6 +80,12 @@ class IdentityRepository:
         auto-generated name) is swallowed rather than raised - a passive
         background sync should never surface a hard error to the user for
         this; their existing username is simply left as-is.
+
+        Only ever renames a row that is still anonymous. Once an anon id has
+        been linked to an account (its canonical id after first sign-in), the
+        frontend can still call this with that id and the stored anon name -
+        e.g. when Supabase briefly reports no session - and must not
+        overwrite the account's username.
         """
         try:
             self._cur.execute(
@@ -88,6 +94,8 @@ class IdentityRepository:
                 VALUES (%s, %s, TRUE)
                 ON CONFLICT (id) DO UPDATE
                     SET username = EXCLUDED.username, updated_at = now()
+                    WHERE simulation.identity_links.is_anonymous
+                      AND simulation.identity_links.linked_auth_id IS NULL
                 """,
                 (anon_id, username),
             )
