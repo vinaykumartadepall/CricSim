@@ -7,7 +7,8 @@ import { RoleBadge } from '@/components/ui/RoleBadge'
 import {
   ADMIN_SANS, ADMIN_SERIF, AccessDenied, OptionRow, SaveButton, Section, adminInputStyle, isAuthError,
 } from '@/components/admin/AdminUI'
-import type { AdminPlayer, AdminTeamDetail, AdminTournamentDetail, AdminVenue, Player } from '@/types'
+import type { AdminPlayer, AdminTeamDetail, AdminTournamentDetail, AdminVenue, Gender, MatchFormat, Player } from '@/types'
+import { GENDERS, MATCH_FORMATS } from '@/types/enums'
 
 type VenueDraft = { name: string; city: string; previous_name?: string }
 
@@ -22,8 +23,8 @@ function MetaCard({ detail, onSaved }: {
   onSaved: (fields: { tournament_name?: string; format?: string; gender?: string }) => void
 }) {
   const [name, setName]     = useState(detail.tournament_name ?? '')
-  const [format, setFormat] = useState(detail.format ?? 'T20')
-  const [gender, setGender] = useState(detail.gender ?? 'male')
+  const [format, setFormat] = useState<MatchFormat>(detail.format ?? 'T20')
+  const [gender, setGender] = useState<Gender>(detail.gender ?? 'male')
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
 
@@ -48,8 +49,8 @@ function MetaCard({ detail, onSaved }: {
     <Section title="Tournament" description={`Season ${detail.season}. Renaming also updates the wizard listing for this season.`} error={error}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <input style={adminInputStyle} value={name} onChange={e => setName(e.target.value)} />
-        <OptionRow options={['T20', 'ODI', 'Test']} active={format} disabled={saving} onSelect={setFormat} />
-        <OptionRow options={['male', 'female']} active={gender} disabled={saving} onSelect={setGender} />
+        <OptionRow options={MATCH_FORMATS} active={format} disabled={saving} onSelect={setFormat} />
+        <OptionRow options={GENDERS} active={gender} disabled={saving} onSelect={setGender} />
         <div><SaveButton onClick={save} saving={saving} dirty={dirty} /></div>
       </div>
     </Section>

@@ -31,6 +31,7 @@ from api.worker import get_tournament_progress, run_match_job, run_tournament_jo
 from db.database import bind_actor, db_cursor, get_db_connection
 from db.headshots import headshot_url
 from db.simulation_repository import SimulationRepository, _parse_win
+from enums.domain import GameMode
 from simulator.serializers.match import (
     _build_result_description, get_commentary, get_match_result, get_scorecard, get_tournament_result,
 )
@@ -74,7 +75,7 @@ def create_simulation(
 class TournamentFromIdRequest(BaseModel):
     tournament_id: int
     team_id:       Optional[int]  = None
-    mode:          Optional[str]  = None
+    mode:          Optional[GameMode] = None
     client_id:     Optional[str]  = None
     swaps:         List[dict]     = Field(default_factory=list)
     batting_order: List[int]      = Field(default_factory=list)
@@ -295,7 +296,8 @@ def get_result(sim_id: str, client_id: Optional[str] = None):
                 home_team          = m['home_team'],
                 away_team          = m['away_team'],
                 venue              = _fetch_venue(repo.dict_cursor, sim_id),
-                format             = sim['config'].get('format', 'T20'),
+                # match configs store it as match_format (tournaments use format)
+                format             = sim['config'].get('match_format') or sim['config'].get('format', 'T20'),
                 winner             = m['winner'],
                 result_description = _build_result_description(m),
                 win_type           = m['win_type'],

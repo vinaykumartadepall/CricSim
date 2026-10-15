@@ -16,6 +16,7 @@ from api.routes._identity_lookup import display_names_for as _display_names_for
 from db.player_repository import PlayerRepository
 from db.simulation_repository import SimulationRepository
 from db.squad_repository import SquadRepository
+from enums.domain import Gender, MatchFormat
 
 router = APIRouter(prefix="/admin/data", tags=["admin-data"])
 
@@ -51,8 +52,8 @@ def list_all_simulations(limit: int = Query(50, le=200), offset: int = Query(0, 
 
 class TournamentMetaRequest(BaseModel):
     tournament_name: Optional[str] = None
-    format: Optional[str] = None
-    gender: Optional[str] = None
+    format: Optional[MatchFormat] = None
+    gender: Optional[Gender] = None
 
 
 class TeamMetaRequest(BaseModel):
@@ -144,7 +145,7 @@ class PlayerUpdateRequest(BaseModel):
     bowling_style: Optional[str] = None
     country_id: Optional[int] = None
     cricinfo_id: Optional[int] = None
-    gender: Optional[str] = None
+    gender: Optional[Gender] = None
 
 
 @router.get("/players")

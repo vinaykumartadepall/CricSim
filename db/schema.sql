@@ -87,9 +87,10 @@ CREATE TABLE IF NOT EXISTS history.matches (
     tournament_id     INT          REFERENCES history.tournaments(tournament_id),
     home_team_id      INT          REFERENCES history.teams(team_id),
     away_team_id      INT          REFERENCES history.teams(team_id),
-    gender            VARCHAR(16),
-    match_format      VARCHAR(32),
-    match_type        VARCHAR(32),
+    gender            VARCHAR(16) CHECK (gender IS NULL OR gender IN ('male','female')),
+    match_format      VARCHAR(32)
+                      CHECK (match_format IS NULL OR match_format IN ('Test','MDM','ODI','ODM','T20','IT20')),
+    match_type        VARCHAR(32) CHECK (match_type IS NULL OR match_type IN ('international','club')),
     balls_per_over    INT DEFAULT 6,
     overs_per_innings INT,
     innings_per_match INT,
@@ -309,15 +310,16 @@ CREATE TABLE IF NOT EXISTS history.tournament_outcome_stats (
 -- API job tracking: one row per POST /createsim call.
 CREATE TABLE IF NOT EXISTS simulation.simulations (
     sim_id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    simulation_type VARCHAR(20) NOT NULL,
-    status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+    simulation_type VARCHAR(20) NOT NULL CHECK (simulation_type IN ('match','tournament')),
+    status          VARCHAR(20) NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','running','completed','failed')),
     config          JSONB       NOT NULL,
     error_message   TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     started_at      TIMESTAMPTZ,
     completed_at    TIMESTAMPTZ,
     client_id       VARCHAR(64),
-    mode            VARCHAR(16),
+    mode            VARCHAR(16) CHECK (mode IS NULL OR mode IN ('fun','challenge','custom','multiplayer')),
     participant_ids TEXT[]      NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_simulations_status_created
@@ -335,7 +337,7 @@ CREATE INDEX IF NOT EXISTS idx_simulations_participant_ids
 CREATE TABLE IF NOT EXISTS simulation.game_sessions (
     sim_id               UUID    NOT NULL REFERENCES simulation.simulations(sim_id),
     client_id            TEXT    NOT NULL,
-    mode                 VARCHAR(16),
+    mode                 VARCHAR(16) CHECK (mode IS NULL OR mode IN ('fun','challenge','custom','multiplayer')),
     source_tournament_id INT,
     user_team_id         INT,
     swaps                JSONB   NOT NULL DEFAULT '[]',
@@ -407,8 +409,8 @@ CREATE TABLE IF NOT EXISTS simulation.tournaments (
     sim_id          UUID NOT NULL REFERENCES simulation.simulations(sim_id),
     tournament_name VARCHAR(256),
     season          VARCHAR(32),
-    format          VARCHAR(32),
-    gender          VARCHAR(16),
+    format          VARCHAR(32) CHECK (format IS NULL OR format IN ('T20','ODI','Test')),
+    gender          VARCHAR(16) CHECK (gender IS NULL OR gender IN ('male','female')),
     -- Group-stage standings (team, played, won, lost, tied, no_result, points, nrr),
     -- as computed once by the live tournament engine (simulator/tournament/points_table.py)
     -- when the group stage completes. Read by the results page instead of
@@ -434,11 +436,11 @@ CREATE TABLE IF NOT EXISTS simulation.matches (
     tournament_id      INT  REFERENCES simulation.tournaments(tournament_id),
     home_team_id       INT  REFERENCES simulation.teams(team_id),
     away_team_id       INT  REFERENCES simulation.teams(team_id),
-    gender             VARCHAR(16),
-    match_format       VARCHAR(32),
+    gender             VARCHAR(16) CHECK (gender IS NULL OR gender IN ('male','female')),
+    match_format       VARCHAR(32) CHECK (match_format IS NULL OR match_format IN ('T20','ODI','Test')),
     balls_per_over     INT DEFAULT 6,
     overs_per_innings  INT,
-    result             VARCHAR(32),
+    result             VARCHAR(32) CHECK (result IS NULL OR result IN ('win','tie','no result')),
     result_type        VARCHAR(32),
     winner_id          INT  REFERENCES simulation.teams(team_id),
     win_type           VARCHAR(16),

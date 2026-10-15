@@ -3,6 +3,9 @@ import os
 from typing import List, Dict, Any, Tuple, Optional
 from collections import defaultdict
 
+from enums.domain import RAW_VALUES_BY_FORMAT, Gender, MatchFormat
+from simulator.entities.rules import MatchRules
+
 # Seconds in a Julian year (365.25 × 24 × 3600). Used to convert epoch differences to years
 # in all time-decay expressions so the magic number is never repeated in SQL strings.
 _SECONDS_PER_YEAR = 31_557_600
@@ -25,11 +28,7 @@ _D8Y  = _decay_sql(8.0)   # player-venue (sparse - slower decay to preserve sign
 
 
 # Maps unified format names to all raw DB format strings that belong to that bucket.
-_FORMAT_ALIASES: Dict[str, List[str]] = {
-    "Test": ["Test", "MDM"],
-    "ODI":  ["ODI",  "ODM", "ONE DAY"],
-    "T20":  ["T20",  "IT20"],
-}
+_FORMAT_ALIASES: Dict[str, List[str]] = RAW_VALUES_BY_FORMAT
 
 # ── Precomputed-table helpers ──────────────────────────────────────────────────
 
@@ -1040,8 +1039,8 @@ class StatsRepository:
         if not repo.conn:
             return
         t0 = time.perf_counter()
-        formats = ('T20', 'ODI', 'Test')
-        genders = ('male', 'female')
+        formats = MatchFormat.values()
+        genders = Gender.values()
         for fmt in formats:
             for gender in genders:
                 repo._load_aggregate_cache(fmt, gender)
@@ -2585,7 +2584,7 @@ class StatsRepository:
 
         if use_precomputed:
             # Map raw format aliases (e.g. "IT20") to the canonical name used in the table
-            unified = next((k for k, vs in _FORMAT_ALIASES.items() if match_format in vs), match_format)
+            unified = MatchRules.get_unified_format(match_format)
             query = """
             SELECT year, runs_batter, runs_extras, outcome_type, outcome_kind, probability
             FROM history.global_yearly_baseline

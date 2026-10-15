@@ -42,13 +42,15 @@ export function Section({
   )
 }
 
-export function OptionRow({
+// Generic over the option type, so a list like MATCH_FORMATS hands its union
+// type (not plain string) to onSelect. `active` stays string: '' = none chosen.
+export function OptionRow<T extends string>({
   options, active, disabled, onSelect,
 }: {
-  options: string[]
+  options: readonly T[]
   active: string
   disabled: boolean
-  onSelect: (value: string) => void
+  onSelect: (value: T) => void
 }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>

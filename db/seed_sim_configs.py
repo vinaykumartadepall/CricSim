@@ -42,6 +42,7 @@ import psycopg2
 import psycopg2.extras
 
 from db.database import get_db_connection
+from enums.domain import MatchFormat
 
 
 # ── Team metadata lookup ───────────────────────────────────────────────────────
@@ -280,7 +281,8 @@ def _build_full_config(
         (tournament_id,),
     )
     m_row = cur.fetchone()
-    fmt    = m_row["match_format"] if m_row else "T20"
+    # Raw history format ("IT20", "ODM", ...) -> the simulated one the config needs
+    fmt    = MatchFormat.from_raw(m_row["match_format"]).value if m_row else MatchFormat.T20.value
     gender = m_row["gender"]       if m_row else "male"
 
     # 2. Distinct venues

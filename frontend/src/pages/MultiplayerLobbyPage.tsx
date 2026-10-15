@@ -12,7 +12,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { Modal } from '@/components/ui/Modal'
 import { usePublicRooms } from '@/hooks/usePublicRooms'
 import { SCHEDULE_OPTIONS, PLAYOFF_OPTIONS } from '@/lib/advancedRoomSettings'
-import type { PublicRoomSummary, VenueConfig, VenueCountry } from '@/types'
+import type { MatchFormat, PublicRoomSummary, VenueConfig, VenueCountry } from '@/types'
 
 // ── Name randomizer ───────────────────────────────────────────────────────────
 
@@ -34,7 +34,7 @@ function CreateRoomModal({ onClose }: { onClose: () => void }) {
 
   const [mode, setMode]             = useState<'1v1' | 'tournament'>('1v1')
   const [name, setName]             = useState(() => randomName('1v1'))
-  const [matchFormat, setMatchFormat] = useState<'T20' | 'ODI' | 'Test'>('T20')
+  const [matchFormat, setMatchFormat] = useState<MatchFormat>('T20')
   const [playerCount, setPlayerCount] = useState<number>(4)
   const [isPublic, setIsPublic]     = useState(false)
   const [creating, setCreating]     = useState(false)

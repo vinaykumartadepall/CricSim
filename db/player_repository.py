@@ -13,13 +13,14 @@ import psycopg2.extras
 from db.admin_edits import record_edit
 from db.database import get_db_connection
 from db.headshots import headshot_url as _headshot_url
+from enums.domain import Gender
 
 _EDITABLE_FIELDS = (
     "name", "display_name", "player_role", "batting_style",
     "bowling_style", "country_id", "cricinfo_id", "gender",
 )
 _VALID_ROLES = {"Batter", "Bowler", "All-rounder", "Keeper"}
-_VALID_GENDERS = {"male", "female"}
+_VALID_GENDERS = set(Gender.values())
 
 
 class PlayerRepository:

@@ -16,8 +16,9 @@ from db.admin_edits import record_edit
 from db.database import get_db_connection
 from db.headshots import headshot_url as _headshot_url
 from simulator.tournament.config import parse_tournament_config
+from enums.domain import MatchFormat
 
-_VALID_FORMATS = {"T20", "ODI", "Test"}
+_VALID_FORMATS = set(MatchFormat.values())
 _VALID_SCHEDULE_TYPES = {"round_robin", "double_round_robin", "two_group_hybrid"}
 # Everything simulator/tournament/scheduler.py::generate_playoffs handles.
 _VALID_PLAYOFF_FORMATS = {"none", "two_teams", "semis_final", "ipl", "quarters_semis_final"}

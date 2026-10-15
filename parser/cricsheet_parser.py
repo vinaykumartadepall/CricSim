@@ -3,6 +3,8 @@ import os
 from datetime import datetime
 from db.entities import Player, Delivery, Tournament, Team, Venue, Match
 from enums.constants import ExtraType
+from enums.domain import MatchFormat
+from simulator.entities.rules import MatchRules
 
 class ParsedMatchContext:
     match: Match
@@ -97,7 +99,8 @@ class CricsheetParser:
             return None
             
         match_format = info.get('match_type')
-        if match_format == 'Test':
+        # Unified, not raw: multi-day 'MDM' (first-class) is a 4-innings game too
+        if MatchRules.get_unified_format(match_format) == MatchFormat.TEST:
             innings_per_match = 4
             overs_per_innings = None
         else:

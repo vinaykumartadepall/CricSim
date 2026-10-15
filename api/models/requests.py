@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from enums.domain import Gender, MatchFormat
+
 
 class TeamConfig(BaseModel):
     name: str
@@ -14,7 +16,7 @@ class TeamConfig(BaseModel):
 
 class MatchSimRequest(BaseModel):
     simulation_type: Literal["match"]
-    match_format: str = "T20"
+    match_format: MatchFormat = MatchFormat.T20
     venue: Optional[str] = None
     # None means "use the current admin-configured default" - see simulator.admin_settings
     bowling_strategy: Optional[str] = None
@@ -62,8 +64,8 @@ class PlayoffConfig(BaseModel):
 class TournamentSimRequest(BaseModel):
     simulation_type: Literal["tournament"]
     tournament_name: str
-    format: str = "T20"
-    gender: str = "male"
+    format: MatchFormat = MatchFormat.T20
+    gender: Gender = Gender.MALE
     season: str = "2025"
     # None means "use the current admin-configured default" - see simulator.admin_settings
     outcome_strategy: Optional[str] = None

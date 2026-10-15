@@ -9,7 +9,8 @@ class TestGetUnifiedFormat:
         assert MatchRules.get_unified_format("IT20") == "T20"
         assert MatchRules.get_unified_format("ODM") == "ODI"
         assert MatchRules.get_unified_format("MDM") == "Test"
-        assert MatchRules.get_unified_format("ONE DAY") == "ODI"
+        # "ONE DAY" was dropped (2026-10-16): no history row ever used it
+        assert MatchRules.get_unified_format("ONE DAY") == "ONE DAY"
 
     def test_canonical_names_pass_through(self):
         assert MatchRules.get_unified_format("T20") == "T20"

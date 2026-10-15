@@ -72,7 +72,7 @@ SEQUENCES = {  # sequence -> (table, column); deliveries is deliberately absent 
     "matches_id_seq": ("matches", "match_id"),
 }
 REQUIRED_MIGRATIONS = ("034_audit_columns.sql", "035_fix_cricinfo_f6ba97c6.sql",
-                       "036_tournament_seeded_overseas_columns.sql")
+                       "036_tournament_seeded_overseas_columns.sql", "037_vocabulary_checks.sql")
 PEOPLE_CSV_URL = "https://cricsheet.org/register/people.csv"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REFRESH_DIR = REPO_ROOT / "data" / "refresh"

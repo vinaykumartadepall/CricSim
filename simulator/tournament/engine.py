@@ -30,6 +30,7 @@ from db.entities.tournament import Tournament
 from db.stats_repository import StatsRepository
 from simulator.entities.match import SimulationMatch
 from simulator.entities.player import Player
+from enums.domain import MatchFormat
 from simulator.entities.rules import MatchRules
 from simulator.entities.team import MatchTeam
 from simulator.engines.engine_factory import EngineFactory
@@ -372,7 +373,7 @@ class TournamentEngine:
         margin: Optional[int] = None
         reason = "group_stage_rank"
 
-        if self._config.format == "Test":
+        if self._fmt == MatchFormat.TEST:   # unified at __init__, so "MDM" counts
             winner, margin = self._first_innings_lead_winner(match, fixture.home, fixture.away)
             if winner:
                 reason = "first_innings_lead"

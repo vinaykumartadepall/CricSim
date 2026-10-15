@@ -8,6 +8,7 @@ import {
   ADMIN_SANS, ADMIN_SERIF, AccessDenied, OptionRow, SaveButton, adminInputStyle, isAuthError,
 } from '@/components/admin/AdminUI'
 import type { AdminPlayer, Country } from '@/types'
+import { GENDERS } from '@/types/enums'
 
 const ROLES = ['Batter', 'Bowler', 'All-rounder', 'Keeper']
 
@@ -235,7 +236,7 @@ export function AdminPlayersPage() {
                     </Field>
                   </div>
                   <Field label="Gender">
-                    <OptionRow options={['male', 'female']} active={draft.gender ?? ''} disabled={saving}
+                    <OptionRow options={GENDERS} active={draft.gender ?? ''} disabled={saving}
                       onSelect={v => patch('gender', v)} />
                   </Field>
 

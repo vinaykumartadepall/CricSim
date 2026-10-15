@@ -1,10 +1,13 @@
+import type { Gender, GameMode, MatchFormat, SimStatus, SimulationType } from './enums'
+export type { Gender, GameMode, MatchFormat, MatchLevel, MatchResult, RawMatchFormat, SimStatus, SimulationType } from './enums'
+
 export interface Tournament {
   tournament_id: number
   name: string
   season: string
   team_count: number
-  gender: string
-  format?: string | null
+  gender: Gender
+  format?: MatchFormat | null
   overseas_limit?: number | null
   home_country_name?: string | null
 }
@@ -79,7 +82,6 @@ export interface MyTeamRankItem {
   win_pct: number
 }
 
-export type SimMode = 'fun' | 'challenge'
 export type Theme = 'ember-amber' | 'ember-emerald' | 'ember-crimson' | 'ember-ice'
 
 export interface SwapEntry {
@@ -94,10 +96,10 @@ export interface SwapEntry {
 
 export interface SimSummary {
   sim_id: string
-  simulation_type: string
-  status: string
+  simulation_type: SimulationType
+  status: SimStatus
   created_at: string
-  mode?: string | null
+  mode?: GameMode | null
   tournament_name?: string | null
   season?: string | null
   user_team_name?: string | null
@@ -105,7 +107,7 @@ export interface SimSummary {
   winner_name?: string | null
   user_team_placement?: string | null
   match_id?: number | null
-  match_format?: string | null
+  match_format?: MatchFormat | null
 }
 
 // Admin data view: SimSummary plus owner/diagnostic fields (admin-only endpoint)
@@ -128,8 +130,8 @@ export interface AdminTournamentSummary {
   name: string
   season: string
   team_count: number
-  gender: string | null
-  format: string | null
+  gender: Gender | null
+  format: MatchFormat | null
 }
 
 export interface AdminVenue {
@@ -146,8 +148,8 @@ export interface AdminTeamDetail extends Team {
 export interface AdminTournamentDetail {
   tournament_id: number
   tournament_name: string
-  format: string
-  gender: string
+  format: MatchFormat
+  gender: Gender
   season: string
   venues: AdminVenue[]
   schedule: Record<string, unknown>
@@ -159,7 +161,7 @@ export interface AdminPlayer {
   player_id: number
   name: string
   display_name: string | null
-  gender: string | null
+  gender: Gender | null
   player_role: string | null
   batting_style: string | null
   bowling_style: string | null
@@ -195,7 +197,7 @@ export interface DeliveryItem {
 export interface Commentary {
   match_id: number
   match_label: string
-  match_format: string | null
+  match_format: MatchFormat | null
   overs_per_innings: number | null
   deliveries: DeliveryItem[]
 }
@@ -213,17 +215,17 @@ export interface PointsTableRow {
 
 export interface TournamentResult {
   sim_id: string
-  status: string
+  status: SimStatus
   tournament_name: string | null
   season: string | null
-  format: string | null
+  format: MatchFormat | null
   winner: string | null
   runner_up: string | null
   total_matches: number
   points_table: PointsTableRow[]
   user_team_name?: string | null
   user_team_placement?: string | null
-  mode?: string | null
+  mode?: GameMode | null
   source_tournament_id?: number | null
   user_team_id?: number | null
   swaps?: SwapEntry[]
@@ -309,7 +311,7 @@ export interface MatchItem {
   is_super_over: boolean
   venue?: string | null
   venue_country?: string | null
-  match_format?: string | null
+  match_format?: MatchFormat | null
   home_score: number | null
   home_wickets: number | null
   home_overs: string | null
@@ -384,7 +386,7 @@ export interface Scorecard {
   away_team: string
   venue: string | null
   venue_country?: string | null
-  match_format: string | null
+  match_format: MatchFormat | null
   result_description: string | null
   innings: Innings[]
   potm: PotmInfo | null
@@ -455,7 +457,7 @@ export interface RoomState {
   mode: '1v1' | 'tournament'
   tournament_name: string
   player_count: number
-  match_format: string
+  match_format: MatchFormat
   is_public: boolean
   schedule_type: 'round_robin' | 'double_round_robin' | null
   playoff_format: 'semis_final' | 'ipl' | null
@@ -474,7 +476,7 @@ export interface CreateRoomBody {
   mode: '1v1' | 'tournament'
   tournament_name: string
   player_count: number
-  match_format: string
+  match_format: MatchFormat
   is_public?: boolean
   schedule_type?: 'round_robin' | 'double_round_robin'
   playoff_format?: 'semis_final' | 'ipl'
@@ -514,7 +516,7 @@ export interface PublicRoomSummary {
   room_id: string
   tournament_name: string
   mode: '1v1' | 'tournament'
-  match_format: string
+  match_format: MatchFormat
   player_count: number
   members_joined: number
   spots_remaining: number

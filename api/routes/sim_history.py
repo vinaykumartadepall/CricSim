@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from api.routes._identity_lookup import display_names_for as _display_names_for
 from db.simulation_repository import SimulationRepository
+from enums.domain import GameMode
 from simulator.admin_settings import get_admin_settings
 
 router = APIRouter(prefix="/cricsimapi/sim-history", tags=["sim-history"])
@@ -69,7 +70,7 @@ class LeaderboardsEnabledResponse(BaseModel):
 def sim_history_counts(
     client_id: str = Query(...),
     tournament_ids: Optional[str] = Query(None, description="Comma-separated tournament IDs for season-level counts"),
-    mode: Optional[str] = Query(None, description="Filter completed counts by mode (e.g. 'challenge', 'fun')"),
+    mode: Optional[GameMode] = Query(None, description="Filter completed counts by mode (e.g. 'challenge', 'fun')"),
     name_query: Optional[str] = Query(None, description="Case-insensitive substring filter on tournament name, for Step 1 only - mirrors /lov/tournaments' q param"),
 ):
     """
@@ -112,7 +113,7 @@ def leaderboards_enabled():
 def sim_history_best(
     client_id: str = Query(...),
     tournament_id: int = Query(...),
-    mode: Optional[str] = Query(None, description="Filter by mode (e.g. 'challenge', 'fun')"),
+    mode: Optional[GameMode] = Query(None, description="Filter by mode (e.g. 'challenge', 'fun')"),
 ):
     """Best placement per team for a specific tournament+season."""
     repo = SimulationRepository()
@@ -128,7 +129,7 @@ def challenge_leaderboard(
     client_id: str = Query(...),
     tournament_id: int = Query(...),
     team_name: str = Query(...),
-    mode: str = Query(..., description="Must match the mode of the viewed result: 'challenge' or 'fun'"),
+    mode: GameMode = Query(..., description="Must match the mode of the viewed result: 'challenge' or 'fun'"),
     limit: int = Query(10, ge=1, le=MAX_LEADERBOARD_ROWS),
     offset: int = Query(0, ge=0),
 ):
@@ -178,7 +179,7 @@ def challenge_leaderboard(
 def my_challenge_ranks(
     client_id: str = Query(...),
     tournament_id: int = Query(...),
-    mode: str = Query(..., description="'challenge' or 'fun'"),
+    mode: GameMode = Query(..., description="'challenge' or 'fun'"),
 ):
     """For every team the caller has attempted in this tournament+mode, their rank in that team's own leaderboard."""
     if not get_admin_settings().leaderboards_enabled:

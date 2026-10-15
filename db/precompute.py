@@ -32,19 +32,17 @@ from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from db.database import get_db_connection
+from enums.domain import RAW_VALUES_BY_FORMAT, Gender, MatchFormat
 
-_FORMATS = ["T20", "ODI", "Test"]
-_GENDERS  = ["male", "female"]
+_FORMATS = MatchFormat.values()
+_GENDERS  = Gender.values()
 _HALF_LIFE_PLAYER  = 5.0   # batter/bowler/phase/milestone/matchup/venue
 _HALF_LIFE_VENUE   = 7.0   # venue aggregate
 _HALF_LIFE_COUNTRY = 8.0   # country aggregate
 _HALF_LIFE_TOURN   = 3.0   # tournament
 
-_FORMAT_ALIASES: Dict[str, List[str]] = {
-    "Test": ["Test", "MDM"],
-    "ODI":  ["ODI",  "ODM", "ONE DAY"],
-    "T20":  ["T20",  "IT20"],
-}
+# Simulated format -> every raw history.matches.match_format value in it.
+_FORMAT_ALIASES: Dict[str, List[str]] = RAW_VALUES_BY_FORMAT
 
 _MATCHUP_MIN_BALLS = 12
 

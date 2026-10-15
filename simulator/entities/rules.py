@@ -1,5 +1,6 @@
 from typing import Optional
 from enums.constants import ExtraType, DismissalType
+from enums.domain import MatchFormat
 
 
 class MatchRules:
@@ -8,26 +9,20 @@ class MatchRules:
     Prevents scattered validation logic globally across the simulator.
     """
 
-    FORMAT_MAPPING = {
-        "ODI": "ODI",
-        "ODM": "ODI",
-        "ONE DAY": "ODI",
-        "Test": "Test",
-        "MDM": "Test",
-        "T20": "T20",
-        "IT20": "T20"
-    }
-
     @staticmethod
     def get_unified_format(match_type: str) -> str:
         """
-        Consolidates various nomenclature subsets into standard format bins.
+        Raw or simulated format → the simulated one ("IT20" → "T20", "MDM" →
+        "Test"), via the single mapping in MatchFormat.from_raw. Unknown values
+        pass through unchanged and empty input gives "UNKNOWN" - callers rely on
+        that lenience (FORMAT_SETTINGS lookups then reject what they can't play).
         """
         if not match_type:
             return "UNKNOWN"
-
-        m_type = match_type.strip()
-        return MatchRules.FORMAT_MAPPING.get(m_type, m_type)
+        try:
+            return MatchFormat.from_raw(match_type).value
+        except ValueError:
+            return match_type.strip()
 
     @staticmethod
     def is_legal_delivery(extras_type: str) -> bool:

@@ -465,7 +465,7 @@ function potmDisplayInfo(scorecard: Scorecard): PotmDisplay | null {
   if (!potm || !potm.name) return null
 
   const fmt = scorecard.match_format ?? 'T20'
-  const isTest = fmt === 'Test' || fmt === 'MDM'
+  const isTest = fmt === 'Test'   // simulated formats only - raw 'MDM' never reaches a scorecard
 
   let headshot_url: string | null = null
   const batting_innings: BatInn[] = []
