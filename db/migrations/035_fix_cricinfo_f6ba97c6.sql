@@ -26,12 +26,6 @@ SET cricinfo_id      = 1174261,
     espn_country_int = NULL
 WHERE code = 'f6ba97c6' AND cricinfo_id = 1535795;
 
-DO $$
-BEGIN
-    IF to_regclass('history.schema_migrations') IS NOT NULL THEN
-        INSERT INTO history.schema_migrations (filename) VALUES ('035_fix_cricinfo_f6ba97c6.sql');
-    END IF;
-END
-$$;
+INSERT INTO history.schema_migrations (filename) VALUES ('035_fix_cricinfo_f6ba97c6.sql') ON CONFLICT (filename) DO NOTHING;
 
 COMMIT;

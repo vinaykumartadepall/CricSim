@@ -86,7 +86,8 @@ BEGIN
         ALTER TABLE history.schema_migrations DISABLE TRIGGER audit_touch;
         UPDATE history.schema_migrations SET created_at = applied_at, updated_at = applied_at WHERE applied_at IS NOT NULL;
         ALTER TABLE history.schema_migrations ENABLE TRIGGER audit_touch;
-        INSERT INTO history.schema_migrations (filename) VALUES ('034_audit_columns.sql');
+        INSERT INTO history.schema_migrations (filename) VALUES ('034_audit_columns.sql')
+            ON CONFLICT (filename) DO NOTHING;
     END IF;
 END
 $$;

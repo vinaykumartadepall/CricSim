@@ -5,6 +5,16 @@
 -- Create Schemas
 CREATE SCHEMA IF NOT EXISTS history;
 CREATE SCHEMA IF NOT EXISTS simulation;
+
+-- Which db/migrations/*.sql files have been applied to this database. Every
+-- migration records itself here (INSERT ... ON CONFLICT DO NOTHING, inside its
+-- own transaction), so `SELECT * FROM history.schema_migrations ORDER BY 1`
+-- answers "what has run here". A database built from this file is recorded as
+-- having every migration it already contains - see the end of this file.
+CREATE TABLE IF NOT EXISTS history.schema_migrations (
+    filename   VARCHAR(256) PRIMARY KEY,
+    applied_at TIMESTAMPTZ DEFAULT now()
+);
 -- No extension needed for integers
 -------------------------------------------------------------------------------
 -- SEQUENCES with OFFSETS
@@ -625,3 +635,34 @@ BEGIN
     END LOOP;
 END
 $$;
+
+-------------------------------------------------------------------------------
+-- Migrations already contained in this file
+-------------------------------------------------------------------------------
+-- A database built from schema.sql has every schema change below, and the
+-- data-fix migrations among them have nothing to fix in an empty database, so
+-- they are recorded as applied. Add each new migration's filename here in the
+-- same change (tests/test_migrations_registry.py checks this list against
+-- db/migrations/). 019_add_profiles.sql is deliberately absent: it created the
+-- old Supabase-only profiles table, which never belonged in this database.
+INSERT INTO history.schema_migrations (filename) VALUES
+    ('018_tournament_seeded_single_config.sql'),
+    ('020_multiplayer_rooms.sql'),
+    ('021_rooms_add_match_format.sql'),
+    ('022_simulations_add_participant_ids.sql'),
+    ('023_rooms_add_reordering_status.sql'),
+    ('024_game_sessions_add_client_id.sql'),
+    ('025_fix_wc_ipl_tournament_data.sql'),
+    ('026_match_potm_and_final_standings.sql'),
+    ('027_game_sessions_add_room_id.sql'),
+    ('028_match_players_batting_position.sql'),
+    ('029_seeded_home_venues_and_pwi.sql'),
+    ('030_admin_edits.sql'),
+    ('031_identity_links.sql'),
+    ('032_rooms_add_visibility.sql'),
+    ('033_rooms_advanced_settings.sql'),
+    ('034_audit_columns.sql'),
+    ('035_fix_cricinfo_f6ba97c6.sql'),
+    ('036_tournament_seeded_overseas_columns.sql'),
+    ('037_vocabulary_checks.sql')
+ON CONFLICT (filename) DO NOTHING;

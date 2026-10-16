@@ -26,6 +26,16 @@ Before marking any task complete, add tests in `tests/`. All tests must run with
 ### 4. Keep `db/schema.sql` in sync with `db/migrations/`
 `db/schema.sql` is the single "current full schema" reference - it's what `db/database.py::initialize_schema()` runs to set up a fresh database, and it's what anyone reading the codebase treats as ground truth for what tables exist. Every migration that adds/alters a table in the **main app DB** (not the old Supabase-only `profiles` table, which never belonged here) must also be reflected in `schema.sql` in the same change - not as a follow-up. This drifted twice already (migrations 030 and 031 both landed without a `schema.sql` update) before being caught and backfilled; don't let it happen a third time.
 
+**Every migration records itself.** `history.schema_migrations` lists which migration files have run on a database (`SELECT * FROM history.schema_migrations ORDER BY 1`). Every new migration must:
+- end with this line inside its own `BEGIN … COMMIT`, so the record and the change land together and a re-run never fails:
+  ```sql
+  INSERT INTO history.schema_migrations (filename) VALUES ('0NN_name.sql') ON CONFLICT (filename) DO NOTHING;
+  ```
+- start with `SET app.actor = 'migration:0NN';`, so the rows it changes say so in `updated_by`;
+- have its filename added to the list at the end of `db/schema.sql` in the same change.
+
+`tests/test_migrations_registry.py` enforces all three. (Precedent: production silently missed migration 029 because nothing recorded which migrations had run there; 018–033 still aren't recorded anywhere.)
+
 ---
 
 ## Architecture Overview

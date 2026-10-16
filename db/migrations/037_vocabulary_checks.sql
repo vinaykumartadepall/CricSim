@@ -69,12 +69,6 @@ ALTER TABLE history.matches
     ADD  CONSTRAINT matches_gender_check
          CHECK (gender IS NULL OR gender IN ('male','female'));
 
-DO $$
-BEGIN
-    IF to_regclass('history.schema_migrations') IS NOT NULL THEN
-        INSERT INTO history.schema_migrations (filename) VALUES ('037_vocabulary_checks.sql');
-    END IF;
-END
-$$;
+INSERT INTO history.schema_migrations (filename) VALUES ('037_vocabulary_checks.sql') ON CONFLICT (filename) DO NOTHING;
 
 COMMIT;
