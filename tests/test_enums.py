@@ -255,6 +255,7 @@ class TestApiBoundary:
         assert TestClient(app, raise_server_exceptions=False).post(
             "/cricsimapi/simulations/createsim", json=body).status_code == 422
 
-    def test_sim_history_rejects_unknown_mode(self, client, no_db):
-        resp = client.get("/cricsimapi/sim-history/best", params={"client_id": "c", "tournament_id": 1, "mode": "xyz"})
+    def test_sim_history_rejects_unknown_mode(self, client, no_db, as_identity):
+        resp = client.get("/cricsimapi/sim-history/best", params={"tournament_id": 1, "mode": "xyz"},
+                          headers=as_identity("c"))
         assert resp.status_code == 422

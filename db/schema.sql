@@ -578,6 +578,31 @@ CREATE TABLE IF NOT EXISTS simulation.identity_links (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_links_username_lower
     ON simulation.identity_links (lower(username));
 
+-- Per-browser credentials (migration 038). The first request for a client_id
+-- records a hash of the secret that browser generated; later requests must
+-- match it (api/identity_auth.py). Write-once: the trigger refuses any change.
+CREATE TABLE IF NOT EXISTS simulation.client_credentials (
+    client_id   VARCHAR(64) PRIMARY KEY,
+    secret_hash CHAR(64)    NOT NULL
+);
+
+CREATE OR REPLACE FUNCTION simulation.client_credentials_write_once() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.client_id IS DISTINCT FROM OLD.client_id
+       OR NEW.secret_hash IS DISTINCT FROM OLD.secret_hash THEN
+        RAISE EXCEPTION 'client_credentials is write-once: the secret for % cannot be replaced', OLD.client_id;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+DROP TRIGGER IF EXISTS client_credentials_write_once ON simulation.client_credentials;
+CREATE TRIGGER client_credentials_write_once
+    BEFORE UPDATE ON simulation.client_credentials
+    FOR EACH ROW EXECUTE FUNCTION simulation.client_credentials_write_once();
+
+
 -------------------------------------------------------------------------------
 -- Audit columns (migration 034) - keep this section LAST.
 --
@@ -664,5 +689,6 @@ INSERT INTO history.schema_migrations (filename) VALUES
     ('034_audit_columns.sql'),
     ('035_fix_cricinfo_f6ba97c6.sql'),
     ('036_tournament_seeded_overseas_columns.sql'),
-    ('037_vocabulary_checks.sql')
+    ('037_vocabulary_checks.sql'),
+    ('038_client_credentials.sql')
 ON CONFLICT (filename) DO NOTHING;

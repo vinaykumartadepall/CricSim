@@ -1,3 +1,4 @@
+import pytest
 """
 Tests for the multiplayer room-creation rate limit (api/routes/multiplayer.py)
 - GET /multiplayer/rooms/active-count and the 429 enforced inside
@@ -82,10 +83,11 @@ class TestActiveHostedRoomCount(_RoomsFixture):
         assert _active_hosted_room_count("alice") == 4
 
 
+@pytest.mark.usefixtures("as_identity")
 class TestActiveCountEndpoint(_RoomsFixture):
     def _get(self, client_id):
         return TestClient(app).get(
-            "/cricsimapi/multiplayer/rooms/active-count", params={"client_id": client_id}
+            "/cricsimapi/multiplayer/rooms/active-count", headers={"X-Test-Identity": client_id}
         )
 
     def test_returns_count_and_limit(self):
@@ -102,13 +104,14 @@ class TestActiveCountEndpoint(_RoomsFixture):
         assert resp.json() == {"count": 0, "limit": MAX_ACTIVE_HOSTED_ROOMS}
 
 
+@pytest.mark.usefixtures("as_identity")
 class TestCreateRoomRateLimit(_RoomsFixture):
     def _create(self, client_id, monkeypatch):
         monkeypatch.setattr(mp_routes, "db_cursor", _fake_db_cursor())
         return TestClient(app).post(
             "/cricsimapi/multiplayer/rooms",
+            headers={"X-Test-Identity": client_id},
             json={
-                "client_id": client_id,
                 "display_name": "Alice",
                 "mode": "tournament",
                 "tournament_name": "Test Cup",

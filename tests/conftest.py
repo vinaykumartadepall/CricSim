@@ -78,3 +78,25 @@ def app_db(monkeypatch):
         monkeypatch.setattr(database, "_DATABASE_URL", None)
         monkeypatch.setattr(database, "DB_NAME", db.name)
     return _use
+
+
+@pytest.fixture
+def as_identity():
+    """Route tests that aren't about authentication: stand in for a verified
+    identity without real credentials. Returns a helper that builds the request
+    headers - e.g. client.get(url, headers=as_identity("a")). No header means
+    no credentials (401 on endpoints that require an identity). The real check
+    (api/identity_auth.py) is tested in tests/test_identity_auth.py."""
+    from typing import Optional
+
+    from fastapi import Header
+
+    from api.identity_auth import Identity, _request_identity
+    from api.main import app
+
+    def _test_identity(x_test_identity: Optional[str] = Header(None)) -> Optional[Identity]:
+        return Identity(x_test_identity, f"client:{x_test_identity}") if x_test_identity else None
+
+    app.dependency_overrides[_request_identity] = _test_identity
+    yield lambda ident: {"X-Test-Identity": ident}
+    app.dependency_overrides.pop(_request_identity, None)

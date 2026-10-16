@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from api.identity_auth import require_identity
 from api.routes._identity_lookup import display_names_for as _display_names_for
 from db.simulation_repository import SimulationRepository
 from enums.domain import GameMode
@@ -34,8 +35,10 @@ class TeamBestItem(BaseModel):
 
 
 class ChallengeLeaderboardEntry(BaseModel):
+    # No client_id: it works as the entrant's credential (anyone holding it can
+    # act as them), so it must never be sent to other users. is_you + sim_id
+    # cover what the page needs.
     rank: int
-    client_id: str
     username: str
     is_you: bool
     best_placement: str
@@ -68,7 +71,7 @@ class LeaderboardsEnabledResponse(BaseModel):
 
 @router.get("/counts", response_model=List[NameCountItem] | List[SeasonCountItem])
 def sim_history_counts(
-    client_id: str = Query(...),
+    client_id: str = Depends(require_identity),
     tournament_ids: Optional[str] = Query(None, description="Comma-separated tournament IDs for season-level counts"),
     mode: Optional[GameMode] = Query(None, description="Filter completed counts by mode (e.g. 'challenge', 'fun')"),
     name_query: Optional[str] = Query(None, description="Case-insensitive substring filter on tournament name, for Step 1 only - mirrors /lov/tournaments' q param"),
@@ -111,7 +114,7 @@ def leaderboards_enabled():
 
 @router.get("/best", response_model=List[TeamBestItem])
 def sim_history_best(
-    client_id: str = Query(...),
+    client_id: str = Depends(require_identity),
     tournament_id: int = Query(...),
     mode: Optional[GameMode] = Query(None, description="Filter by mode (e.g. 'challenge', 'fun')"),
 ):
@@ -126,7 +129,7 @@ def sim_history_best(
 
 @router.get("/leaderboard", response_model=ChallengeLeaderboardResponse)
 def challenge_leaderboard(
-    client_id: str = Query(...),
+    client_id: str = Depends(require_identity),
     tournament_id: int = Query(...),
     team_name: str = Query(...),
     mode: GameMode = Query(..., description="Must match the mode of the viewed result: 'challenge' or 'fun'"),
@@ -162,7 +165,7 @@ def challenge_leaderboard(
 
     def _to_entry(r: dict) -> ChallengeLeaderboardEntry:
         return ChallengeLeaderboardEntry(
-            rank=r["rank"], client_id=r["client_id"],
+            rank=r["rank"],
             username=names.get(r["client_id"]) or "Anonymous Player",
             is_you=r["is_you"], best_placement=r["best_placement"],
             swap_count=r["swap_count"], win_pct=r["win_pct"], sim_id=str(r["sim_id"]),
@@ -177,7 +180,7 @@ def challenge_leaderboard(
 
 @router.get("/my-ranks", response_model=List[MyTeamRankItem])
 def my_challenge_ranks(
-    client_id: str = Query(...),
+    client_id: str = Depends(require_identity),
     tournament_id: int = Query(...),
     mode: GameMode = Query(..., description="'challenge' or 'fun'"),
 ):

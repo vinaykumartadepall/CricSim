@@ -1,92 +1,76 @@
 import type { SimSummary, Tournament, TournamentSquads, TournamentResult, LeaderboardsDashboard, MatchItem, Scorecard, SwapEntry, SimHistoryNameCount, SimHistorySeasonCount, SimHistoryTeamBest, ChallengeLeaderboardResponse, MyTeamRankItem, MultiplayerPlayer, PlayerSearchFilters, PlayerFilterOptions, RoomResponse, RoomState, CreateRoomBody, JoinRoomBody, PublicRoomSummary, VenueSearchResult, VenueCountry, AdminSettings, AdminCacheStrategyResponse, AdminSimulationDefaultsResponse, LeaderboardsEnabledResponse, AdminSimListResponse, AdminTournamentSummary, AdminTournamentDetail, AdminPlayer, Country, Commentary } from '@/types'
 import { supabase } from '@/lib/supabase'
+import { getClientId, getClientSecret, resetAnonymousIdentity } from '@/api/clientId'
 
 const BASE = '/cricsimapi'
 
-async function authHeaders(): Promise<Record<string, string>> {
-  if (!supabase) return {}
+/**
+ * Identity for every request (api/identity_auth.py): the Supabase JWT when
+ * signed in, plus this browser's client_id + secret. The server trusts only
+ * these - a client_id in a URL or body proves nothing.
+ */
+async function identityHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    'X-Client-Id': getClientId(),
+    'X-Client-Secret': await getClientSecret(),
+  }
+  if (supabase) {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`
+  }
+  return headers
+}
+
+/** Same proofs for the room WebSocket, sent as its first message (browsers
+ *  can't put headers on a WebSocket, and a URL would end up in access logs). */
+export async function wsAuthMessage(): Promise<Record<string, string>> {
+  if (supabase) {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.access_token) return { type: 'auth', token: session.access_token }
+  }
+  return { type: 'auth', client_id: getClientId(), secret: await getClientSecret() }
+}
+
+async function signedIn(): Promise<boolean> {
+  if (!supabase) return false
   const { data: { session } } = await supabase.auth.getSession()
-  if (session?.access_token) return { Authorization: `Bearer ${session.access_token}` }
-  return {}
+  return !!session
 }
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
+/** The server rejected this browser's anonymous identity for good: it belongs
+ *  to a signed-in account (and we're signed out), or its secret doesn't match.
+ *  Start a fresh anonymous identity rather than failing every request. */
+async function recoverIdentity(res: Response): Promise<void> {
+  const reason = res.headers.get('X-Identity-Error')
+  if (reason === 'credential_mismatch' || (reason === 'identity_linked' && !(await signedIn()))) {
+    resetAnonymousIdentity()
+  }
+}
+
+async function send(path: string, method: string, body?: unknown): Promise<Response> {
+  const headers = await identityHeaders()
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  const res = await fetch(`${BASE}${path}`, {
+    method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+  })
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) await recoverIdentity(res)
     const err = await res.json().catch(() => ({}))
     throw new Error((err as { detail?: string }).detail || `${res.status} ${res.statusText}`)
   }
-  return res.json()
+  return res
 }
 
-async function authGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { headers: await authHeaders() })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-  return res.json()
-}
-
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as { detail?: string }).detail || `${res.status} ${res.statusText}`)
-  }
-  return res.json()
-}
-
-async function authPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as { detail?: string }).detail || `${res.status} ${res.statusText}`)
-  }
-  return res.json()
-}
-
-async function authPut<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as { detail?: string }).detail || `${res.status} ${res.statusText}`)
-  }
-  return res.json()
-}
-
-async function put<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as { detail?: string }).detail || `${res.status} ${res.statusText}`)
-  }
-  return res.json()
-}
-
-// No response body (204) - identity/sync-anonymous is fire-and-forget, so a
-// plain res.json() would throw on the empty body.
-async function postNoContent(path: string, body: unknown): Promise<void> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-}
+const get = async <T>(path: string): Promise<T> => (await send(path, 'GET')).json()
+const post = async <T>(path: string, body: unknown): Promise<T> => (await send(path, 'POST', body)).json()
+const put = async <T>(path: string, body: unknown): Promise<T> => (await send(path, 'PUT', body)).json()
+// No response body (204) - identity/sync-anonymous is fire-and-forget.
+const postNoContent = async (path: string, body: unknown): Promise<void> => { await send(path, 'POST', body) }
+// Admin and account endpoints - identical now that every request carries the
+// JWT; kept as names so call sites still read as "needs sign-in".
+const authGet = get
+const authPost = post
+const authPut = put
 
 export const api = {
   getTournaments: (q?: string) =>

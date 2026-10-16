@@ -129,6 +129,9 @@ class TestApiAttribution:
             def sync_anonymous(self, *a):
                 pass
 
+            def is_auth_linked(self, auth_id):
+                return True   # returning sign-in: no browser credential check
+
             def link_account(self, auth_id, current_client_id, fallback_username):
                 return auth_id
 
@@ -141,23 +144,24 @@ class TestApiAttribution:
         monkeypatch.setattr(identity_mod, "IdentityRepository", _Repo)
         return seen
 
-    def test_anonymous_write_is_attributed_to_the_client(self, recording_identity_repo):
-        r = TestClient(app).post("/cricsimapi/identity/sync-anonymous", json={"client_id": "anon-1", "username": "x"})
+    def test_anonymous_write_is_attributed_to_the_client(self, recording_identity_repo, as_identity):
+        r = TestClient(app).post("/cricsimapi/identity/sync-anonymous", json={"username": "x"},
+                                 headers=as_identity("anon-1"))
         assert r.status_code == 204
         assert recording_identity_repo == ["client:anon-1"]
 
     def test_signed_in_write_is_attributed_to_the_user(self, recording_identity_repo):
         app.dependency_overrides[get_current_user_id] = lambda: "user-uuid-1"
         try:
-            r = TestClient(app).post("/cricsimapi/identity/link", json={"client_id": "anon-1", "fallback_username": "x"})
+            r = TestClient(app).post("/cricsimapi/identity/link", json={"fallback_username": "x"})
         finally:
             app.dependency_overrides.pop(get_current_user_id, None)
         assert r.status_code == 200
         assert recording_identity_repo == ["user:user-uuid-1"]
 
-    def test_actor_does_not_leak_into_the_next_request(self, recording_identity_repo):
+    def test_actor_does_not_leak_into_the_next_request(self, recording_identity_repo, as_identity):
         client = TestClient(app)
-        client.post("/cricsimapi/identity/sync-anonymous", json={"client_id": "anon-1", "username": "x"})
+        client.post("/cricsimapi/identity/sync-anonymous", json={"username": "x"}, headers=as_identity("anon-1"))
         assert database.current_actor() == database._default_actor
-        client.post("/cricsimapi/identity/sync-anonymous", json={"client_id": "anon-2", "username": "y"})
+        client.post("/cricsimapi/identity/sync-anonymous", json={"username": "y"}, headers=as_identity("anon-2"))
         assert recording_identity_repo == ["client:anon-1", "client:anon-2"]

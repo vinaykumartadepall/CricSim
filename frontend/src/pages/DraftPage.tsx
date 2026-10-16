@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Copy, Check, ArrowUp, ArrowDown, Search, Zap, AlertTriangle, CheckCircle2, Settings } from 'lucide-react'
+import { wsAuthMessage } from '@/api/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { useHelp } from '@/contexts/HelpContext'
 import { hasSeenHelp, markHelpSeen } from '@/config/helpContent'
@@ -711,7 +712,7 @@ export function DraftPage() {
 
   // Connection status
   const [connStatus, setConnStatus] = useState<'connecting' | 'connected' | 'reconnecting' | 'dead'>('connecting')
-  const [deadReason, setDeadReason] = useState<'not_found' | 'lost' | 'kicked' | null>(null)
+  const [deadReason, setDeadReason] = useState<'not_found' | 'lost' | 'kicked' | 'auth' | null>(null)
   const [retryKey, setRetryKey]     = useState(0)
 
   // Draft state
@@ -925,11 +926,14 @@ export function DraftPage() {
     function connect() {
       if (!mountedRef.current) return
       clearPing()
-      const ws = new WebSocket(`${WS_BASE}/${roomId}?client_id=${encodeURIComponent(clientId)}`)
+      // No identity in the URL: the first message proves who we are
+      // (wsAuthMessage) - the server closes with 4401 if it can't verify it.
+      const ws = new WebSocket(`${WS_BASE}/${roomId}`)
       wsRef.current = ws
 
-      ws.onopen = () => {
+      ws.onopen = async () => {
         if (!mountedRef.current) return
+        ws.send(JSON.stringify(await wsAuthMessage()))
         reconnectCountRef.current = 0
         setConnStatus('connected')
         pingRef.current = setInterval(() => {
@@ -943,6 +947,7 @@ export function DraftPage() {
         clearPing()
         if (e.code === 4004) { setConnStatus('dead'); setDeadReason('not_found'); return }
         if (e.code === 4001) { setConnStatus('dead'); setDeadReason('kicked'); return }
+        if (e.code === 4401) { setConnStatus('dead'); setDeadReason('auth'); return }
         if (e.code === 4003) { navigate(`/join/${roomId}`); return }
         if (e.code === 1000) return
         if (reconnectCountRef.current >= MAX_RECONNECTS) { setConnStatus('dead'); setDeadReason('lost'); return }
@@ -1010,13 +1015,16 @@ export function DraftPage() {
   // ── Dead state ────────────────────────────────────────────────────────────────
   // 'kicked' shows this screen even with a (now stale) room already loaded -
   // every other dead reason means the client never had a room to show.
-  if (connStatus === 'dead' && (!room || deadReason === 'kicked')) {
+  if (connStatus === 'dead' && (!room || deadReason === 'kicked' || deadReason === 'auth')) {
     const isNotFound = deadReason === 'not_found'
     const isKicked   = deadReason === 'kicked'
+    const isAuth     = deadReason === 'auth'
     const icon    = isNotFound ? '🚪' : isKicked ? '👋' : '⚠️'
-    const heading = isNotFound ? 'Room not found' : isKicked ? 'Removed from room' : 'Connection failed'
+    const heading = isNotFound ? 'Room not found' : isKicked ? 'Removed from room'
+                  : isAuth ? "Couldn't verify you" : 'Connection failed'
     const detail  = isNotFound ? 'This room no longer exists or the server was restarted.'
                   : isKicked   ? 'The host removed you from this room.'
+                  : isAuth     ? 'Please refresh the page and try again.'
                   : 'Unable to connect after several attempts.'
     return (
       <div className="flex items-center justify-center min-h-[60vh]">

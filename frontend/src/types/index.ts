@@ -58,7 +58,6 @@ export interface SimHistoryTeamBest {
 
 export interface ChallengeLeaderboardEntry {
   rank: number
-  client_id: string
   username: string
   is_you: boolean
   best_placement: string

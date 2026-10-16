@@ -3,13 +3,22 @@
 (api/routes/sim_history.py). No live DB - SimulationRepository and the
 shared username lookup are monkeypatched with fakes.
 """
+import pytest
+
 import api.routes.sim_history as sim_history_mod
 from fastapi.testclient import TestClient
 
 from api.main import app
 from simulator.admin_settings import get_admin_settings
 
-client = TestClient(app)
+client = TestClient(app, headers={"X-Test-Identity": "a"})
+
+
+@pytest.fixture(autouse=True)
+def _identity(as_identity):
+    """Every request here acts as verified identity "a" (the old client_id
+    query params are now ignored by the API)."""
+    yield
 
 
 class _FakeRepo:
@@ -66,6 +75,24 @@ class TestChallengeLeaderboardRoute:
         assert first["win_pct"] == 1.0
         assert second["username"] == "Anonymous Player"  # no identity_links row
         assert second["is_you"] is False
+
+    def test_never_exposes_any_client_id(self, monkeypatch):
+        """client_id works as the entrant's credential (anyone holding it can
+        rename them or act as them), so the public leaderboard must not carry
+        it - not for other entrants, and not for the caller's own row either."""
+        you = {"client_id": "a", "best_placement": "Winner", "swap_count": 0,
+               "win_pct": 1.0, "sim_id": "s1", "is_you": True, "rank": 1}
+        monkeypatch.setattr(sim_history_mod, "SimulationRepository", lambda: _FakeRepo(_leaderboard_rows(), you=you))
+        monkeypatch.setattr(sim_history_mod, "_display_names_for", lambda ids: {"a": "Alice"})
+
+        resp = client.get("/cricsimapi/sim-history/leaderboard", params={
+            "client_id": "a", "tournament_id": 3039, "team_name": "Mumbai Indians", "mode": "challenge",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        for entry in body["entries"] + [body["you"]]:
+            assert "client_id" not in entry
+        assert '"b"' not in resp.text, "another entrant's client_id leaked into the response"
 
     def test_invalid_mode_is_422(self):
         resp = client.get("/cricsimapi/sim-history/leaderboard", params={

@@ -5,12 +5,14 @@ import os
 import time
 from typing import Callable, List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 import json as _json
 import psycopg2.extras
 
+from api.identity_auth import REFRESH_MESSAGE, Identity, identity_from_credentials, require_identity
 from api.job_queue import job_queue
 from api.multiplayer.venues import venues_for_format
 from api.multiplayer.manager import HOST_RECONNECT_GRACE_S, SQUAD_SIZE, RoomState, draft_manager, _snake_sequence
@@ -188,7 +190,6 @@ class VenueConfigRequest(BaseModel):
 
 
 class CreateRoomRequest(BaseModel):
-    client_id: str
     display_name: str = Field(..., min_length=1, max_length=32)
     mode: str = Field("1v1", pattern="^(1v1|tournament)$")
     tournament_name: str = Field("", max_length=64)
@@ -202,12 +203,11 @@ class CreateRoomRequest(BaseModel):
 
 
 class JoinRoomRequest(BaseModel):
-    client_id: str
     display_name: str = Field(..., min_length=1, max_length=32)
 
 
 @router.get("/rooms/active-count")
-def get_active_hosted_room_count(client_id: str = Query(...)):
+def get_active_hosted_room_count(client_id: str = Depends(require_identity)):
     """How many rooms client_id currently hosts (not yet 'completed'), plus
     the cap - lets the frontend disable Create Room proactively instead of
     only finding out via a 429 after filling in the whole form."""
@@ -215,13 +215,12 @@ def get_active_hosted_room_count(client_id: str = Query(...)):
 
 
 @router.post("/rooms")
-def create_room(body: CreateRoomRequest):
-    bind_actor(f"client:{body.client_id}")
+def create_room(body: CreateRoomRequest, client_id: str = Depends(require_identity)):
     if body.mode == "1v1" and body.player_count != 2:
         raise HTTPException(status_code=422, detail="1v1 mode requires exactly 2 players")
     if body.mode == "tournament" and body.player_count < 4:
         raise HTTPException(status_code=422, detail="Tournament mode requires at least 4 players")
-    if _active_hosted_room_count(body.client_id) >= MAX_ACTIVE_HOSTED_ROOMS:
+    if _active_hosted_room_count(client_id) >= MAX_ACTIVE_HOSTED_ROOMS:
         raise HTTPException(
             status_code=429,
             detail="Too many active rooms. Finish or leave an existing room before creating another.",
@@ -229,7 +228,7 @@ def create_room(body: CreateRoomRequest):
 
     name = body.tournament_name.strip() or _random_tournament_name()
     room = draft_manager.create_room(
-        host_id=body.client_id,
+        host_id=client_id,
         display_name=body.display_name,
         mode=body.mode,
         tournament_name=name,
@@ -245,19 +244,18 @@ def create_room(body: CreateRoomRequest):
 
 
 @router.post("/rooms/{room_id}/join")
-def join_room(room_id: str, body: JoinRoomRequest):
-    bind_actor(f"client:{body.client_id}")
+def join_room(room_id: str, body: JoinRoomRequest, client_id: str = Depends(require_identity)):
     if not _room_exists_in_db(room_id):
         draft_manager.remove_room(room_id)
         raise HTTPException(status_code=404, detail="Room no longer exists")
     try:
-        room = draft_manager.join_room(room_id, body.client_id, body.display_name)
+        room = draft_manager.join_room(room_id, client_id, body.display_name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     # Persist the member's name as join_room actually stored it, not the raw
     # request value - join_room dedupes collisions ("Vinay" -> "Vinay (2)"),
     # and a restore-from-DB must not resurrect the duplicate.
-    _persist_member(room.room_id, body.client_id, room.members[body.client_id].display_name)
+    _persist_member(room.room_id, client_id, room.members[client_id].display_name)
     return room.to_dict()
 
 
@@ -316,10 +314,47 @@ def get_room(room_id: str):
 
 # ── WebSocket ──────────────────────────────────────────────────────────────────
 
+WS_AUTH_TIMEOUT_S = 10
+WS_AUTH_FAILED = 4401   # close code: credentials missing or invalid
+
+
+async def _authenticate_ws(ws: WebSocket) -> Optional[Identity]:
+    """Browsers can't put headers on a WebSocket, so the first message must be
+    {"type": "auth", "token": <Supabase JWT>} or {"type": "auth", "client_id":
+    ..., "secret": ...} - the same proofs the HTTP endpoints take, checked by
+    the same function. Sent as a message rather than in the URL so it never
+    lands in access logs. Closes the socket and returns None on failure (a tab
+    running pre-credential code never sends one, so it times out here)."""
+    try:
+        raw = await asyncio.wait_for(ws.receive_text(), timeout=WS_AUTH_TIMEOUT_S)
+        msg = _json.loads(raw)
+        if not isinstance(msg, dict) or msg.get("type") != "auth":
+            raise ValueError("first message must be auth")
+        token = msg.get("token")
+        ident = await run_in_threadpool(
+            identity_from_credentials,
+            f"Bearer {token}" if token else None, msg.get("client_id"), msg.get("secret"),
+        )
+        if ident is None:
+            raise ValueError("no credentials")
+        return ident
+    except HTTPException as e:
+        await ws.close(code=WS_AUTH_FAILED, reason=str(e.detail)[:120])
+    except (asyncio.TimeoutError, ValueError, TypeError):
+        await ws.close(code=WS_AUTH_FAILED, reason=REFRESH_MESSAGE)
+    except WebSocketDisconnect:
+        pass
+    return None
+
+
 @router.websocket("/ws/{room_id}")
-async def room_ws(ws: WebSocket, room_id: str, client_id: str = Query(...)):
-    bind_actor(f"client:{client_id}")
+async def room_ws(ws: WebSocket, room_id: str):
     await ws.accept()
+    ident = await _authenticate_ws(ws)
+    if ident is None:
+        return
+    client_id = ident.id
+    bind_actor(ident.actor)
     room = draft_manager.get_room(room_id)
     if not room:
         room = _restore_room_from_db(room_id)

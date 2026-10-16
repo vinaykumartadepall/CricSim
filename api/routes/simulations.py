@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Annotated, List, Optional, Union
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from api.identity_auth import optional_identity, require_identity
 from api.job_queue import job_queue
 from api.models.requests import (
     CreateSimRequest,
@@ -28,7 +29,7 @@ from api.models.responses import (
     TournamentResultResponse,
 )
 from api.worker import get_tournament_progress, run_match_job, run_tournament_job
-from db.database import bind_actor, db_cursor, get_db_connection
+from db.database import db_cursor, get_db_connection
 from db.headshots import headshot_url
 from db.simulation_repository import SimulationRepository, _parse_win
 from enums.domain import GameMode
@@ -46,16 +47,15 @@ router = APIRouter(prefix="/cricsimapi/simulations", tags=["simulations"])
 @router.post("/createsim", response_model=SimCreatedResponse, status_code=202)
 def create_simulation(
     request: Annotated[Union[MatchSimRequest, TournamentSimRequest], Field(discriminator="simulation_type")],
+    client_id: Optional[str] = Depends(optional_identity),
 ):
-    if request.client_id:
-        bind_actor(f"client:{request.client_id}")
     repo = SimulationRepository()
     try:
         config_dict = request.model_dump()
         sim_id      = repo.create_simulation(
             request.simulation_type,
             config_dict,
-            client_id=request.client_id,
+            client_id=client_id,
             mode=getattr(request, "mode", None),
         )
         repo.commit()
@@ -76,16 +76,13 @@ class TournamentFromIdRequest(BaseModel):
     tournament_id: int
     team_id:       Optional[int]  = None
     mode:          Optional[GameMode] = None
-    client_id:     Optional[str]  = None
     swaps:         List[dict]     = Field(default_factory=list)
     batting_order: List[int]      = Field(default_factory=list)
 
 
 @router.post("/tournament", response_model=SimCreatedResponse, status_code=202)
-def create_tournament_from_id(body: TournamentFromIdRequest):
+def create_tournament_from_id(body: TournamentFromIdRequest, client_id: str = Depends(require_identity)):
     """Start a tournament simulation using a pre-seeded tournament_id."""
-    if body.client_id:
-        bind_actor(f"client:{body.client_id}")
     conn = get_db_connection(autocommit=False)
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
@@ -149,15 +146,14 @@ def create_tournament_from_id(body: TournamentFromIdRequest):
         config = {**config, "teams": updated_teams}
 
     # 3. Rate-limit: max 2 concurrent running simulations per client
-    if body.client_id:
-        with db_cursor() as cur2:
-            cur2.execute(
-                "SELECT COUNT(*) FROM simulation.simulations WHERE client_id = %s AND status IN ('pending','running')",
-                (body.client_id,),
-            )
-            active = cur2.fetchone()[0]
-        if active >= 2:
-            raise HTTPException(status_code=429, detail="Too many active simulations. Wait for your current simulation to finish.")
+    with db_cursor() as cur2:
+        cur2.execute(
+            "SELECT COUNT(*) FROM simulation.simulations WHERE client_id = %s AND status IN ('pending','running')",
+            (client_id,),
+        )
+        active = cur2.fetchone()[0]
+    if active >= 2:
+        raise HTTPException(status_code=429, detail="Too many active simulations. Wait for your current simulation to finish.")
 
     # 4. Create simulation record + game session, then dispatch worker
     config_dict = config  # already in TournamentConfig-compatible format
@@ -167,12 +163,12 @@ def create_tournament_from_id(body: TournamentFromIdRequest):
         sim_id = repo.create_simulation(
             "tournament",
             config_dict,
-            client_id=body.client_id,
+            client_id=client_id,
             mode=body.mode,
         )
         repo.save_game_session(
             sim_id=sim_id,
-            client_id=body.client_id,
+            client_id=client_id,
             mode=body.mode,
             source_tournament_id=body.tournament_id,
             user_team_id=None,  # back-filled by worker after simulation.teams rows are inserted
@@ -185,7 +181,7 @@ def create_tournament_from_id(body: TournamentFromIdRequest):
     job_queue.submit(
         sim_id, run_tournament_job, sim_id, config_dict,
         user_team_name=user_team_name,
-        client_id=body.client_id,
+        client_id=client_id,
     )
     return SimCreatedResponse(sim_id=sim_id)
 
@@ -206,7 +202,7 @@ def get_total_simulations():
 # ── GET  (no trailing slash - avoids 307 CORS redirect) ──────────────────────
 
 @router.get("", response_model=List[SimSummaryItem])
-def list_simulations(limit: int = 5, offset: int = 0, client_id: str = Query(...)):
+def list_simulations(limit: int = 5, offset: int = 0, client_id: str = Depends(require_identity)):
     # client_id is required: the repo treats None as "all users", which is
     # reserved for the guarded admin data view (api/routes/admin_data.py).
     repo = SimulationRepository()
@@ -275,7 +271,7 @@ def get_session(sim_id: str):
 # ── GET /{sim_id}/result ───────────────────────────────────────────────────────
 
 @router.get("/{sim_id}/result")
-def get_result(sim_id: str, client_id: Optional[str] = None):
+def get_result(sim_id: str, client_id: Optional[str] = Depends(optional_identity)):
     repo = SimulationRepository()
     try:
         sim = repo.get_simulation(sim_id)
@@ -475,7 +471,7 @@ def get_lineups(sim_id: str):
 # ── GET /{sim_id}/scorecard  (match only) ─────────────────────────────────────
 
 @router.get("/{sim_id}/scorecard", response_model=ScorecardResponse)
-def match_scorecard(sim_id: str, client_id: Optional[str] = None):
+def match_scorecard(sim_id: str, client_id: Optional[str] = Depends(optional_identity)):
     repo = SimulationRepository()
     try:
         sim = _require_completed(repo, sim_id)
@@ -551,7 +547,7 @@ def tournament_match_result(sim_id: str, match_id: int):
 # ── GET /{sim_id}/matches/{match_id}/scorecard  (tournament) ──────────────────
 
 @router.get("/{sim_id}/matches/{match_id}/scorecard", response_model=ScorecardResponse)
-def tournament_match_scorecard(sim_id: str, match_id: int, client_id: Optional[str] = None):
+def tournament_match_scorecard(sim_id: str, match_id: int, client_id: Optional[str] = Depends(optional_identity)):
     repo = SimulationRepository()
     try:
         sim = _require_completed(repo, sim_id)

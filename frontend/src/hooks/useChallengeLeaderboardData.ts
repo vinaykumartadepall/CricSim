@@ -48,7 +48,7 @@ export function useChallengeLeaderboardData(tournamentId: number, teamName: stri
       .finally(() => setLoadingMore(false))
   }
 
-  const youAlreadyListed = !!you && entries.some(e => e.client_id === you.client_id)
+  const youAlreadyListed = !!you && entries.some(e => e.is_you)
 
   return { entries, you, youAlreadyListed, totalEntrants, loading, loadingMore, error, canLoadMore, loadMore }
 }

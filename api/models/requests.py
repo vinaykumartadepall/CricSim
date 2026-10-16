@@ -24,7 +24,6 @@ class MatchSimRequest(BaseModel):
     era_normalize_contexts: Optional[List[str]] = None
     team_a: TeamConfig
     team_b: TeamConfig
-    client_id: Optional[str] = None
 
 
 class TournamentVenueConfig(BaseModel):
@@ -75,7 +74,6 @@ class TournamentSimRequest(BaseModel):
     teams: List[TournamentTeamConfig]
     schedule: Union[ScheduleConfig, List[FixtureConfig]] = Field(default_factory=ScheduleConfig)
     playoffs: PlayoffConfig = Field(default_factory=PlayoffConfig)
-    client_id: Optional[str] = None
     mode: Optional[Literal["fun", "challenge"]] = None
 
 

@@ -65,7 +65,7 @@ class TestAuditColumnsOnFreshDatabase:
                                                   WHERE table_schema = %s AND table_name = %s""", (schema, name))}
             assert {"created_at", "updated_at", "updated_by"} <= cols, t
             triggers = _fetch(conn, "SELECT tgname FROM pg_trigger WHERE tgrelid = %s::regclass AND NOT tgisinternal", (t,))
-            assert triggers == [("audit_touch",)], t
+            assert ("audit_touch",) in triggers, t   # others may add their own (e.g. write-once guards)
         conn.close()
 
     def test_insert_fills_columns_from_defaults_with_actor(self, fresh_db):

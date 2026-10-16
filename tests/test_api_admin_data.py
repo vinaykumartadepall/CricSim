@@ -158,8 +158,10 @@ class TestPublicListRequiresClientId:
     admin view. The public route must therefore reject a missing client_id
     (which previously listed every user's simulations to anyone)."""
 
-    def test_missing_client_id_is_422(self, client):
-        assert client.get("/cricsimapi/simulations").status_code == 422
+    def test_missing_identity_is_401(self, client):
+        # The route now takes the caller's verified identity, never a raw
+        # client_id - a request without credentials gets nothing.
+        assert client.get("/cricsimapi/simulations").status_code == 401
 
 
 class _FakeCursor:

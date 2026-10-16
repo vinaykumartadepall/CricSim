@@ -67,6 +67,11 @@ class IdentityRepository:
         row = self._cur.fetchone()
         return row["id"] if row else raw_id
 
+    def is_auth_linked(self, auth_id: str) -> bool:
+        """True once this account has been linked (its first sign-in done)."""
+        self._cur.execute("SELECT 1 FROM simulation.identity_links WHERE linked_auth_id = %s", (auth_id,))
+        return self._cur.fetchone() is not None
+
     # ── Anonymous identity ───────────────────────────────────────────────────
 
     def sync_anonymous(self, anon_id: str, username: str) -> None:

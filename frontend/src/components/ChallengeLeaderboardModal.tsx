@@ -185,7 +185,7 @@ export function LeaderboardEntries({
       )}
       <div className={scrollContainerClassName}>
         {entries.map(e => (
-          <LeaderboardRow key={e.client_id} entry={e} highlight={e.is_you} onClick={() => onSelectEntry(e)} />
+          <LeaderboardRow key={e.sim_id} entry={e} highlight={e.is_you} onClick={() => onSelectEntry(e)} />
         ))}
         {canLoadMore && <div ref={sentinelRef} style={{ height: 1 }} />}
         {loadingMore && <div className="flex justify-center py-2"><Spinner size={14} /></div>}
