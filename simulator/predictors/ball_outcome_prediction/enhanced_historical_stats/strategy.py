@@ -587,10 +587,8 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         repo = StatsRepository()
 
         try:
-            venue_result = repo.get_venue_distribution(venue.id, match_format, gender)
-            if not venue_result and getattr(venue, 'country', None):
-                venue_result = repo.get_country_distribution(venue.country, match_format, gender)
-                log.info("[Model] Venue absent - using country distribution (%s)", venue.country)
+            venue_result = load_venue_distribution(
+                repo, match, match_format, gender, lambda _label, fn, *args: fn(*args), log)
         except Exception as e:
             log.warning("[EnhancedModel] Cache 'venue' failed: %s", e)
             venue_result = {}

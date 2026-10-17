@@ -347,6 +347,16 @@ class TestVenueContextRefresh:
 
         assert strategy.venue_cache == VENUE_A_DIST
 
+    def test_venue_without_stats_falls_back_to_its_country(self):
+        """The fallback lives in one shared function (common/utils.py::
+        load_venue_distribution), used by both outcome strategies."""
+        country_dist = {(2, 0, 'Runs', None): 0.9}
+        with patch.object(StatsRepository, "get_country_distribution",
+                          lambda _self, country, fmt, gender: country_dist if country == "India" else {}):
+            strategy = self._strategy({})                       # venue 42 has no venue stats
+            strategy.init_model(_make_match(venue=_venue(42, "Some Ground", country="India")))
+        assert strategy.venue_cache == country_dist
+
     def test_venue_cache_resets_to_empty_for_a_venueless_match_after_a_real_one(self):
         strategy = self._strategy({42: VENUE_A_DIST})
         strategy.init_model(_make_match(venue=_venue(42, "Wankhede Stadium")))
