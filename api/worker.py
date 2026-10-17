@@ -11,7 +11,7 @@ Each job:
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from db.database import db_actor
 from db.simulation_repository import SimulationRepository
@@ -202,6 +202,11 @@ def run_tournament_job(
                 silent        = True,
             )
             engine.run()
+            if engine.unsaved_matches:
+                raise RuntimeError(
+                    f"{len(engine.unsaved_matches)} match(es) could not be saved: "
+                    + ", ".join(engine.unsaved_matches[:5])
+                )
 
             mvp_lb = engine.get_mvp_leaderboard()
             if mvp_lb:
@@ -295,6 +300,12 @@ class _PersistingTournamentEngine(TournamentEngine):
     simulation DB via the _on_fixture_complete hook.
     Writes are batched (every _DB_BATCH_SIZE matches) to reduce commit overhead.
     A final commit in run_tournament_job flushes any remainder.
+
+    Each match is saved inside its own savepoint: a match that fails to save
+    is rolled back on its own instead of taking the up-to-19 earlier,
+    not-yet-committed matches with it. Its label is kept in unsaved_matches,
+    and run_tournament_job fails the simulation rather than marking a
+    tournament with missing matches 'completed'.
     """
 
     def __init__(self, sim_repo: SimulationRepository, sim_id: str,
@@ -305,6 +316,7 @@ class _PersistingTournamentEngine(TournamentEngine):
         self._team_id_map     = team_id_map
         self._tournament_id   = tournament_id
         self._pending_commits = 0
+        self.unsaved_matches: List[str] = []
 
     def _on_fixture_complete(self, match, fixture, stage: str, potm=None) -> None:
         home_name   = fixture.home
@@ -331,6 +343,8 @@ class _PersistingTournamentEngine(TournamentEngine):
 
         venue_id = match.venue.id if match.venue else None
 
+        cur = self._sim_repo.cur
+        cur.execute("SAVEPOINT save_match")
         try:
             match_id = self._sim_repo.save_match(
                 sim_id        = self._sim_id,
@@ -348,13 +362,14 @@ class _PersistingTournamentEngine(TournamentEngine):
                 self._sim_repo.save_deliveries(match_id, inning, team_id_map)
 
             self._sim_repo.save_match_potm(match_id, potm)
-
-            self._pending_commits += 1
-            if self._pending_commits >= _DB_BATCH_SIZE:
-                self._sim_repo.commit()
-                self._pending_commits = 0
-
+            cur.execute("RELEASE SAVEPOINT save_match")
         except Exception:
             logger.exception("Failed to persist match %s in tournament %s", match_label, self._sim_id)
-            self._sim_repo.rollback()
+            cur.execute("ROLLBACK TO SAVEPOINT save_match")   # only this match's rows
+            self.unsaved_matches.append(match_label)
+            return
+
+        self._pending_commits += 1
+        if self._pending_commits >= _DB_BATCH_SIZE:
+            self._sim_repo.commit()
             self._pending_commits = 0
