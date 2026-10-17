@@ -1038,9 +1038,10 @@ async def _reap_idle_rooms_forever() -> None:
     """Background task (started once from api/main.py's lifespan): cleans up
     'waiting' rooms nobody's touched in ROOM_IDLE_TIMEOUT_S - both rooms that
     were created and never played, and rooms reset to waiting after a
-    simulation that nobody returned to. Only 'waiting' rooms are ever
-    considered; a room mid-draft/reordering/simulating is never reaped
-    regardless of how long that takes."""
+    simulation that nobody returned to. Only 'waiting' rooms are reaped from
+    memory; a loaded room mid-draft/reordering/simulating is never reaped
+    regardless of how long that takes. Each pass also deletes leftover DB rows
+    of rooms that aren't in memory at all (_reap_orphaned_room_rows)."""
     log = get_logger()
     while True:
         await asyncio.sleep(60)
@@ -1056,6 +1057,43 @@ async def _reap_idle_rooms_forever() -> None:
                 log.exception("Failed to delete idle room %s from DB", room_id)
             draft_manager.remove_room(room_id)
             log.info("Reaped idle waiting room %s (no activity for over %ds)", room_id, ROOM_IDLE_TIMEOUT_S)
+        try:
+            for room_id, status in await run_in_threadpool(
+                _reap_orphaned_room_rows, list(draft_manager._rooms.keys())
+            ):
+                log.info("Reaped leftover %s room %s (not loaded since a restart, idle too long)", status, room_id)
+        except Exception:
+            log.exception("Failed to reap leftover room rows")
+
+
+# A room row that isn't in memory belongs to no connected player - memory is
+# where every live room is. They're left behind whenever the process restarts
+# (every deploy). Waiting rooms use the normal idle timeout; a room left
+# mid-draft/reordering/simulating gets a day, since its players can still
+# reconnect and _restore_room_from_db reloads it.
+ORPHANED_ACTIVE_ROOM_TTL_S = 24 * 60 * 60
+
+
+def _reap_orphaned_room_rows(live_room_ids: List[str]) -> List[tuple]:
+    """Delete stale simulation.rooms rows the in-memory reaper can't see.
+    Last activity = the later of the room's and its members' last write
+    (picks and reorders write room_members). Returns (room_id, status) pairs."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM simulation.rooms r
+            WHERE r.status <> 'completed'
+              AND NOT (r.room_id = ANY(%(live)s))
+              AND GREATEST(r.updated_at,
+                           COALESCE((SELECT max(m.updated_at) FROM simulation.room_members m
+                                     WHERE m.room_id = r.room_id), r.updated_at))
+                  < now() - make_interval(secs => CASE WHEN r.status = 'waiting'
+                                                       THEN %(idle)s ELSE %(active)s END)
+            RETURNING r.room_id, r.status
+            """,
+            {"live": live_room_ids, "idle": ROOM_IDLE_TIMEOUT_S, "active": ORPHANED_ACTIVE_ROOM_TTL_S},
+        )
+        return cur.fetchall()
 
 
 def _load_keeper_ids() -> set:
