@@ -330,7 +330,10 @@ CREATE TABLE IF NOT EXISTS simulation.simulations (
     completed_at    TIMESTAMPTZ,
     client_id       VARCHAR(64),
     mode            VARCHAR(16) CHECK (mode IS NULL OR mode IN ('fun','challenge','custom','multiplayer')),
-    participant_ids TEXT[]      NOT NULL DEFAULT '{}'
+    participant_ids TEXT[]      NOT NULL DEFAULT '{}',
+    -- Drives every chance event in the run, for exact replay (migration 039,
+    -- simulator/seeding.py). Set when the job first runs; NULL = ran before 039.
+    seed            BIGINT
 );
 CREATE INDEX IF NOT EXISTS idx_simulations_status_created
     ON simulation.simulations (status, created_at DESC);
@@ -690,5 +693,6 @@ INSERT INTO history.schema_migrations (filename) VALUES
     ('035_fix_cricinfo_f6ba97c6.sql'),
     ('036_tournament_seeded_overseas_columns.sql'),
     ('037_vocabulary_checks.sql'),
-    ('038_client_credentials.sql')
+    ('038_client_credentials.sql'),
+    ('039_simulation_seed.sql')
 ON CONFLICT (filename) DO NOTHING;

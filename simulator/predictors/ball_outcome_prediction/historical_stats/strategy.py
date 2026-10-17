@@ -16,7 +16,6 @@ Outcome keys are 4-tuples stored throughout: (runs_batter, runs_extras, outcome_
        (0, 0, 'Dot', None)          → no run scored, no wicket
 """
 
-import random
 import time
 from abc import abstractmethod
 from collections import defaultdict
@@ -281,7 +280,7 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
         else:
             normalised_weights = [1.0 / len(ordered_keys)] * len(ordered_keys)
 
-        selected_key  = random.choices(ordered_keys, weights=normalised_weights, k=1)[0]
+        selected_key  = match.rng.choices(ordered_keys, weights=normalised_weights, k=1)[0]
         selected_prob = normalised_weights[ordered_keys.index(selected_key)]
 
         runs_batter, runs_extras, outcome_type, outcome_kind = selected_key
@@ -331,7 +330,7 @@ class BaseHistoricalStatsStrategy(BallOutcomeStrategy):
             ]
             if eligible_fielders:
                 fielder_weights = [self.fielding_cache.get(fielder.id, 1) for fielder in eligible_fielders]
-                outcome_player  = random.choices(eligible_fielders, weights=fielder_weights, k=1)[0]
+                outcome_player  = match.rng.choices(eligible_fielders, weights=fielder_weights, k=1)[0]
                 log.debug(f"  ▶ Fielder: {outcome_player.name}  (weighted by fielding history)")
                 return outcome_player
             log.debug(f"  ▶ Fielder: {bowler_name} (only fielder available)")

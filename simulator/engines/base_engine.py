@@ -1,4 +1,3 @@
-import random
 import time
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple
@@ -71,8 +70,8 @@ class BaseEngine(ABC):
 
     def _execute_toss(self) -> Tuple[MatchTeam, MatchTeam]:
         """Returns (batting_team, bowling_team) after a randomised toss."""
-        toss_winner = random.choice([self.match.home_team, self.match.away_team])
-        toss_decision = random.choice(["bat", "bowl"])
+        toss_winner = self.match.rng.choice([self.match.home_team, self.match.away_team])
+        toss_decision = self.match.rng.choice(["bat", "bowl"])
         other = self.match.away_team if toss_winner == self.match.home_team else self.match.home_team
         batting, bowling = (toss_winner, other) if toss_decision == "bat" else (other, toss_winner)
         self.logger.headline(

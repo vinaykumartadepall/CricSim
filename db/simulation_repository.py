@@ -32,6 +32,7 @@ import psycopg2.extensions
 import psycopg2.extras
 
 from db.database import get_db_connection, make_query_logging_cursor
+from simulator.seeding import new_seed
 from simulator.entities.match import SimulationMatch
 from simulator.entities.team import MatchTeam
 from simulator.entities.inning import Inning
@@ -202,6 +203,17 @@ class SimulationRepository:
             (sim_type, json.dumps(config_dict), client_id, mode, resolved_participants),
         )
         return str(self.cur.fetchone()[0])
+
+    def ensure_seed(self, sim_id: str) -> int:
+        """The simulation's seed (simulator/seeding.py), assigning a new one the
+        first time its job runs. Never replaced once set, so a job restarted
+        after a crash reuses it. Caller commits."""
+        self.cur.execute(
+            "UPDATE simulation.simulations SET seed = %s WHERE sim_id = %s AND seed IS NULL",
+            (new_seed(), sim_id),
+        )
+        self.cur.execute("SELECT seed FROM simulation.simulations WHERE sim_id = %s", (sim_id,))
+        return self.cur.fetchone()[0]
 
     def update_status(
         self,
@@ -599,7 +611,7 @@ class SimulationRepository:
 
     def get_simulation(self, sim_id: str) -> Optional[dict]:
         self._dict_cur.execute(
-            "SELECT sim_id, simulation_type, status, config, error_message, created_at, started_at, completed_at "
+            "SELECT sim_id, simulation_type, status, config, error_message, created_at, started_at, completed_at, seed "
             "FROM simulation.simulations WHERE sim_id = %s",
             (sim_id,),
         )

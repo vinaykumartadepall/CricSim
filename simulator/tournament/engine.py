@@ -32,6 +32,7 @@ from simulator.entities.match import SimulationMatch
 from simulator.entities.player import Player
 from enums.domain import MatchFormat
 from simulator.entities.rules import MatchRules
+from simulator.seeding import match_rng, new_seed
 from simulator.entities.team import MatchTeam
 from simulator.engines.engine_factory import EngineFactory
 from simulator.logger import set_console_level, get_logger, log_context
@@ -69,7 +70,10 @@ class TournamentEngine:
             raise ValueError(f"Tournament requires at least 4 teams, got {len(config.teams)}")
         self._config    = config
         self._repo      = repo or StatsRepository()
-        self._rng       = random.Random(seed)
+        # One seed drives everything: fixture order and venue picks here,
+        # and each match's own generator (simulator/seeding.py).
+        self.seed       = new_seed() if seed is None else seed
+        self._rng       = random.Random(self.seed)
         self._silent    = silent
         self._presenter = Presenter(config)
 
@@ -165,8 +169,7 @@ class TournamentEngine:
         venue_name = fixture.venue
         pool = self._fallback_venue_pool(stage)
         if not venue_name and pool:
-            import random
-            venue_name = random.choice(pool)
+            venue_name = self._rng.choice(pool)
         venue = resolve_venue(self._repo, venue_name) if venue_name else None
 
         match = SimulationMatch(
@@ -186,6 +189,7 @@ class TournamentEngine:
             match_format=self._fmt,
             balls_per_over=6,
             era_normalize_contexts=self._config.era_normalize_contexts,
+            rng=match_rng(self.seed, self._match_counter),
             **self._fmt_settings,
         )
 

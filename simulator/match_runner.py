@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from typing import Optional
 
 from db.stats_repository import StatsRepository
 from simulator.admin_settings import get_admin_settings
 from simulator.engines.engine_factory import EngineFactory
 from simulator.entities.match import SimulationMatch
+from simulator.seeding import match_rng, new_seed
 from simulator.entities.rules import MatchRules
 from simulator.entities.team import MatchTeam
 from simulator.logger import set_console_level
@@ -37,9 +39,11 @@ class MatchRunner:
         config: dict,
         repo: Optional[StatsRepository] = None,
         silent: bool = False,
+        seed: Optional[int] = None,
     ):
         self._config = config
         self._repo   = repo or StatsRepository()
+        self.seed    = new_seed() if seed is None else seed   # simulator/seeding.py
 
         MatchLogger.SILENT = silent
         set_console_level(logging.CRITICAL if silent else logging.WARNING)
@@ -73,7 +77,8 @@ class MatchRunner:
     # ── Match construction ─────────────────────────────────────────────────────
 
     @staticmethod
-    def build_match(config: dict, repo: StatsRepository) -> SimulationMatch:
+    def build_match(config: dict, repo: StatsRepository,
+                    rng: Optional[random.Random] = None) -> SimulationMatch:
         """
         Construct a SimulationMatch from a config dict.
 
@@ -116,6 +121,7 @@ class MatchRunner:
             match_format=fmt,
             balls_per_over=6,
             era_normalize_contexts=list(ERA_NORMALIZE_ALL) if _era is None else _era,
+            **({"rng": rng} if rng is not None else {}),
             **fmt_settings,
         )
         # Default tournament context to IPL for T20 matches without explicit tournament
@@ -127,4 +133,4 @@ class MatchRunner:
         return match
 
     def _build_match(self) -> SimulationMatch:
-        return MatchRunner.build_match(self._config, self._repo)
+        return MatchRunner.build_match(self._config, self._repo, rng=match_rng(self.seed, 1))

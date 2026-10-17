@@ -1,3 +1,4 @@
+import random
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional, TYPE_CHECKING
@@ -71,6 +72,11 @@ class SimulationMatch:
     gender: str = "male"
     tournament: Optional[Tournament] = None
     era_normalize_contexts: List[str] = field(default_factory=list)
+    # Every chance event in this match (toss, each ball, fielder on a
+    # dismissal) draws from this generator - never the global `random` - so a
+    # match built with rng=match_rng(seed, n) replays exactly. The default is
+    # an unseeded generator for callers that don't need replay (validation).
+    rng: random.Random = field(default_factory=random.Random, repr=False, compare=False)
 
     # ── ② Accumulated innings data ─────────────────────────────────────────────
     innings: List["Inning"] = field(default_factory=list)

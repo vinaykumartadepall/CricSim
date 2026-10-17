@@ -81,10 +81,11 @@ def run_match_job(sim_id: str, config: dict) -> None:
         repo = SimulationRepository()
         try:
             repo.update_status(sim_id, 'running')
+            seed = repo.ensure_seed(sim_id)
             repo.commit()
 
             stats_repo = StatsRepository()
-            runner     = MatchRunner(config, repo=stats_repo, silent=True)
+            runner     = MatchRunner(config, repo=stats_repo, silent=True, seed=seed)
             match      = runner.run()
 
             # Persist teams
@@ -144,6 +145,7 @@ def run_tournament_job(
         repo = SimulationRepository()
         try:
             repo.update_status(sim_id, 'running')
+            seed = repo.ensure_seed(sim_id)
             repo.commit()
 
             tc = _build_tournament_config(config)
@@ -196,6 +198,7 @@ def run_tournament_job(
                 sim_id        = sim_id,
                 team_id_map   = team_id_map,
                 tournament_id = tournament_id,
+                seed          = seed,
                 silent        = True,
             )
             engine.run()

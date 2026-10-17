@@ -45,7 +45,6 @@ Additional improvements:
 """
 
 import math
-import random
 from abc import abstractmethod
 from dataclasses import dataclass
 from datetime import date
@@ -1374,7 +1373,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
 
         _MAX_RESAMPLE = 5
         for _attempt in range(_MAX_RESAMPLE):
-            selected_key = random.choices(ordered_keys, weights=normalised, k=1)[0]
+            selected_key = match.rng.choices(ordered_keys, weights=normalised, k=1)[0]
             runs_batter, runs_extras, outcome_type, outcome_kind = selected_key
             if not self._is_invalid_outcome(outcome_kind, bowler_id):
                 break
@@ -1458,7 +1457,7 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
             eligible = [ip for ip in match.current_bowling_team.inning_players if ip != bowler]
             if eligible:
                 fw = [self.fielding_cache.get(f.id, 1) for f in eligible]
-                return random.choices(eligible, weights=fw, k=1)[0]
+                return match.rng.choices(eligible, weights=fw, k=1)[0]
             return bowler
 
         return None
