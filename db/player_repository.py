@@ -61,24 +61,6 @@ class PlayerRepository:
             r["headshot_url"] = _headshot_url(r["cricinfo_id"])
         return rows
 
-    def get_player(self, player_id: int) -> dict | None:
-        self.cur.execute(
-            """
-            SELECT p.player_id, p.name, p.display_name, p.gender, p.player_role,
-                   p.batting_style, p.bowling_style, p.country_id, p.cricinfo_id,
-                   c.name AS country_name
-            FROM history.players p
-            LEFT JOIN history.countries c ON c.country_id = p.country_id
-            WHERE p.player_id = %s
-            """,
-            (player_id,),
-        )
-        row = self.cur.fetchone()
-        if not row:
-            return None
-        out = dict(row)
-        out["headshot_url"] = _headshot_url(out["cricinfo_id"])
-        return out
 
     def list_countries(self) -> list[dict]:
         self.cur.execute("SELECT country_id, name FROM history.countries ORDER BY name")

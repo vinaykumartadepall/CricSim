@@ -572,11 +572,6 @@ class HistoricalBowlingBase(BowlingStrategy):
 
         return continuity, fatigue, workload
 
-    def _f_spell(self, ip: InningPlayer, match: SimulationMatch,
-                 continuity_weight: float,
-                 workload_harshness: float) -> float:
-        c, f, w = self._f_spell_breakdown(ip, match, continuity_weight, workload_harshness)
-        return c + f + w
 
     # ── Factor 4: Matchup ─────────────────────────────────────────────────────
 

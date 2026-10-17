@@ -447,9 +447,6 @@ def _snake_sequence(players: List[str], picks_each: int) -> List[str]:
     return seq
 
 
-def _roundrobin_sequence(players: List[str], picks_each: int) -> List[str]:
-    return players * picks_each
-
 
 # Process-level singleton
 draft_manager = DraftManager()

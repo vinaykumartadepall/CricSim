@@ -517,10 +517,6 @@ class SimulationRepository:
             page_size=500,
         )
 
-    def save_all_deliveries(self, match_id: int, sim_match: SimulationMatch, team_id_map: Dict[str, int]):
-        """Save deliveries for all innings of a match."""
-        for inning in sim_match.innings:
-            self.save_deliveries(match_id, inning, team_id_map)
 
     # ── simulation.player_awards ───────────────────────────────────────────────
 

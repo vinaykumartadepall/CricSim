@@ -185,9 +185,6 @@ class TournamentLeaderboards:
         eligible = [s for s in self._bowling.values() if s.balls >= min_balls]
         return sorted(eligible, key=lambda s: s.economy)[:top_n]
 
-    def best_bowling_sr(self, min_wickets: int = 5, top_n: int = 10) -> List[BowlerStats]:
-        eligible = [s for s in self._bowling.values() if s.wickets >= min_wickets]
-        return sorted(eligible, key=lambda s: s.strike_rate)[:top_n]
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

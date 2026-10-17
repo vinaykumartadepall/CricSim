@@ -861,9 +861,11 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
 
     @staticmethod
     def _apply_category_relevance(
-        effective_weights: Dict[str, float], outcome_key: tuple
+        effective_weights: Dict[str, float], category: str
     ) -> Dict[str, float]:
-        relevance = _CATEGORY_RELEVANCE[_outcome_category(outcome_key)]
+        """Context weights re-scaled by how much each context matters for one
+        outcome category (_CATEGORY_RELEVANCE), renormalised to sum to 1."""
+        relevance = _CATEGORY_RELEVANCE[category]
         adjusted  = {k: v * relevance[k] for k, v in effective_weights.items()}
         total     = sum(adjusted.values())
         if total > 0:
@@ -1082,11 +1084,9 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
         ordered_keys = self._ordered_keys
 
         # Precompute per-category weights once (5 categories) instead of once per key (~76 keys)
-        cw_per_cat: Dict[str, Dict[str, float]] = {}
-        for cat, relevance in _CATEGORY_RELEVANCE.items():
-            adj = {k: v * relevance[k] for k, v in eff_w.items()}
-            total = sum(adj.values())
-            cw_per_cat[cat] = {k: v / total for k, v in adj.items()} if total > 0 else eff_w
+        cw_per_cat: Dict[str, Dict[str, float]] = {
+            cat: self._apply_category_relevance(eff_w, cat) for cat in _CATEGORY_RELEVANCE
+        }
 
         for outcome_key in ordered_keys:
             baseline_prob = self.baseline_outcome_probs[outcome_key]

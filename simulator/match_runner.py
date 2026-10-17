@@ -40,7 +40,6 @@ class MatchRunner:
     ):
         self._config = config
         self._repo   = repo or StatsRepository()
-        self._silent = silent
 
         MatchLogger.SILENT = silent
         set_console_level(logging.CRITICAL if silent else logging.WARNING)

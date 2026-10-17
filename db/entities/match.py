@@ -41,8 +41,6 @@ class Match:
     def add_delivery(self, delivery: Delivery):
         self.deliveries.append(delivery)
 
-    def add_player(self, player: Player):
-        self.players.append(player)
 
     @classmethod
     def builder(cls):

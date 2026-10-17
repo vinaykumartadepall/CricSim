@@ -100,12 +100,3 @@ class InningTeam(MatchObserver):
                 return ip
         return None
 
-    def get_next_bowler(
-        self,
-        current_bowler: Optional[InningPlayer],
-        current_over: int,
-    ) -> Optional[InningPlayer]:
-        if not self.inning_players:
-            return None
-        idx = current_over % min(5, len(self.inning_players))
-        return self.inning_players[-(idx + 1)]

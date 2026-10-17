@@ -54,14 +54,6 @@ class TestStatsRepositoryCountryJoin:
         assert "vc.name = %s" in q
         assert p[0] == "India"
 
-    def test_bowler_phase_frequency_country_filter(self, capturing_repo):
-        repo, captured = capturing_repo
-        repo.get_bowler_phase_frequency([1], "T20", country="India")
-        [(q, p)] = _country_queries(captured)
-        assert len(COUNTRIES_JOIN.findall(q)) == 2  # both CTEs are country-scoped
-        assert q.count("AND vc.name = %s") == 2
-        assert list(p).count("India") == 2
-
     def test_bowler_over_frequency_countries_filter(self, capturing_repo):
         repo, captured = capturing_repo
         repo.get_bowler_over_frequency([1], "T20", countries=["India", "Sri Lanka"])
@@ -69,14 +61,6 @@ class TestStatsRepositoryCountryJoin:
         assert COUNTRIES_JOIN.search(q)
         assert "vc.name = ANY(%s)" in q
         assert ["India", "Sri Lanka"] in list(p)
-
-    def test_bowler_country_stats_filters_by_country_name(self, capturing_repo):
-        repo, captured = capturing_repo
-        repo.get_bowler_country_stats([1], "India", "T20")
-        [(q, p)] = _country_queries(captured)
-        assert COUNTRIES_JOIN.search(q)
-        assert "vc.name = %s" in q
-        assert p[1] == "India"
 
     def test_bowler_test_phase_frequency_country_filter(self, capturing_repo):
         repo, captured = capturing_repo

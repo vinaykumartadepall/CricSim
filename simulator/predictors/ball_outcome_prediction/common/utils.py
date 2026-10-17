@@ -2,7 +2,6 @@
 Shared utilities for all historical ball-outcome prediction strategies.
 """
 
-import time
 from typing import List
 
 from simulator.entities.match import SimulationMatch
@@ -35,13 +34,6 @@ def collect_player_ids(match: SimulationMatch) -> List[int]:
         ids.extend(p.id for p in match.away_team.players)
     return ids
 
-
-def timed_load(log, label: str, fn, *args, **kwargs):
-    """Calls fn(*args, **kwargs), logs elapsed time, and returns the result."""
-    t = time.perf_counter()
-    result = fn(*args, **kwargs)
-    log.info("[Model]   %-40s  %.2fs", label, time.perf_counter() - t)
-    return result
 
 
 def load_venue_distribution(repo, match: SimulationMatch, match_format: str,

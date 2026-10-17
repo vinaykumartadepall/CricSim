@@ -134,10 +134,6 @@ export const api = {
       `/simulations/${simId}/matches/${matchId}/commentary`
     ),
 
-  getAwards: (simId: string) =>
-    get<{ sim_id: string; awards: { player_name: string; team_name: string; batting_pts: number; bowling_pts: number; fielding_pts: number; total_pts: number }[] }>(
-      `/simulations/${simId}/awards`
-    ),
 
   getLineups: (simId: string) =>
     get<{ sim_id: string; teams: { team_name: string; players: { player_id: number; player_name: string; player_role: string | null; headshot_url: string | null; matches: number; runs: number; wickets: number; mvp_points: number; batting_pts: number; bowling_pts: number; fielding_pts: number }[] }[] }>(
@@ -229,8 +225,6 @@ export const api = {
   joinRoom: (roomId: string, body: JoinRoomBody) =>
     post<RoomState>(`/multiplayer/rooms/${roomId}/join`, body),
 
-  getRoom: (roomId: string) =>
-    get<RoomState>(`/multiplayer/rooms/${roomId}`),
 
   searchMultiplayerVenues: (q: string, limit = 10) =>
     get<VenueSearchResult[]>(`/multiplayer/venues/search?q=${encodeURIComponent(q)}&limit=${limit}`),

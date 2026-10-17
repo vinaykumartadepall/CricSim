@@ -204,17 +204,3 @@ class CricketRepository:
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, delivery_tuples)
 
-    def save_full_match_context(self, match: Match):
-        """
-        Orchestrates saving the match and its junction data (Match Players).
-        Note: Teams/TournamentTeams handled during ingestion loop usually, but matches players need match_id.
-        """
-        self.save_match(match)
-        
-        # We need to map which player belongs to which team for MATCH_PLAYERS
-        # Only simple way is if we stored team info on the Player object or passed it in.
-        # But `match.players` is a flat list. 
-        # For this implementation, we might skip saving MATCH_PLAYERS here if we don't know the team easily.
-        # User requirement: "list of player in a match". 
-        # I will update MatchBuilder to store players as a dict {Team: [Players]} or similar to handle this.
-        pass

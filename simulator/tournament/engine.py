@@ -92,7 +92,6 @@ class TournamentEngine:
         self._tourn_awards = TournamentAwards()
 
         self._match_counter = 0
-        self._results: List[dict] = []
 
     @classmethod
     def from_config(cls, path: str, **kwargs) -> TournamentEngine:
@@ -239,15 +238,6 @@ class TournamentEngine:
                 )
                 if potm:
                     p.print_potm(potm, self._match_counter)
-
-            self._results.append({
-                "match_number": self._match_counter,
-                "home":         fixture.home,
-                "away":         fixture.away,
-                "winner":       winner,
-                "result":       match.result.description if match.result else "No result",
-                "stage":        stage,
-            })
 
             self._on_fixture_complete(match, fixture, stage, potm)
 

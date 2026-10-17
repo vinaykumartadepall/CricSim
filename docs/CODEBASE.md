@@ -405,7 +405,7 @@ All simulation queries live here. Key method groups:
 | Per-player caches | `get_batters_distribution_with_counts`, `get_bowlers_distribution_with_counts`, `get_matchup_distribution_with_counts` |
 | Milestone caches | `get_batter_milestone_distribution`, `get_player_milestone_distributions` |
 | Venue/country | `get_venue_distribution`, `get_country_distribution`, `get_player_venue_distribution`, `get_player_country_distribution` |
-| Bowling specific | `get_bowler_career_stats`, `get_bowler_workload_stats`, `get_bowler_over_frequency`, `get_bowler_phase_overs_distribution`, `get_batter_bowler_matchups`, `get_bowler_recent_form` |
+| Bowling specific | `get_bowler_career_stats`, `get_bowler_workload_stats`, `get_bowler_over_frequency`, `get_bowler_phase_overs_distribution`, `get_batter_bowler_matchups` |
 | Validation | `get_validation_deliveries` |
 | Metadata | `get_wicket_keepers`, `get_spinner_ids`, `get_fielding_distribution` |
 
