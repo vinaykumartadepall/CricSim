@@ -69,6 +69,16 @@ from simulator.predictors.bowling.historical.base import _region_countries
 
 log = get_logger()
 
+# Context-key warnings already emitted in this process: a misconfigured venue
+# would otherwise warn on every match of every tournament played there.
+_WARNED_CONTEXT_KEYS: set = set()
+
+
+def _warn_once(key, msg, *args) -> None:
+    if key not in _WARNED_CONTEXT_KEYS:
+        _WARNED_CONTEXT_KEYS.add(key)
+        log.warning(msg, *args)
+
 # ── Multiplier bounds ──────────────────────────────────────────────────────────
 _BASELINE_EPSILON = 1e-6
 _RATIO_MIN        = 0.1
@@ -619,6 +629,38 @@ class EnhancedBaseHistoricalStatsStrategy(BallOutcomeStrategy):
                 self.player_country_cache = {}
         else:
             self.player_country_cache = {}
+
+        self._log_venue_context_coverage(repo, venue, all_player_ids)
+
+    def _log_venue_context_coverage(self, repo, venue, all_player_ids) -> None:
+        """One INFO line per match showing how much venue context actually
+        loaded, plus a once-per-process WARNING when the context key itself is
+        unknown. A single player with no venue/country data is normal sparsity
+        and isn't logged; a key nothing could ever match is a wiring or data
+        bug - e.g. Venue.country holding the city, which left player_country
+        empty for every batter in every match without a single log line."""
+        players = len([pid for pid in all_player_ids if pid])
+        log.info(
+            "[EnhancedStrategy] Venue context → %s (#%s) country=%s venue_dist=%s "
+            "player_venue=%d/%d player_country=%d/%d",
+            venue.name, venue.id, venue.country, bool(self.venue_cache),
+            len(self.player_venue_cache), players, len(self.player_country_cache), players,
+        )
+        if not venue.country:
+            _warn_once(("venue_without_country", venue.id),
+                       "[EnhancedStrategy] Venue %s (#%s) has no country - no country context "
+                       "or fallback for matches there", venue.name, venue.id)
+            return
+        try:
+            known = repo.get_stat_countries()
+        except Exception as e:
+            log.warning("[EnhancedModel] Cache 'stat_countries' failed: %s", e)
+            return
+        if known and venue.country not in known:
+            _warn_once(("unknown_country", venue.country),
+                       "[EnhancedStrategy] Country %r (venue %s #%s) has no precomputed country "
+                       "stats - country context is empty for every player there",
+                       venue.country, venue.name, venue.id)
 
     def _extend_player_caches(self, match: SimulationMatch) -> None:
         """Load stats for players in this match not seen in the first match's init_model call."""

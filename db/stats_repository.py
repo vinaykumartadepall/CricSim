@@ -245,9 +245,16 @@ class StatsRepository:
     def get_venue_by_name(self, name: str) -> Optional[Tuple[int, str, Optional[str]]]:
         """Returns (venue_id, name, country) or None.
         Tries the full name first; if not found, strips any ', City' suffix and retries.
+        country is the history.countries name (the key the precomputed country
+        stats use), or None when the venue has no country_id.
         """
         if not self.conn: return None
-        query = "SELECT venue_id, name, city FROM history.venues WHERE name ILIKE %s LIMIT 1"
+        query = """
+            SELECT v.venue_id, v.name, c.name
+            FROM history.venues v
+            LEFT JOIN history.countries c ON c.country_id = v.country_id
+            WHERE v.name ILIKE %s LIMIT 1
+        """
 
         def _search(n: str):
             s = '%' + '%'.join(n.split()) + '%'
@@ -403,6 +410,19 @@ class StatsRepository:
         """
         rows = self._run_query(query, (venue_id, raw_fmts, gender))
         return self._parse_rows_to_probs(rows) or {}
+
+    def get_stat_countries(self) -> frozenset:
+        """Every country name history.country_stats has stats for, in any
+        format/gender (~75 names). Lets callers tell an unknown country key - a
+        data or wiring bug - apart from a player who simply has no data there.
+        Empty without a connection."""
+        cache_key = ('cs_countries',)
+        if cache_key not in _PRECOMPUTED_CACHE:
+            if not self.conn:
+                return frozenset()
+            rows = self._run_query("SELECT DISTINCT country FROM history.country_stats", ())
+            _PRECOMPUTED_CACHE[cache_key] = frozenset(r[0] for r in rows)
+        return _PRECOMPUTED_CACHE[cache_key]
 
     def get_country_distribution(self, country: str, match_format: str, gender: str = 'male') -> Dict[Tuple, float]:
         """Outcome distribution across all venues in a country. Used as fallback when venue data is sparse."""
@@ -1049,6 +1069,7 @@ class StatsRepository:
                            + _MILESTONE_STAT_TYPES):
                     repo._load_player_stat_cache(fmt, st)
             repo._load_matchup_aggregate_cache(fmt)
+        repo.get_stat_countries()
         from simulator.logger import get_logger
         get_logger().warning("[StartupWarm] All caches loaded in %.2fs", time.perf_counter() - t0)
 
