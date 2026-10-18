@@ -276,8 +276,7 @@ class HistoricalBowlingBase(BowlingStrategy):
             quota = self._quota()
             eligible = [
                 ip for ip in team.inning_players
-                if ip != match.current_bowler
-                and (not quota or ip.balls_bowled // 6 < quota)
+                if MatchRules.may_bowl_next_over(ip, match.current_bowler, quota)
             ]
 
         if not eligible:

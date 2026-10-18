@@ -24,9 +24,6 @@ from simulator.entities.rules import MatchRules
 from simulator.predictors.bowling.strategy_interface import BowlingStrategy
 
 
-# Max overs per bowler (None = no cap)
-_QUOTA: dict[str, Optional[int]] = {"T20": 4, "ODI": 10, "Test": None}
-
 # Test spell management
 _SPELL_LIMIT = 7   # consecutive overs before mandatory rest
 _SPELL_REST  = 4   # overs of rest required after a long spell
@@ -40,7 +37,7 @@ class SmartBowlingStrategy(BowlingStrategy):
             return match.current_bowler
 
         fmt   = MatchRules.get_unified_format(match.match_format)
-        quota = _QUOTA.get(fmt)
+        quota = MatchRules.bowler_over_quota(fmt)
 
         eligible = self._eligible(team, match.current_bowler, match, fmt, quota)
 
@@ -48,7 +45,7 @@ class SmartBowlingStrategy(BowlingStrategy):
             # Relax spell constraint (Test edge case: very long innings, few bowlers)
             eligible = [
                 ip for ip in team.inning_players
-                if ip != match.current_bowler and (not quota or ip.balls_bowled // 6 < quota)
+                if MatchRules.may_bowl_next_over(ip, match.current_bowler, quota)
             ]
 
         if not eligible:
@@ -61,9 +58,7 @@ class SmartBowlingStrategy(BowlingStrategy):
     def _eligible(self, team, current_bowler, match, fmt, quota):
         result = []
         for ip in team.inning_players:
-            if ip == current_bowler:
-                continue
-            if quota and ip.balls_bowled // 6 >= quota:
+            if not MatchRules.may_bowl_next_over(ip, current_bowler, quota):
                 continue
             if fmt == "Test" and self._needs_rest(ip.id, match):
                 continue

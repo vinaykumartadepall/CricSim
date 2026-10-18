@@ -200,3 +200,30 @@ class TestNetRunRate:
 
     def test_equal_rates_give_zero_nrr(self):
         assert MatchRules.net_run_rate(120, 120, 120, 120) == 0.0
+
+
+class TestBowlingLimits:
+    """The two hard limits on choosing a bowler, defined once in MatchRules
+    and used by every bowling strategy (and later a human captain)."""
+
+    class _Bowler:
+        def __init__(self, overs):
+            self.balls_bowled = overs * 6
+
+    def test_quota_per_format(self):
+        assert MatchRules.bowler_over_quota("T20") == 4
+        assert MatchRules.bowler_over_quota("IT20") == 4      # raw formats map too
+        assert MatchRules.bowler_over_quota("ODI") == 10
+        assert MatchRules.bowler_over_quota("Test") is None
+
+    def test_no_consecutive_overs(self):
+        b = self._Bowler(1)
+        assert not MatchRules.may_bowl_next_over(b, b, quota=4)
+
+    def test_quota_reached(self):
+        current = self._Bowler(0)
+        assert MatchRules.may_bowl_next_over(self._Bowler(3), current, quota=4)
+        assert not MatchRules.may_bowl_next_over(self._Bowler(4), current, quota=4)
+
+    def test_no_quota_means_unlimited(self):
+        assert MatchRules.may_bowl_next_over(self._Bowler(40), self._Bowler(0), quota=None)

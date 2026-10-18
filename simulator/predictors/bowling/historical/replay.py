@@ -16,6 +16,7 @@ the current inning match the actual bowling team, the two innings are swapped.
 """
 
 from typing import Dict
+from simulator.entities.rules import MatchRules
 
 
 class HistoricalBowlingOrder:
@@ -55,5 +56,7 @@ class HistoricalBowlingOrder:
                 if ip.id == pid:
                     return ip
 
-        eligible = [ip for ip in bowling_team.inning_players if ip != match.current_bowler]
+        quota = MatchRules.bowler_over_quota(match.match_format)
+        eligible = [ip for ip in bowling_team.inning_players
+                    if MatchRules.may_bowl_next_over(ip, match.current_bowler, quota)]
         return eligible[0] if eligible else match.current_bowler

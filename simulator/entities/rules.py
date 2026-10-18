@@ -9,6 +9,20 @@ class MatchRules:
     Prevents scattered validation logic globally across the simulator.
     """
 
+    # Most overs one bowler may bowl in an innings (None = no limit).
+    BOWLER_OVER_QUOTA = {MatchFormat.T20: 4, MatchFormat.ODI: 10, MatchFormat.TEST: None}
+
+    @staticmethod
+    def bowler_over_quota(match_format: str) -> Optional[int]:
+        return MatchRules.BOWLER_OVER_QUOTA.get(MatchRules.get_unified_format(match_format))
+
+    @staticmethod
+    def may_bowl_next_over(bowler, current_bowler, quota: Optional[int]) -> bool:
+        """The two hard limits every bowling choice must respect - from any
+        bowling strategy, and later a human captain: nobody bowls consecutive
+        overs, and nobody goes past the format's quota."""
+        return bowler != current_bowler and (not quota or bowler.balls_bowled // 6 < quota)
+
     @staticmethod
     def get_unified_format(match_type: str) -> str:
         """

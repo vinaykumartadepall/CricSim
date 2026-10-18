@@ -23,6 +23,8 @@ from simulator.entities.inning_player import InningPlayer
 from simulator.entities.match import SimulationMatch
 from simulator.logger import get_logger
 from simulator.predictors.bowling.historical.base import HistoricalBowlingBase
+from enums.domain import MatchFormat
+from simulator.entities.rules import MatchRules
 
 # Must be the app's "cricket_sim" logger, not logging.getLogger(__name__) -
 # the file handlers (simulation.log/errors.log) are only attached to
@@ -35,7 +37,7 @@ log = get_logger()
 class T20HistoricalBowlingStrategy(HistoricalBowlingBase):
 
     def _quota(self) -> int:
-        return 4
+        return MatchRules.bowler_over_quota(MatchFormat.T20)
 
     # Minimum avg_overs_per_match to be a genuine bowling option.
     _MIN_AVG_OVERS = 1.0
@@ -44,7 +46,7 @@ class T20HistoricalBowlingStrategy(HistoricalBowlingBase):
         quota = self._quota()
         under_quota = [
             ip for ip in team.inning_players
-            if ip != current_bowler and ip.balls_bowled // 6 < quota
+            if MatchRules.may_bowl_next_over(ip, current_bowler, quota)
         ]
         bowlers = [
             ip for ip in under_quota
@@ -94,7 +96,7 @@ class T20HistoricalBowlingStrategy(HistoricalBowlingBase):
 class ODIHistoricalBowlingStrategy(HistoricalBowlingBase):
 
     def _quota(self) -> int:
-        return 10
+        return MatchRules.bowler_over_quota(MatchFormat.ODI)
 
     _MIN_AVG_OVERS = 2.0
 
@@ -102,7 +104,7 @@ class ODIHistoricalBowlingStrategy(HistoricalBowlingBase):
         quota = self._quota()
         under_quota = [
             ip for ip in team.inning_players
-            if ip != current_bowler and ip.balls_bowled // 6 < quota
+            if MatchRules.may_bowl_next_over(ip, current_bowler, quota)
         ]
         bowlers = [
             ip for ip in under_quota
@@ -155,10 +157,10 @@ class ODIHistoricalBowlingStrategy(HistoricalBowlingBase):
 class TestHistoricalBowlingStrategy(HistoricalBowlingBase):
 
     def _quota(self) -> Optional[int]:
-        return None  # unlimited
+        return MatchRules.bowler_over_quota(MatchFormat.TEST)   # None: unlimited
 
     def _eligible(self, team, current_bowler, match: SimulationMatch):
-        return [ip for ip in team.inning_players if ip != current_bowler]
+        return [ip for ip in team.inning_players if MatchRules.may_bowl_next_over(ip, current_bowler, None)]
 
     # Penalty applied to players with very little bowling history - keeps them out
     # of the attack in normal innings and only lets them through when every
